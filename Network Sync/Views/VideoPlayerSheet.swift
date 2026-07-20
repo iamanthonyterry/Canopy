@@ -54,7 +54,22 @@ struct VideoPlayerSheet: View {
             .padding()
             Divider()
 
-            content
+            // VideoPlayer is mounted unconditionally (its `player:` param
+            // is optional) rather than being swapped in via an if/else
+            // branch. Inserting an AVKit-backed NSViewRepresentable into
+            // the tree mid-transition — which is what happens when a
+            // ViewBuilder branch switches to it while this sheet is still
+            // being laid out — trips a Swift-runtime metadata crash in
+            // _AVKit_SwiftUI (fatalError inside getSuperclassMetadata,
+            // reached via SheetBridge.createSheet / DynamicContainerInfo
+            // transition machinery). Keeping it always-present and
+            // layering the loading/error state on top avoids that path.
+            ZStack {
+                VideoPlayer(player: player)
+                if player == nil {
+                    statusOverlay
+                }
+            }
 
             if player != nil {
                 Divider()
@@ -68,10 +83,8 @@ struct VideoPlayerSheet: View {
     }
 
     @ViewBuilder
-    private var content: some View {
-        if let player {
-            VideoPlayer(player: player)
-        } else if let errorMessage {
+    private var statusOverlay: some View {
+        if let errorMessage {
             VStack(spacing: 12) {
                 Spacer()
                 Image(systemName: "exclamationmark.triangle")

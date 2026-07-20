@@ -122,7 +122,10 @@ final class HyperDeckService: ObservableObject {
         ) ?? ""
         guard let token = formatToken(from: readyResponse) else {
             if lastError == nil {
-                lastError = "Format failed — deck didn't return a confirmation token"
+                let trimmed = readyResponse.trimmingCharacters(in: .whitespacesAndNewlines)
+                lastError = trimmed.isEmpty
+                    ? "Format failed — deck didn't return a confirmation token"
+                    : "Format failed: \(trimmed)"
             }
             return
         }
@@ -145,17 +148,36 @@ final class HyperDeckService: ObservableObject {
         return true
     }
 
-    /// Pulls the `format token: <value>` line out of the deck's
-    /// "216 format ready" response so it can be echoed back to confirm.
+    /// Pulls the token out of the deck's "216 format ready" response so it
+    /// can be echoed back to confirm.
+    ///
+    /// This used to look for a `format token: <value>` line, following the
+    /// protocol doc's general "parameter: value" response shape. In practice
+    /// real decks don't send that — they reply with the bare "216 format
+    /// ready" line followed by a second line containing *only* the token,
+    /// no label at all. (Confirmed against Blackmagic's own reference
+    /// implementation, which special-cases this exact response as "an edge
+    /// case" for the same reason.) That mismatch is why prepare always
+    /// looked like it got no token back. Still accepts a labeled "format
+    /// token:" line too, in case a future firmware version sends the
+    /// documented shape.
     private func formatToken(from response: String) -> String? {
-        for line in response.components(separatedBy: .newlines) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.lowercased().hasPrefix("format token:") {
-                return trimmed.split(separator: ":", maxSplits: 1).last?
-                    .trimmingCharacters(in: .whitespaces)
-            }
+        let lines = response
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        guard let readyIndex = lines.firstIndex(where: { $0.hasPrefix("216") }),
+              readyIndex + 1 < lines.count else {
+            return nil
         }
-        return nil
+
+        let tokenLine = lines[readyIndex + 1]
+        if tokenLine.lowercased().hasPrefix("format token:") {
+            return tokenLine.split(separator: ":", maxSplits: 1).last?
+                .trimmingCharacters(in: .whitespaces)
+        }
+        return tokenLine
     }
 
     /// Convenience: create a one-shot connection, format the active slot, and discard.
