@@ -49,10 +49,25 @@ enum ATEMControlError: LocalizedError {
 // (rather than the id we originally proposed) for the command packet in
 // step 4 — see the comment on `sendCommand()` below.
 enum ATEMControlService {
-    /// Raw 4-character ASCII command names, matching the wire protocol.
-    enum Command: String {
-        case cut  = "DCut"
-        case auto = "DAut"
+    /// The instant commands this service can send. `programInput` selects a
+    /// source directly onto program — `source` is the switcher's video
+    /// source id, which for every physical input matches its 1-based input
+    /// number (1 = Input 1, 2 = Input 2, ...).
+    enum Command {
+        case cut
+        case auto
+        case programInput(source: UInt16)
+
+        /// Raw 4-character ASCII command name, matching the wire protocol.
+        /// `nonisolated` so `ATEMCommandSession` (itself nonisolated, per
+        /// its own doc comment) can read it directly.
+        fileprivate nonisolated var name: String {
+            switch self {
+            case .cut:          "DCut"
+            case .auto:         "DAut"
+            case .programInput: "CPgI"
+            }
+        }
     }
 
     /// - Parameters:
@@ -190,8 +205,19 @@ nonisolated private final class ATEMCommandSession: @unchecked Sendable {
     private func sendCommand() {
         localPacketID += 1
 
-        let commandName = Data(command.rawValue.utf8)          // 4 bytes, e.g. "DCut"
-        let commandData = Data([meIndex, 0, 0, 0])              // M/E index + 3 reserved bytes
+        let commandName = Data(command.name.utf8)               // 4 bytes, e.g. "DCut"
+
+        // M/E index + payload, padded to 4 bytes. DCut/DAut just take the
+        // M/E index; CPgI additionally carries the source id as a
+        // big-endian uint16 in the last two bytes.
+        let commandData: Data
+        switch command {
+        case .cut, .auto:
+            commandData = Data([meIndex, 0, 0, 0])
+        case .programInput(let source):
+            commandData = Data([meIndex, 0, UInt8(source >> 8), UInt8(source & 0xFF)])
+        }
+
         let blockLength = UInt16(2 + 2 + commandName.count + commandData.count)
 
         var block = Data()

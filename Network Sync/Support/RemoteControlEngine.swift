@@ -148,7 +148,12 @@ final class RemoteControlEngine: ObservableObject {
     /// in exactly one place.
     private func runSwitcherAction(_ action: SwitcherRemoteAction, on switcher: BlackmagicSwitcher, source: String) async {
         do {
-            let command: ATEMControlService.Command = action == .cut ? .cut : .auto
+            let command: ATEMControlService.Command
+            switch action {
+            case .cut:                        command = .cut
+            case .auto:                       command = .auto
+            case .programInput(let input):    command = .programInput(source: UInt16(input))
+            }
             try await ATEMControlService.send(command, to: switcher.ipAddress)
         } catch {
             appState.log("❌ \(source) \(action.title) failed on \(switcher.name): \(error.localizedDescription)")

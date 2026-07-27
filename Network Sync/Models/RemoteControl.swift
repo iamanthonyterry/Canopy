@@ -79,31 +79,65 @@ enum HyperDeckRemoteAction: String, Codable, CaseIterable, Identifiable, Hashabl
     }
 }
 
-// MARK: - ATEM Switcher Action
-// The instant, no-argument transition commands a trigger can fire on an
-// ATEM switcher's main (M/E 1) bus. Program-input selection isn't included
-// here since it needs an input-number argument, which doesn't fit this
-// design's "trigger fires a fixed action" model — a good candidate for a
-// future pass if that's needed.
-
-enum SwitcherRemoteAction: String, Codable, CaseIterable, Identifiable, Hashable {
-    case cut, auto
+// MARK: - ATEM Switcher Action Kind
+// The catalog of switcher actions a trigger can fire, used to drive the
+// "Action" picker in the mapping editor before any action-specific
+// argument (like the input number) is filled in. Mirrors the
+// StepKind/StepAction split in Workflow.swift.
+enum SwitcherActionKind: String, Codable, CaseIterable, Identifiable, Hashable {
+    case cut, auto, programInput
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .cut:  "Cut"
-        case .auto: "Auto Transition"
+        case .cut:          "Cut"
+        case .auto:         "Auto Transition"
+        case .programInput: "Program Input"
         }
     }
 
     var icon: String {
         switch self {
-        case .cut:  "scissors"
-        case .auto: "arrow.triangle.2.circlepath"
+        case .cut:          "scissors"
+        case .auto:         "arrow.triangle.2.circlepath"
+        case .programInput: "rectangle.stack"
         }
     }
+}
+
+// MARK: - ATEM Switcher Action
+// The instant transition commands a trigger can fire on an ATEM switcher's
+// main (M/E 1) bus. `programInput` carries the 1-based input number to cut
+// (or auto-transition) program to.
+enum SwitcherRemoteAction: Codable, Hashable {
+    case cut
+    case auto
+    case programInput(Int)
+
+    var kind: SwitcherActionKind {
+        switch self {
+        case .cut:          .cut
+        case .auto:         .auto
+        case .programInput: .programInput
+        }
+    }
+
+    /// Default argument values when the user switches the picker to a new kind.
+    static func defaultAction(for kind: SwitcherActionKind) -> SwitcherRemoteAction {
+        switch kind {
+        case .cut:          .cut
+        case .auto:         .auto
+        case .programInput: .programInput(1)
+        }
+    }
+
+    var title: String {
+        if case .programInput(let input) = self { return "Program Input \(input)" }
+        return kind.title
+    }
+
+    var icon: String { kind.icon }
 }
 
 // MARK: - Remote Action

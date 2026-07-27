@@ -273,13 +273,38 @@ private extension RemoteMappingEditSheet {
                             Text(switcher.name).tag(Optional(switcher.id))
                         }
                     }
-                    Picker("Action", selection: $switcherAction) {
-                        ForEach(SwitcherRemoteAction.allCases) { action in
-                            Label(action.title, systemImage: action.icon).tag(action)
+                    Picker("Action", selection: switcherActionKind) {
+                        ForEach(SwitcherActionKind.allCases) { kind in
+                            Label(kind.title, systemImage: kind.icon).tag(kind)
                         }
+                    }
+                    if case .programInput(let input) = switcherAction {
+                        Stepper("Input \(input)", value: programInputNumber, in: 1...40)
                     }
                 }
             }
         }
+    }
+
+    /// Bridges the picker (which only ever shows/sets the kind) onto the
+    /// underlying `switcherAction`, filling in a default argument whenever
+    /// the kind changes.
+    var switcherActionKind: Binding<SwitcherActionKind> {
+        Binding(
+            get: { switcherAction.kind },
+            set: { switcherAction = .defaultAction(for: $0) }
+        )
+    }
+
+    /// Only meaningful while `switcherAction` is `.programInput` — the
+    /// Stepper that uses this is itself only shown in that case.
+    var programInputNumber: Binding<Int> {
+        Binding(
+            get: {
+                if case .programInput(let input) = switcherAction { return input }
+                return 1
+            },
+            set: { switcherAction = .programInput($0) }
+        )
     }
 }
