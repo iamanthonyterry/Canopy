@@ -227,17 +227,23 @@ struct VideoPlayerSheet: View {
         let newPlayer = AVPlayer(playerItem: item)
 
         // Covers the file being unreadable up front (bad container, etc).
+        // AVFoundation can deliver this KVO change on a background queue, so
+        // hop to the main actor before touching view state — mutating
+        // @State off the main thread corrupts the SwiftUI view graph
+        // instead of reliably erroring, which is what was crashing preview.
         item.publisher(for: \.status)
             .sink { status in
-                switch status {
-                case .failed:
-                    errorMessage = item.error?.localizedDescription
-                        ?? "This file's format isn't supported for preview."
-                    player = nil
-                case .readyToPlay:
-                    Task { await loadDuration(for: item) }
-                default:
-                    break
+                Task { @MainActor in
+                    switch status {
+                    case .failed:
+                        errorMessage = item.error?.localizedDescription
+                            ?? "This file's format isn't supported for preview."
+                        player = nil
+                    case .readyToPlay:
+                        await loadDuration(for: item)
+                    default:
+                        break
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -245,14 +251,17 @@ struct VideoPlayerSheet: View {
         // Covers decode failures mid-playback (readable container, but a
         // codec AVFoundation can't fully decode — status alone won't catch
         // this, it just stalls silently while CoreMedia logs FigFilePlayer
-        // errors to the console).
+        // errors to the console). Same main-actor hop as above and for the
+        // same reason.
         NotificationCenter.default
             .publisher(for: AVPlayerItem.failedToPlayToEndTimeNotification, object: item)
             .sink { notification in
                 let underlying = (notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError)?
                     .localizedDescription
-                errorMessage = underlying ?? "Playback failed — this file's codec may not be fully supported."
-                player = nil
+                Task { @MainActor in
+                    errorMessage = underlying ?? "Playback failed — this file's codec may not be fully supported."
+                    player = nil
+                }
             }
             .store(in: &cancellables)
 

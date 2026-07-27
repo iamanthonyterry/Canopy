@@ -1,21 +1,20 @@
 import SwiftUI
 
 /// Displays a live elapsed-time progress bar and label for an active pipeline run.
-/// Driven by `TimelineView` so it ticks on its own internal schedule —
-/// independent of how often the parent view happens to re-render (which,
-/// during an active sync, can be many times a second from progress callbacks).
+/// The full (dashboard) layout is driven by `TimelineView` so it ticks on its
+/// own internal schedule. The compact (menu-bar) layout deliberately does
+/// NOT tick on a timer — see the note above `compactLayout` for why.
 /// Pass `compact: true` for the slim menu-bar variant.
 struct ElapsedTimeView: View {
     let startTime: Date
     var compact: Bool = false
 
     var body: some View {
-        TimelineView(.periodic(from: startTime, by: 1)) { context in
-            let elapsed = context.date.timeIntervalSince(startTime)
-            if compact {
-                compactLayout(elapsed: elapsed)
-            } else {
-                fullLayout(elapsed: elapsed)
+        if compact {
+            compactLayout(elapsed: Date().timeIntervalSince(startTime))
+        } else {
+            TimelineView(.periodic(from: startTime, by: 1)) { context in
+                fullLayout(elapsed: context.date.timeIntervalSince(startTime))
             }
         }
     }
@@ -42,18 +41,22 @@ struct ElapsedTimeView: View {
     //
     // NOTE: This is hosted inside a `.menuBarExtraStyle(.menu)` scene, which
     // is bridged to a real NSMenu. NSMenu's tracking loop cannot safely host
-    // continuously-animating SwiftUI content — an implicit `.animation()`
-    // here causes the menu's item-update pass to re-enter itself on every
-    // frame with no base case, overflowing the stack (EXC_BAD_ACCESS /
-    // "Could not determine thread index for stack guard region"). Keep this
-    // variant animation-free; only `fullLayout` (rendered in a normal
-    // window) may animate.
+    // a subtree that keeps re-rendering itself on its own schedule — a
+    // previous version drove this with `TimelineView(.periodic...)`, and
+    // even with animations disabled via `.transaction`, every per-second
+    // tick re-entered the menu's item-update pass with no base case,
+    // recursing thousands of frames deep and overflowing the stack
+    // (EXC_BAD_ACCESS / "Could not determine thread index for stack guard
+    // region"). This variant now computes `elapsed` once per call instead
+    // of ticking on its own timer; the surrounding `MenuBarView` already
+    // re-renders frequently while a run is active (task counts changing),
+    // which keeps this reasonably fresh without a self-driven update loop.
+    // Only `fullLayout`, rendered in a normal window, may tick and animate.
     private func compactLayout(elapsed: TimeInterval) -> some View {
         HStack(spacing: 8) {
             ProgressView(value: progressValue(elapsed))
                 .tint(.blue)
                 .frame(width: 80)
-                .transaction { $0.animation = nil }
             Text(elapsedString(elapsed))
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.secondary)
