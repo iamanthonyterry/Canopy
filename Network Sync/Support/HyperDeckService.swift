@@ -114,22 +114,76 @@ final class HyperDeckService: ObservableObject {
     /// The `format: prepare:` / `format: confirm:` handshake shared by both
     /// entry points above. See the doc comment on `formatDrive(filesystem:)`
     /// for why this can't be a single command.
+    ///
+    /// Both steps are sent over a single shared connection (see
+    /// `attemptFormatHandshake`) rather than through the one-shot-connection
+    /// `performWithRetry`/`attemptSendAndReceive` path used elsewhere. A
+    /// pending format token is scoped to the TCP session that requested it —
+    /// decks cancel it the moment that connection closes — so issuing
+    /// `prepare` and `confirm` on two separate connections silently drops
+    /// the format: the token comes back looking valid, `confirm` doesn't
+    /// error, and nothing actually gets erased.
     private func runFormatHandshake(filesystem: String) async {
-        let readyResponse = await performWithRetry(
-            command: "format: prepare: \(filesystem)\n",
-            readResponse: true,
-            multilineResponse: true
-        ) ?? ""
-        guard let token = formatToken(from: readyResponse) else {
-            if lastError == nil {
-                let trimmed = readyResponse.trimmingCharacters(in: .whitespacesAndNewlines)
-                lastError = trimmed.isEmpty
-                    ? "Format failed — deck didn't return a confirmation token"
-                    : "Format failed: \(trimmed)"
+        for attempt in 1...Self.maxAttempts {
+            lastError = nil
+            if await attemptFormatHandshake(filesystem: filesystem) {
+                isConnected = true
+                return
             }
-            return
+            if attempt < Self.maxAttempts {
+                try? await Task.sleep(for: Self.retryDelay)
+            }
         }
-        _ = await performWithRetry(command: "format: confirm: \(token)\n", readResponse: true)
+        isConnected = false
+    }
+
+    /// One full prepare→confirm attempt over a single connection. Returns
+    /// true on success; on failure, `lastError` is already set.
+    private func attemptFormatHandshake(filesystem: String) async -> Bool {
+        guard let portObj = NWEndpoint.Port(rawValue: port) else {
+            lastError = "Invalid port"
+            return false
+        }
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: portObj, using: .tcp)
+        defer { connection.cancel() }
+
+        guard await waitUntilReady(connection) else {
+            lastError = "Timed out — device didn't respond"
+            return false
+        }
+
+        guard let readyResponse = await sendAndRead(
+            connection,
+            command: "format: prepare: \(filesystem)\n",
+            multilineResponse: true
+        ) else {
+            lastError = "Timed out — device didn't respond"
+            return false
+        }
+        guard let token = formatToken(from: readyResponse) else {
+            let trimmed = readyResponse.trimmingCharacters(in: .whitespacesAndNewlines)
+            lastError = trimmed.isEmpty
+                ? "Format failed — deck didn't return a confirmation token"
+                : "Format failed: \(trimmed)"
+            return false
+        }
+
+        guard let confirmResponse = await sendAndRead(
+            connection,
+            command: "format: confirm: \(token)\n",
+            multilineResponse: false
+        ) else {
+            lastError = "Timed out waiting for format confirmation"
+            return false
+        }
+        guard confirmResponse.hasPrefix("200") else {
+            let trimmed = confirmResponse.trimmingCharacters(in: .whitespacesAndNewlines)
+            lastError = trimmed.isEmpty
+                ? "Deck didn't confirm the format"
+                : "Format failed: \(trimmed)"
+            return false
+        }
+        return true
     }
 
     /// Switches the deck's active slot via `slot select: slot id: {n}`.
@@ -292,26 +346,10 @@ final class HyperDeckService: ObservableObject {
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, isComplete, error in
                     if let data { buffer.append(data) }
                     var text = String(data: buffer, encoding: .utf8) ?? ""
-
-                    // The deck sends this notification unprompted the instant
-                    // the TCP connection is accepted — before it has even
-                    // looked at whatever command we just sent — so it must
-                    // never be mistaken for that command's reply. Strip it
-                    // and keep reading for the real one.
-                    if text.lowercased().hasPrefix("500 connection info:") {
-                        guard let preambleEnd = text.range(of: "\r\n\r\n") ?? text.range(of: "\n\n") else {
-                            receiveMore()
-                            return
-                        }
-                        text.removeSubrange(text.startIndex..<preambleEnd.upperBound)
-                        buffer = Data(text.utf8)
-                    }
-
-                    // Multi-line responses are terminated by a blank line once
-                    // every parameter line has arrived; single-line acks never
-                    // get one, so only wait for it when we know to expect it.
-                    let hasBlankLineTerminator = text.contains("\r\n\r\n") || text.contains("\n\n")
-                    let done = (!multilineResponse && !text.isEmpty) || hasBlankLineTerminator || isComplete || error != nil
+                    let done = Self.consumeConnectionPreamble(&text) && (
+                        Self.isCompleteResponse(text, multilineResponse: multilineResponse) || isComplete || error != nil
+                    )
+                    buffer = Data(text.utf8)
 
                     if done {
                         connection.cancel()
@@ -356,6 +394,106 @@ final class HyperDeckService: ObservableObject {
                 guard !resumed else { return }
                 connection.cancel()
                 await MainActor.run { self.lastError = "Timed out — device didn't respond" }
+                resumeOnce(nil)
+            }
+        }
+    }
+
+    /// Strips a leading, fully-received "500 connection info:" notification
+    /// from `text` in place (see `attemptSendAndReceive` for why). Returns
+    /// false if `text` looks like the start of that notification but hasn't
+    /// reached its terminating blank line yet — the caller should keep
+    /// reading rather than treat what it has as a real response.
+    private static func consumeConnectionPreamble(_ text: inout String) -> Bool {
+        guard text.lowercased().hasPrefix("500 connection info:") else { return true }
+        guard let preambleEnd = text.range(of: "\r\n\r\n") ?? text.range(of: "\n\n") else {
+            return false
+        }
+        text.removeSubrange(text.startIndex..<preambleEnd.upperBound)
+        return true
+    }
+
+    /// Multi-line responses are terminated by a blank line once every
+    /// parameter line has arrived; single-line acks never get one, so only
+    /// wait for it when we know to expect it.
+    private static func isCompleteResponse(_ text: String, multilineResponse: Bool) -> Bool {
+        let hasBlankLineTerminator = text.contains("\r\n\r\n") || text.contains("\n\n")
+        return (!multilineResponse && !text.isEmpty) || hasBlankLineTerminator
+    }
+
+    /// Waits for a fresh, unstarted connection to become ready, returning
+    /// false (instead of throwing) on failure or timeout so callers can
+    /// decide how to report it.
+    private func waitUntilReady(_ connection: NWConnection) async -> Bool {
+        await withCheckedContinuation { continuation in
+            nonisolated(unsafe) var resumed = false
+            let resumeOnce: @Sendable (Bool) -> Void = { value in
+                guard !resumed else { return }
+                resumed = true
+                continuation.resume(returning: value)
+            }
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    resumeOnce(true)
+                case .failed:
+                    resumeOnce(false)
+                default:
+                    break
+                }
+            }
+            connection.start(queue: .global(qos: .userInitiated))
+
+            Task {
+                try? await Task.sleep(for: Self.commandTimeout)
+                resumeOnce(false)
+            }
+        }
+    }
+
+    /// Sends one command on an already-`.ready` connection and reads its
+    /// reply, without closing the connection afterward — used by the format
+    /// handshake so `prepare` and `confirm` share one TCP session instead of
+    /// each opening (and closing) their own. Returns nil on send failure or
+    /// timeout.
+    private func sendAndRead(_ connection: NWConnection, command: String, multilineResponse: Bool) async -> String? {
+        await withCheckedContinuation { continuation in
+            nonisolated(unsafe) var resumed = false
+            let resumeOnce: @Sendable (String?) -> Void = { value in
+                guard !resumed else { return }
+                resumed = true
+                continuation.resume(returning: value)
+            }
+            nonisolated(unsafe) var buffer = Data()
+
+            @Sendable func receiveMore() {
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, isComplete, error in
+                    if let data { buffer.append(data) }
+                    var text = String(data: buffer, encoding: .utf8) ?? ""
+                    let done = Self.consumeConnectionPreamble(&text) && (
+                        Self.isCompleteResponse(text, multilineResponse: multilineResponse) || isComplete || error != nil
+                    )
+                    buffer = Data(text.utf8)
+
+                    if done {
+                        resumeOnce(text)
+                    } else {
+                        receiveMore()
+                    }
+                }
+            }
+
+            let data = Data(command.utf8)
+            connection.send(content: data, completion: .contentProcessed { error in
+                if error != nil {
+                    resumeOnce(nil)
+                    return
+                }
+                receiveMore()
+            })
+
+            Task {
+                try? await Task.sleep(for: Self.commandTimeout)
                 resumeOnce(nil)
             }
         }
