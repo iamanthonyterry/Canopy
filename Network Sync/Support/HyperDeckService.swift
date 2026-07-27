@@ -291,13 +291,27 @@ final class HyperDeckService: ObservableObject {
             @Sendable func receiveMore() {
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, isComplete, error in
                     if let data { buffer.append(data) }
-                    let text = String(data: buffer, encoding: .utf8) ?? ""
+                    var text = String(data: buffer, encoding: .utf8) ?? ""
+
+                    // The deck sends this notification unprompted the instant
+                    // the TCP connection is accepted — before it has even
+                    // looked at whatever command we just sent — so it must
+                    // never be mistaken for that command's reply. Strip it
+                    // and keep reading for the real one.
+                    if text.lowercased().hasPrefix("500 connection info:") {
+                        guard let preambleEnd = text.range(of: "\r\n\r\n") ?? text.range(of: "\n\n") else {
+                            receiveMore()
+                            return
+                        }
+                        text.removeSubrange(text.startIndex..<preambleEnd.upperBound)
+                        buffer = Data(text.utf8)
+                    }
 
                     // Multi-line responses are terminated by a blank line once
                     // every parameter line has arrived; single-line acks never
                     // get one, so only wait for it when we know to expect it.
                     let hasBlankLineTerminator = text.contains("\r\n\r\n") || text.contains("\n\n")
-                    let done = !multilineResponse || hasBlankLineTerminator || isComplete || error != nil
+                    let done = (!multilineResponse && !text.isEmpty) || hasBlankLineTerminator || isComplete || error != nil
 
                     if done {
                         connection.cancel()
