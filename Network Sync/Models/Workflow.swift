@@ -4,13 +4,14 @@ import SwiftUI
 // MARK: - Step Kind
 // The catalog of step types users can drag into a workflow.
 enum StepKind: String, Codable, CaseIterable, Identifiable {
-    case record, sync, convert, rename, format, cleanup, notify
+    case record, wait, sync, convert, rename, format, cleanup, notify
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .record:  return "Record"
+        case .wait:    return "Wait"
         case .sync:    return "Sync"
         case .convert: return "Convert"
         case .rename:  return "Rename"
@@ -23,6 +24,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .record:  return "Start recording on the device"
+        case .wait:    return "Pause before moving to the next step"
         case .sync:    return "Download new files from the device"
         case .convert: return "Transcode files to MP4"
         case .rename:  return "Rename files using a pattern"
@@ -35,6 +37,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .record:  return "record.circle"
+        case .wait:    return "hourglass"
         case .sync:    return "arrow.down.circle"
         case .convert: return "film.stack"
         case .rename:  return "textformat"
@@ -47,6 +50,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
     var color: Color {
         switch self {
         case .record:  return .red
+        case .wait:    return .indigo
         case .sync:    return .blue
         case .convert: return .orange
         case .rename:  return .purple
@@ -57,10 +61,34 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Wait Duration Helpers
+
+/// Unit used by the wait step's editor UI — stored internally as minutes.
+enum WaitUnit: String, CaseIterable, Identifiable {
+    case minutes, hours
+
+    var id: String { rawValue }
+    var label: String { self == .minutes ? "Minutes" : "Hours" }
+}
+
+enum WaitDurationFormatter {
+    /// Turns a minute count into a friendly string, e.g. "1 hour 30 minutes".
+    static func string(forMinutes totalMinutes: Int) -> String {
+        guard totalMinutes > 0 else { return "0 minutes" }
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        var parts: [String] = []
+        if hours > 0 { parts.append("\(hours) hour\(hours == 1 ? "" : "s")") }
+        if minutes > 0 { parts.append("\(minutes) minute\(minutes == 1 ? "" : "s")") }
+        return parts.joined(separator: " ")
+    }
+}
+
 // MARK: - Step Action
 // Each case carries only the configuration that step needs.
 enum StepAction: Hashable {
     case record(stopAfterMinutes: Int?)
+    case wait(minutes: Int)
     case sync
     case convert(preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool)
     case rename(pattern: String)
@@ -71,6 +99,7 @@ enum StepAction: Hashable {
     var kind: StepKind {
         switch self {
         case .record:   return .record
+        case .wait:     return .wait
         case .sync:     return .sync
         case .convert:  return .convert
         case .rename:   return .rename
@@ -83,6 +112,7 @@ enum StepAction: Hashable {
     static func defaultAction(for kind: StepKind) -> StepAction {
         switch kind {
         case .record:  return .record(stopAfterMinutes: nil)
+        case .wait:    return .wait(minutes: 60)
         case .sync:    return .sync
         case .convert: return .convert(preset: .fast, deleteOriginal: true)
         case .rename:  return .rename(pattern: "{device}_{date}_{index}")
@@ -100,6 +130,8 @@ enum StepAction: Hashable {
                 return "Records, then stops after \(minutes) minute\(minutes == 1 ? "" : "s")"
             }
             return "Starts recording and continues to the next step"
+        case .wait(let minutes):
+            return "Waits \(WaitDurationFormatter.string(forMinutes: minutes)) before continuing"
         case .sync:
             return "Downloads any new .mov files"
         case .convert(let preset, let deleteOriginal):
@@ -121,11 +153,15 @@ enum StepAction: Hashable {
 // MARK: - StepAction Codable Implementation
 extension StepAction: Codable {
     enum CodingKeys: String, CodingKey {
-        case record, sync, convert, rename, format, cleanup, notify
+        case record, wait, sync, convert, rename, format, cleanup, notify
     }
 
     enum RecordKeys: String, CodingKey {
         case stopAfterMinutes
+    }
+
+    enum WaitKeys: String, CodingKey {
+        case minutes
     }
 
     enum ConvertKeys: String, CodingKey {
@@ -152,6 +188,10 @@ extension StepAction: Codable {
             let nested = try container.nestedContainer(keyedBy: RecordKeys.self, forKey: .record)
             let stop = try nested.decodeIfPresent(Int.self, forKey: .stopAfterMinutes)
             self = .record(stopAfterMinutes: stop)
+        } else if container.contains(.wait) {
+            let nested = try container.nestedContainer(keyedBy: WaitKeys.self, forKey: .wait)
+            let minutes = try nested.decode(Int.self, forKey: .minutes)
+            self = .wait(minutes: minutes)
         } else if container.contains(.sync) {
             self = .sync
         } else if container.contains(.convert) {
@@ -187,6 +227,9 @@ extension StepAction: Codable {
         case .record(let stop):
             var nested = container.nestedContainer(keyedBy: RecordKeys.self, forKey: .record)
             try nested.encode(stop, forKey: .stopAfterMinutes)
+        case .wait(let minutes):
+            var nested = container.nestedContainer(keyedBy: WaitKeys.self, forKey: .wait)
+            try nested.encode(minutes, forKey: .minutes)
         case .sync:
             _ = container.nestedContainer(keyedBy: DummyKeys.self, forKey: .sync)
         case .convert(let preset, let deleteOriginal):
@@ -273,8 +316,26 @@ struct Workflow: Identifiable, Codable, Hashable {
     var steps: [WorkflowStep] = []
     /// Which HyperDecks this workflow runs against. Empty = all configured decks.
     var targetDeckIDs: [UUID] = []
-    var schedule: ScheduleSettings = ScheduleSettings()
+    /// A workflow can have any number of automatic time triggers (e.g. a
+    /// daily run at 2 AM plus a separate one-time run this weekend).
+    var triggers: [ScheduleSettings] = []
     var sortOrder: Int = 0
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        steps: [WorkflowStep] = [],
+        targetDeckIDs: [UUID] = [],
+        triggers: [ScheduleSettings] = [],
+        sortOrder: Int = 0
+    ) {
+        self.id = id
+        self.name = name
+        self.steps = steps
+        self.targetDeckIDs = targetDeckIDs
+        self.triggers = triggers
+        self.sortOrder = sortOrder
+    }
 
     var stepsSummary: String {
         steps.isEmpty ? "No steps yet" : steps.map(\.kind.title).joined(separator: "  →  ")
@@ -282,7 +343,47 @@ struct Workflow: Identifiable, Codable, Hashable {
 
     /// True if any step needs the shared sync destination mounted.
     var needsDestinationMount: Bool {
-        steps.contains { $0.kind != .format && $0.kind != .record && $0.kind != .notify }
+        steps.contains { $0.kind != .format && $0.kind != .record && $0.kind != .notify && $0.kind != .wait }
+    }
+
+    /// True if this workflow will run on its own via at least one enabled trigger.
+    var isScheduled: Bool { triggers.contains { $0.isEnabled } }
+
+    var activeTriggers: [ScheduleSettings] { triggers.filter { $0.isEnabled } }
+
+    // MARK: Codable (with migration from the old single `schedule` field)
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, steps, targetDeckIDs, triggers, schedule, sortOrder
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try container.decode(String.self, forKey: .name)
+        steps = try container.decodeIfPresent([WorkflowStep].self, forKey: .steps) ?? []
+        targetDeckIDs = try container.decodeIfPresent([UUID].self, forKey: .targetDeckIDs) ?? []
+
+        if let decodedTriggers = try container.decodeIfPresent([ScheduleSettings].self, forKey: .triggers) {
+            triggers = decodedTriggers
+        } else if let legacySchedule = try container.decodeIfPresent(ScheduleSettings.self, forKey: .schedule) {
+            // Pre-multi-trigger workflows stored a single `schedule` object.
+            triggers = [legacySchedule]
+        } else {
+            triggers = []
+        }
+
+        sortOrder = try container.decodeIfPresent(Int.self, forKey: .sortOrder) ?? 0
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(steps, forKey: .steps)
+        try container.encode(targetDeckIDs, forKey: .targetDeckIDs)
+        try container.encode(triggers, forKey: .triggers)
+        try container.encode(sortOrder, forKey: .sortOrder)
     }
 }
 

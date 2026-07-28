@@ -195,6 +195,8 @@ final class WorkflowEngine: ObservableObject {
         switch step.action {
         case .record(let stopAfterMinutes):
             await runRecord(context: &context, stopAfterMinutes: stopAfterMinutes)
+        case .wait(let minutes):
+            await runWait(minutes: minutes)
         case .sync:
             await runSync(context: &context)
         case .convert(let preset, let deleteOriginal):
@@ -420,6 +422,27 @@ final class WorkflowEngine: ObservableObject {
         } else {
             appState.log("  ⏹ \(deck.name) stopped recording")
         }
+    }
+
+    // MARK: - Wait step
+
+    /// Pauses the workflow for a fixed duration before moving on. Sleeps in
+    /// short chunks (rather than one long `Task.sleep`) so the user's Stop
+    /// button takes effect promptly instead of after the full wait elapses.
+    private func runWait(minutes: Int) async {
+        guard minutes > 0 else { return }
+        let totalSeconds = minutes * 60
+        appState.log("  ⏳ Waiting \(WaitDurationFormatter.string(forMinutes: minutes)) before continuing...")
+
+        var elapsed = 0
+        let chunk = 5
+        while elapsed < totalSeconds {
+            guard appState.isRunning else { return }
+            let sleepSeconds = min(chunk, totalSeconds - elapsed)
+            try? await Task.sleep(for: .seconds(sleepSeconds))
+            elapsed += sleepSeconds
+        }
+        appState.log("  ⏳ Wait complete")
     }
 
     // MARK: - Format step

@@ -56,11 +56,16 @@ struct MenuBarView: View {
         Divider()
 
         // Schedule status
-        let scheduled = appState.workflows.filter { $0.schedule.isEnabled }
+        let scheduled = appState.workflows.filter { $0.isScheduled }
         if !scheduled.isEmpty {
             ForEach(scheduled) { workflow in
-                Label("\(workflow.name) at \(workflow.schedule.displayTime)", systemImage: "clock")
+                ForEach(workflow.activeTriggers) { trigger in
+                    Label(
+                        "\(workflow.name) at \(trigger.mode == .oneTime ? trigger.displayOneTimeDate : trigger.displayTime)",
+                        systemImage: "clock"
+                    )
                     .foregroundStyle(.secondary)
+                }
             }
         }
 

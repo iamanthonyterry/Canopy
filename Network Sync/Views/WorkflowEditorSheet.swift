@@ -10,15 +10,16 @@ struct WorkflowEditorSheet: View {
     @State private var name: String
     @State private var steps: [WorkflowStep]
     @State private var targetDeckIDs: Set<UUID>
-    @State private var schedule: ScheduleSettings
+    @State private var triggers: [ScheduleSettings]
     @State private var editingStep: WorkflowStep? = nil
+    @State private var editingTrigger: ScheduleSettings? = nil
 
     init(workflow: Workflow?) {
         existingWorkflow = workflow
         _name          = State(initialValue: workflow?.name ?? "")
         _steps         = State(initialValue: workflow?.steps ?? [])
         _targetDeckIDs = State(initialValue: Set(workflow?.targetDeckIDs ?? []))
-        _schedule      = State(initialValue: workflow?.schedule ?? ScheduleSettings())
+        _triggers      = State(initialValue: workflow?.triggers ?? [])
     }
 
     var canSave: Bool { !name.isEmpty && !steps.isEmpty }
@@ -39,6 +40,11 @@ struct WorkflowEditorSheet: View {
         .sheet(item: $editingStep) { step in
             if let index = steps.firstIndex(where: { $0.id == step.id }) {
                 WorkflowStepConfigSheet(step: $steps[index])
+            }
+        }
+        .sheet(item: $editingTrigger) { trigger in
+            if let index = triggers.firstIndex(where: { $0.id == trigger.id }) {
+                ScheduleTriggerConfigSheet(trigger: $triggers[index])
             }
         }
     }
@@ -187,10 +193,123 @@ struct WorkflowEditorSheet: View {
     // MARK: - Schedule
 
     private var scheduleSection: some View {
-        Section("Schedule") {
-            Toggle("Run Automatically", isOn: $schedule.isEnabled)
-            if schedule.isEnabled {
-                Picker("", selection: $schedule.mode) {
+        Section {
+            if triggers.isEmpty {
+                Text("This workflow only runs when started manually.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(triggers.enumerated()), id: \.element.id) { index, trigger in
+                    triggerRow(trigger, index: index)
+                }
+                .onDelete { triggers.remove(atOffsets: $0) }
+            }
+            addTriggerMenu
+        } header: {
+            Text("Schedule")
+        } footer: {
+            Text("Add one or more triggers to run this workflow automatically.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func triggerRow(_ trigger: ScheduleSettings, index: Int) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: trigger.mode == .daily ? "clock" : "calendar")
+                .foregroundStyle(trigger.isEnabled ? Color.accentColor : .secondary)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(trigger.mode == .daily ? "Daily · \(trigger.displayTime)" : "One Time · \(trigger.displayOneTimeDate)")
+                    .font(.body)
+                Text(trigger.mode == .daily ? trigger.displayWeekdays : "Runs once, then turns off")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { trigger.isEnabled },
+                set: { triggers[index].isEnabled = $0 }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+
+            Button {
+                editingTrigger = trigger
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+            }
+            .buttonStyle(.borderless)
+
+            Button {
+                triggers.remove(at: index)
+            } label: {
+                Image(systemName: "trash")
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.borderless)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { editingTrigger = trigger }
+    }
+
+    private var addTriggerMenu: some View {
+        Button {
+            var trigger = ScheduleSettings()
+            trigger.isEnabled = true
+            triggers.append(trigger)
+            editingTrigger = trigger
+        } label: {
+            Label("Add Trigger", systemImage: "plus.circle.fill")
+        }
+        .buttonStyle(.borderless)
+    }
+
+    // MARK: - Save
+
+    private func save() {
+        var workflow = existingWorkflow ?? Workflow(name: name)
+        workflow.name = name
+        workflow.steps = steps
+        workflow.targetDeckIDs = Array(targetDeckIDs)
+        workflow.triggers = triggers
+
+        if existingWorkflow == nil {
+            appState.addWorkflow(workflow)
+        } else {
+            appState.updateWorkflow(workflow)
+        }
+        SchedulerService.shared.sync()
+        dismiss()
+    }
+}
+
+// MARK: - Schedule Trigger Config Sheet
+
+/// Small focused sheet for configuring a single schedule trigger — mirrors
+/// WorkflowStepConfigSheet's pattern of editing one item from a list.
+struct ScheduleTriggerConfigSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var trigger: ScheduleSettings
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Label(
+                    trigger.mode == .daily ? "Daily Trigger" : "One-Time Trigger",
+                    systemImage: trigger.mode == .daily ? "clock" : "calendar"
+                )
+                .font(.title3).bold()
+                Spacer()
+                Button("Done") { dismiss() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+            Divider()
+
+            Form {
+                Toggle("Enabled", isOn: $trigger.isEnabled)
+
+                Picker("", selection: $trigger.mode) {
                     ForEach(ScheduleMode.allCases) { mode in
                         Text(mode.title).tag(mode)
                     }
@@ -198,27 +317,27 @@ struct WorkflowEditorSheet: View {
                 .labelsHidden()
                 .pickerStyle(.segmented)
 
-                switch schedule.mode {
+                switch trigger.mode {
                 case .daily:
                     HStack(spacing: 8) {
-                        Stepper(value: $schedule.hour, in: 0...23) {
-                            Text(String(format: "%02d", schedule.hour)).monospacedDigit().frame(width: 28)
+                        Stepper(value: $trigger.hour, in: 0...23) {
+                            Text(String(format: "%02d", trigger.hour)).monospacedDigit().frame(width: 28)
                         }
                         Text(":")
-                        Stepper(value: $schedule.minute, in: 0...59, step: 5) {
-                            Text(String(format: "%02d", schedule.minute)).monospacedDigit().frame(width: 28)
+                        Stepper(value: $trigger.minute, in: 0...59, step: 5) {
+                            Text(String(format: "%02d", trigger.minute)).monospacedDigit().frame(width: 28)
                         }
-                        Text(schedule.displayTime).font(.caption).foregroundStyle(.secondary).padding(.leading, 4)
+                        Text(trigger.displayTime).font(.caption).foregroundStyle(.secondary).padding(.leading, 4)
                     }
-                    Toggle("Repeat Daily", isOn: $schedule.repeatDaily)
-                    if schedule.repeatDaily {
+                    Toggle("Repeat Daily", isOn: $trigger.repeatDaily)
+                    if trigger.repeatDaily {
                         weekdaySelector
                     }
 
                 case .oneTime:
                     DatePicker(
                         "Run At",
-                        selection: $schedule.oneTimeDate,
+                        selection: $trigger.oneTimeDate,
                         in: Date()...,
                         displayedComponents: [.date, .hourAndMinute]
                     )
@@ -226,7 +345,10 @@ struct WorkflowEditorSheet: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+            .formStyle(.grouped)
+            .padding(.top, 4)
         }
+        .frame(width: 380)
     }
 
     private var weekdaySelector: some View {
@@ -234,12 +356,12 @@ struct WorkflowEditorSheet: View {
             Text("Runs On").font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 6) {
                 ForEach(Weekday.allCases) { day in
-                    let isOn = schedule.selectedWeekdays.contains(day)
+                    let isOn = trigger.selectedWeekdays.contains(day)
                     Button {
                         if isOn {
-                            schedule.selectedWeekdays.remove(day)
+                            trigger.selectedWeekdays.remove(day)
                         } else {
-                            schedule.selectedWeekdays.insert(day)
+                            trigger.selectedWeekdays.insert(day)
                         }
                     } label: {
                         Text(day.shortLabel)
@@ -252,27 +374,9 @@ struct WorkflowEditorSheet: View {
                     .buttonStyle(.plain)
                 }
             }
-            Text(schedule.displayWeekdays)
+            Text(trigger.displayWeekdays)
                 .font(.caption2).foregroundStyle(.tertiary)
         }
         .padding(.top, 2)
-    }
-
-    // MARK: - Save
-
-    private func save() {
-        var workflow = existingWorkflow ?? Workflow(name: name)
-        workflow.name = name
-        workflow.steps = steps
-        workflow.targetDeckIDs = Array(targetDeckIDs)
-        workflow.schedule = schedule
-
-        if existingWorkflow == nil {
-            appState.addWorkflow(workflow)
-        } else {
-            appState.updateWorkflow(workflow)
-        }
-        SchedulerService.shared.sync()
-        dismiss()
     }
 }

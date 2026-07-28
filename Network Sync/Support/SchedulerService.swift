@@ -9,8 +9,9 @@ class SchedulerService: ObservableObject {
     static let shared = SchedulerService()
 
     private var timer: Timer?
-    /// Tracks which workflows already fired today, keyed by workflow id.
-    private var workflowsFiredToday: [UUID: Date] = [:]
+    /// Tracks which daily triggers already fired today, keyed by trigger id
+    /// (each trigger fires independently of the others on its workflow).
+    private var triggersFiredToday: [UUID: Date] = [:]
 
     private let appState = AppState.shared
     private let workflowEngine = WorkflowEngine.shared
@@ -32,7 +33,7 @@ class SchedulerService: ObservableObject {
     }
 
     private var hasAnyScheduleEnabled: Bool {
-        appState.workflows.contains { $0.schedule.isEnabled }
+        appState.workflows.contains { $0.isScheduled }
     }
 
     // MARK: - Tick
@@ -42,45 +43,57 @@ class SchedulerService: ObservableObject {
     }
 
     // MARK: - Per-workflow schedules
+    // Each workflow can have several triggers; they're evaluated independently
+    // and only one run is started per tick (guarded by appState.isRunning).
     private func tickWorkflowSchedules() {
         for workflow in appState.workflows {
-            let s = workflow.schedule
-            guard s.isEnabled else { continue }
             guard !appState.isRunning else { return }   // only one run at a time
 
-            switch s.mode {
-            case .daily:
-                guard isDue(hour: s.hour, minute: s.minute) else {
-                    if let last = workflowsFiredToday[workflow.id], !Calendar.current.isDateInToday(last) {
-                        workflowsFiredToday.removeValue(forKey: workflow.id)
+            for trigger in workflow.triggers {
+                guard trigger.isEnabled else { continue }
+                guard !appState.isRunning else { return }
+
+                switch trigger.mode {
+                case .daily:
+                    guard isDue(hour: trigger.hour, minute: trigger.minute) else {
+                        if let last = triggersFiredToday[trigger.id], !Calendar.current.isDateInToday(last) {
+                            triggersFiredToday.removeValue(forKey: trigger.id)
+                        }
+                        continue
                     }
-                    continue
-                }
-                guard isTodayActive(for: s) else { continue }
-                guard workflowsFiredToday[workflow.id] == nil else { continue }
-                workflowsFiredToday[workflow.id] = Date()
+                    guard isTodayActive(for: trigger) else { continue }
+                    guard triggersFiredToday[trigger.id] == nil else { continue }
+                    triggersFiredToday[trigger.id] = Date()
 
-                appState.log("🕐 Scheduled workflow triggered: \(workflow.name)")
-                Task { await workflowEngine.run(workflow) }
+                    appState.log("🕐 Scheduled workflow triggered: \(workflow.name)")
+                    Task { await workflowEngine.run(workflow) }
 
-                if !s.repeatDaily, var updated = appState.workflows.first(where: { $0.id == workflow.id }) {
-                    updated.schedule.isEnabled = false
-                    appState.updateWorkflow(updated)
-                }
+                    if !trigger.repeatDaily {
+                        disableTrigger(workflowID: workflow.id, triggerID: trigger.id)
+                    }
+                    return
 
-            case .oneTime:
-                guard isDue(date: s.oneTimeDate) else { continue }
+                case .oneTime:
+                    guard isDue(date: trigger.oneTimeDate) else { continue }
 
-                appState.log("🕐 Scheduled workflow triggered: \(workflow.name)")
-                Task { await workflowEngine.run(workflow) }
+                    appState.log("🕐 Scheduled workflow triggered: \(workflow.name)")
+                    Task { await workflowEngine.run(workflow) }
 
-                // One-time schedules always turn themselves off after firing.
-                if var updated = appState.workflows.first(where: { $0.id == workflow.id }) {
-                    updated.schedule.isEnabled = false
-                    appState.updateWorkflow(updated)
+                    // One-time triggers always turn themselves off after firing.
+                    disableTrigger(workflowID: workflow.id, triggerID: trigger.id)
+                    return
                 }
             }
         }
+    }
+
+    /// Flips a single trigger's `isEnabled` off after it fires, leaving the
+    /// rest of the workflow's triggers untouched.
+    private func disableTrigger(workflowID: UUID, triggerID: UUID) {
+        guard var updated = appState.workflows.first(where: { $0.id == workflowID }) else { return }
+        guard let index = updated.triggers.firstIndex(where: { $0.id == triggerID }) else { return }
+        updated.triggers[index].isEnabled = false
+        appState.updateWorkflow(updated)
     }
 
     private func isDue(hour: Int, minute: Int) -> Bool {

@@ -56,12 +56,16 @@ struct ContentView: View {
     }
 
     private var scheduledWorkflows: [Workflow] {
-        appState.workflows.filter { $0.schedule.isEnabled }
+        appState.workflows.filter { $0.isScheduled }
     }
 
     private var scheduleBadgeText: String {
         if scheduledWorkflows.count == 1, let workflow = scheduledWorkflows.first {
-            return "\(workflow.name) at \(workflow.schedule.displayTime)"
+            let active = workflow.activeTriggers
+            if active.count == 1, let trigger = active.first {
+                return "\(workflow.name) at \(trigger.mode == .oneTime ? trigger.displayOneTimeDate : trigger.displayTime)"
+            }
+            return "\(workflow.name) (\(active.count) triggers)"
         }
         return "\(scheduledWorkflows.count) workflows scheduled"
     }

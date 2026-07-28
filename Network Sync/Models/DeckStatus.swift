@@ -178,7 +178,12 @@ enum Weekday: Int, Codable, CaseIterable, Identifiable, Hashable {
     }
 }
 
-struct ScheduleSettings: Codable, Hashable {
+struct ScheduleSettings: Codable, Hashable, Identifiable {
+    /// Not persisted — regenerated on every decode. Only used for SwiftUI
+    /// identity and to track which trigger fired during a scheduler tick,
+    /// so old saved workflows (encoded before `id` existed) still decode.
+    var id = UUID()
+
     var isEnabled: Bool = false
     var mode: ScheduleMode = .daily
 
@@ -223,5 +228,9 @@ struct ScheduleSettings: Codable, Hashable {
 
     var displayOneTimeDate: String {
         Self.oneTimeDateFormatter.string(from: oneTimeDate)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case isEnabled, mode, hour, minute, repeatDaily, selectedWeekdays, oneTimeDate
     }
 }

@@ -137,7 +137,7 @@ class AppState: ObservableObject {
         var copy = original
         copy.id = UUID()
         copy.name = "\(original.name) Copy"
-        copy.schedule.isEnabled = false
+        for i in copy.triggers.indices { copy.triggers[i].isEnabled = false }
         addWorkflow(copy)
     }
     func moveWorkflow(from: IndexSet, to: Int) {

@@ -13,6 +13,8 @@ struct WorkflowStepConfigSheet: View {
     @State private var retentionDays = 30
     @State private var stopRecordingAutomatically = false
     @State private var stopAfterMinutes = 5
+    @State private var waitValue = 1
+    @State private var waitUnit: WaitUnit = .hours
     @State private var notifyHeader = ""
     @State private var notifyMessage = ""
     @State private var notifyRecipients: [NotificationRecipient] = []
@@ -41,6 +43,9 @@ struct WorkflowStepConfigSheet: View {
                 switch step.kind {
                 case .record:
                     recordFields
+
+                case .wait:
+                    waitFields
 
                 case .sync:
                     Text("No configuration needed — downloads any files not already synced.")
@@ -89,6 +94,28 @@ struct WorkflowStepConfigSheet: View {
                 Text("Recording keeps rolling while the workflow moves on to its next step.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var waitFields: some View {
+        Group {
+            LabeledContent("Wait For") {
+                HStack(spacing: 10) {
+                    Stepper(value: $waitValue, in: 1...(waitUnit == .hours ? 72 : 1440)) {
+                        Text("\(waitValue)").monospacedDigit().frame(width: 30, alignment: .trailing)
+                    }
+                    Picker("", selection: $waitUnit) {
+                        ForEach(WaitUnit.allCases) { unit in
+                            Text(unit.label).tag(unit)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 160)
+                }
+            }
+            Text("Pauses the workflow for \(WaitDurationFormatter.string(forMinutes: waitValue * (waitUnit == .hours ? 60 : 1))) before moving to the next step.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -277,6 +304,14 @@ struct WorkflowStepConfigSheet: View {
                 stopRecordingAutomatically = true
                 stopAfterMinutes = minutes
             }
+        case .wait(let minutes):
+            if minutes >= 60 && minutes % 60 == 0 {
+                waitUnit = .hours
+                waitValue = minutes / 60
+            } else {
+                waitUnit = .minutes
+                waitValue = max(minutes, 1)
+            }
         case .sync, .format:
             break
         case .convert(let p, let del):
@@ -296,6 +331,7 @@ struct WorkflowStepConfigSheet: View {
     private func save() {
         switch step.kind {
         case .record:  step.action = .record(stopAfterMinutes: stopRecordingAutomatically ? stopAfterMinutes : nil)
+        case .wait:    step.action = .wait(minutes: waitUnit == .hours ? waitValue * 60 : waitValue)
         case .sync:    step.action = .sync
         case .convert: step.action = .convert(preset: preset, deleteOriginal: deleteOriginal)
         case .rename:  step.action = .rename(pattern: pattern.isEmpty ? "{name}" : pattern)
