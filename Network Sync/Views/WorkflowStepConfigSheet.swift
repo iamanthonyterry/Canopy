@@ -44,6 +44,9 @@ struct WorkflowStepConfigSheet: View {
                 case .record:
                     recordFields
 
+                case .stopRecord:
+                    Text("No configuration needed — stops recording on the device if it's currently rolling.")
+                        .font(.callout).foregroundStyle(.secondary)
                 case .wait:
                     waitFields
 
@@ -304,6 +307,7 @@ struct WorkflowStepConfigSheet: View {
                 stopRecordingAutomatically = true
                 stopAfterMinutes = minutes
             }
+        case .stopRecord, .sync, .format:
         case .wait(let minutes):
             if minutes >= 60 && minutes % 60 == 0 {
                 waitUnit = .hours
@@ -330,6 +334,8 @@ struct WorkflowStepConfigSheet: View {
 
     private func save() {
         switch step.kind {
+        case .record:     step.action = .record(stopAfterMinutes: stopRecordingAutomatically ? stopAfterMinutes : nil)
+        case .stopRecord: step.action = .stopRecord
         case .record:  step.action = .record(stopAfterMinutes: stopRecordingAutomatically ? stopAfterMinutes : nil)
         case .wait:    step.action = .wait(minutes: waitUnit == .hours ? waitValue * 60 : waitValue)
         case .sync:    step.action = .sync

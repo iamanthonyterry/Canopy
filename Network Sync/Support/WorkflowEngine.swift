@@ -195,6 +195,8 @@ final class WorkflowEngine: ObservableObject {
         switch step.action {
         case .record(let stopAfterMinutes):
             await runRecord(context: &context, stopAfterMinutes: stopAfterMinutes)
+        case .stopRecord:
+            await runStopRecord(context: &context)
         case .wait(let minutes):
             await runWait(minutes: minutes)
         case .sync:
@@ -424,6 +426,32 @@ final class WorkflowEngine: ObservableObject {
         }
     }
 
+    // MARK: - Stop Record step
+
+    private func runStopRecord(context: inout StepContext) async {
+        let deck = context.deck
+        let service = HyperDeckService(host: deck.ipAddress)
+
+        await service.fetchTransport()
+        guard service.isConnected else {
+            appState.log("  ❌ \(deck.name) is not reachable — skipping stop record step")
+            appState.currentRunErrors += 1
+            return
+        }
+
+        guard service.transport == .recording else {
+            appState.log("  ⏭ \(deck.name) is not recording")
+            return
+        }
+
+        appState.log("  ⏹ Stopping recording on \(deck.name)...")
+        await service.stop()
+        if let error = service.lastError {
+            appState.log("  ❌ \(deck.name) failed to stop recording: \(error)")
+            appState.currentRunErrors += 1
+        } else {
+            appState.log("  ✅ \(deck.name) stopped recording")
+        }
     // MARK: - Wait step
 
     /// Pauses the workflow for a fixed duration before moving on. Sleeps in
