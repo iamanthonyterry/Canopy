@@ -193,10 +193,8 @@ final class WorkflowEngine: ObservableObject {
 
     private func execute(_ step: WorkflowStep, context: inout StepContext) async {
         switch step.action {
-        case .record(let stopAfterMinutes):
-            await runRecord(context: &context, stopAfterMinutes: stopAfterMinutes)
-        case .stopRecord:
-            await runStopRecord(context: &context)
+        case .controlDeck(let command, let stopAfterMinutes):
+            await runControlDeck(context: &context, command: command, stopAfterMinutes: stopAfterMinutes)
         case .wait(let minutes):
             await runWait(minutes: minutes)
         case .sync:
@@ -385,73 +383,65 @@ final class WorkflowEngine: ObservableObject {
         context.files = renamed
     }
 
-    // MARK: - Record step
+    // MARK: - Control HyperDeck step
 
-    private func runRecord(context: inout StepContext, stopAfterMinutes: Int?) async {
+    private func runControlDeck(context: inout StepContext, command: DeckCommand, stopAfterMinutes: Int?) async {
         let deck = context.deck
         let service = HyperDeckService(host: deck.ipAddress)
 
         await service.fetchTransport()
         guard service.isConnected else {
-            appState.log("  ❌ \(deck.name) is not reachable — skipping record step")
+            appState.log("  ❌ \(deck.name) is not reachable — skipping control step")
             appState.currentRunErrors += 1
             return
         }
 
-        if service.transport == .recording {
-            appState.log("  ⏺ \(deck.name) is already recording")
-        } else {
-            appState.log("  ⏺ Starting recording on \(deck.name)...")
-            await service.record()
+        switch command {
+        case .start:
+            if service.transport == .recording {
+                appState.log("  ⏺ \(deck.name) is already recording")
+            } else {
+                appState.log("  ⏺ Starting recording on \(deck.name)...")
+                await service.record()
+                if let error = service.lastError {
+                    appState.log("  ❌ \(deck.name) failed to start recording: \(error)")
+                    appState.currentRunErrors += 1
+                    return
+                }
+                appState.log("  ✅ \(deck.name) is recording")
+            }
+
+            guard let minutes = stopAfterMinutes else { return }
+
+            appState.log("  ⏳ Will stop \(deck.name) after \(minutes) minute\(minutes == 1 ? "" : "s")...")
+            try? await Task.sleep(for: .seconds(minutes * 60))
+            guard appState.isRunning else { return }
+
+            await service.stop()
             if let error = service.lastError {
-                appState.log("  ❌ \(deck.name) failed to start recording: \(error)")
+                appState.log("  ❌ \(deck.name) failed to stop recording: \(error)")
                 appState.currentRunErrors += 1
+            } else {
+                appState.log("  ⏹ \(deck.name) stopped recording")
+            }
+
+        case .stop:
+            guard service.transport == .recording else {
+                appState.log("  ⏭ \(deck.name) is not recording")
                 return
             }
-            appState.log("  ✅ \(deck.name) is recording")
-        }
 
-        guard let minutes = stopAfterMinutes else { return }
-
-        appState.log("  ⏳ Will stop \(deck.name) after \(minutes) minute\(minutes == 1 ? "" : "s")...")
-        try? await Task.sleep(for: .seconds(minutes * 60))
-        guard appState.isRunning else { return }
-
-        await service.stop()
-        if let error = service.lastError {
-            appState.log("  ❌ \(deck.name) failed to stop recording: \(error)")
-            appState.currentRunErrors += 1
-        } else {
-            appState.log("  ⏹ \(deck.name) stopped recording")
+            appState.log("  ⏹ Stopping recording on \(deck.name)...")
+            await service.stop()
+            if let error = service.lastError {
+                appState.log("  ❌ \(deck.name) failed to stop recording: \(error)")
+                appState.currentRunErrors += 1
+            } else {
+                appState.log("  ✅ \(deck.name) stopped recording")
+            }
         }
     }
 
-    // MARK: - Stop Record step
-
-    private func runStopRecord(context: inout StepContext) async {
-        let deck = context.deck
-        let service = HyperDeckService(host: deck.ipAddress)
-
-        await service.fetchTransport()
-        guard service.isConnected else {
-            appState.log("  ❌ \(deck.name) is not reachable — skipping stop record step")
-            appState.currentRunErrors += 1
-            return
-        }
-
-        guard service.transport == .recording else {
-            appState.log("  ⏭ \(deck.name) is not recording")
-            return
-        }
-
-        appState.log("  ⏹ Stopping recording on \(deck.name)...")
-        await service.stop()
-        if let error = service.lastError {
-            appState.log("  ❌ \(deck.name) failed to stop recording: \(error)")
-            appState.currentRunErrors += 1
-        } else {
-            appState.log("  ✅ \(deck.name) stopped recording")
-        }
     // MARK: - Wait step
 
     /// Pauses the workflow for a fixed duration before moving on. Sleeps in

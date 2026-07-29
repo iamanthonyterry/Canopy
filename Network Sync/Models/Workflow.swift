@@ -1,94 +1,77 @@
 import Foundation
 import SwiftUI
 
-// MARK: - Step Kind
-// The catalog of step types users can drag into a workflow.
-enum StepKind: String, Codable, CaseIterable, Identifiable {
-    case record, stopRecord, sync, convert, rename, format, cleanup, notify
+// MARK: - Deck Command
+// The two transport actions the "Control HyperDeck" step can send.
+enum DeckCommand: String, Codable, CaseIterable, Identifiable {
+    case start, stop
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .record:     return "Record"
-        case .stopRecord: return "Stop Record"
-        case .sync:       return "Sync"
-        case .convert:    return "Convert"
-        case .rename:     return "Rename"
-        case .format:     return "Format Drive"
-        case .cleanup:    return "Cleanup"
-        case .notify:     return "Notification"
-        case .record:  return "Record"
-        case .wait:    return "Wait"
-        case .sync:    return "Sync"
-        case .convert: return "Convert"
-        case .rename:  return "Rename"
-        case .format:  return "Format Drive"
-        case .cleanup: return "Cleanup"
-        case .notify:  return "Notification"
+        case .start: return "Start Recording"
+        case .stop:  return "Stop Recording"
+        }
+    }
+}
+
+// MARK: - Step Kind
+// The catalog of step types users can drag into a workflow.
+enum StepKind: String, Codable, CaseIterable, Identifiable {
+    case controlDeck, wait, sync, convert, rename, format, cleanup, notify
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .controlDeck: return "Control HyperDeck"
+        case .wait:         return "Wait"
+        case .sync:         return "Sync"
+        case .convert:      return "Convert"
+        case .rename:       return "Rename"
+        case .format:       return "Format Drive"
+        case .cleanup:      return "Cleanup"
+        case .notify:       return "Notification"
         }
     }
 
     var subtitle: String {
         switch self {
-        case .record:     return "Start recording on the device"
-        case .stopRecord: return "Stop recording on the device"
-        case .sync:       return "Download new files from the device"
-        case .convert:    return "Transcode files to MP4"
-        case .rename:     return "Rename files using a pattern"
-        case .format:     return "Permanently erase the device's drive"
-        case .cleanup:    return "Delete files older than N days in the destination folder"
-        case .notify:     return "Send an email"
-        case .record:  return "Start recording on the device"
-        case .wait:    return "Pause before moving to the next step"
-        case .sync:    return "Download new files from the device"
-        case .convert: return "Transcode files to MP4"
-        case .rename:  return "Rename files using a pattern"
-        case .format:  return "Permanently erase the device's drive"
-        case .cleanup: return "Delete files older than N days in the destination folder"
-        case .notify:  return "Send an email"
+        case .controlDeck: return "Start or stop recording on the device"
+        case .wait:         return "Pause before moving to the next step"
+        case .sync:         return "Download new files from the device"
+        case .convert:      return "Transcode files to MP4"
+        case .rename:       return "Rename files using a pattern"
+        case .format:       return "Permanently erase the device's drive"
+        case .cleanup:      return "Delete files older than N days in the destination folder"
+        case .notify:       return "Send an email"
         }
     }
 
     var icon: String {
         switch self {
-        case .record:     return "record.circle"
-        case .stopRecord: return "stop.circle"
-        case .sync:       return "arrow.down.circle"
-        case .convert:    return "film.stack"
-        case .rename:     return "textformat"
-        case .format:     return "externaldrive.badge.xmark"
-        case .cleanup:    return "trash"
-        case .notify:     return "envelope"
-        case .record:  return "record.circle"
-        case .wait:    return "hourglass"
-        case .sync:    return "arrow.down.circle"
-        case .convert: return "film.stack"
-        case .rename:  return "textformat"
-        case .format:  return "externaldrive.badge.xmark"
-        case .cleanup: return "trash"
-        case .notify:  return "envelope"
+        case .controlDeck: return "record.circle"
+        case .wait:         return "hourglass"
+        case .sync:         return "arrow.down.circle"
+        case .convert:      return "film.stack"
+        case .rename:       return "textformat"
+        case .format:       return "externaldrive.badge.xmark"
+        case .cleanup:      return "trash"
+        case .notify:       return "envelope"
         }
     }
 
     var color: Color {
         switch self {
-        case .record:     return .red
-        case .stopRecord: return .gray
-        case .sync:       return .blue
-        case .convert:    return .orange
-        case .rename:     return .purple
-        case .format:     return .red
-        case .cleanup:    return .gray
-        case .notify:     return .teal
-        case .record:  return .red
-        case .wait:    return .indigo
-        case .sync:    return .blue
-        case .convert: return .orange
-        case .rename:  return .purple
-        case .format:  return .red
-        case .cleanup: return .gray
-        case .notify:  return .teal
+        case .controlDeck: return .red
+        case .wait:         return .indigo
+        case .sync:         return .blue
+        case .convert:      return .orange
+        case .rename:       return .purple
+        case .format:       return .red
+        case .cleanup:      return .gray
+        case .notify:       return .teal
         }
     }
 }
@@ -119,8 +102,7 @@ enum WaitDurationFormatter {
 // MARK: - Step Action
 // Each case carries only the configuration that step needs.
 enum StepAction: Hashable {
-    case record(stopAfterMinutes: Int?)
-    case stopRecord
+    case controlDeck(command: DeckCommand, stopAfterMinutes: Int?)
     case wait(minutes: Int)
     case sync
     case convert(preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool)
@@ -131,56 +113,43 @@ enum StepAction: Hashable {
 
     var kind: StepKind {
         switch self {
-        case .record:     return .record
-        case .stopRecord: return .stopRecord
-        case .sync:       return .sync
-        case .convert:    return .convert
-        case .rename:     return .rename
-        case .format:     return .format
-        case .cleanup:    return .cleanup
-        case .notify:     return .notify
-        case .record:   return .record
-        case .wait:     return .wait
-        case .sync:     return .sync
-        case .convert:  return .convert
-        case .rename:   return .rename
-        case .format:   return .format
-        case .cleanup:  return .cleanup
-        case .notify:   return .notify
+        case .controlDeck: return .controlDeck
+        case .wait:         return .wait
+        case .sync:         return .sync
+        case .convert:      return .convert
+        case .rename:       return .rename
+        case .format:       return .format
+        case .cleanup:      return .cleanup
+        case .notify:       return .notify
         }
     }
 
     static func defaultAction(for kind: StepKind) -> StepAction {
         switch kind {
-        case .record:     return .record(stopAfterMinutes: nil)
-        case .stopRecord: return .stopRecord
-        case .sync:       return .sync
-        case .convert:    return .convert(preset: .fast, deleteOriginal: true)
-        case .rename:     return .rename(pattern: "{device}_{date}_{index}")
-        case .format:     return .format
-        case .cleanup:    return .cleanup(retentionDays: 30)
-        case .notify:     return .notify(header: "Workflow update", message: "", recipients: [], sendPerDrive: true)
-        case .record:  return .record(stopAfterMinutes: nil)
-        case .wait:    return .wait(minutes: 60)
-        case .sync:    return .sync
-        case .convert: return .convert(preset: .fast, deleteOriginal: true)
-        case .rename:  return .rename(pattern: "{device}_{date}_{index}")
-        case .format:  return .format
-        case .cleanup: return .cleanup(retentionDays: 30)
-        case .notify:  return .notify(header: "Workflow update", message: "", recipients: [], sendPerDrive: true)
+        case .controlDeck: return .controlDeck(command: .start, stopAfterMinutes: nil)
+        case .wait:         return .wait(minutes: 60)
+        case .sync:         return .sync
+        case .convert:      return .convert(preset: .fast, deleteOriginal: true)
+        case .rename:       return .rename(pattern: "{device}_{date}_{index}")
+        case .format:       return .format
+        case .cleanup:      return .cleanup(retentionDays: 30)
+        case .notify:       return .notify(header: "Workflow update", message: "", recipients: [], sendPerDrive: true)
         }
     }
 
     /// One-line summary shown under the step title in the editor.
     var summary: String {
         switch self {
-        case .record(let stopAfterMinutes):
-            if let minutes = stopAfterMinutes {
-                return "Records, then stops after \(minutes) minute\(minutes == 1 ? "" : "s")"
+        case .controlDeck(let command, let stopAfterMinutes):
+            switch command {
+            case .start:
+                if let minutes = stopAfterMinutes {
+                    return "Starts recording, then stops after \(minutes) minute\(minutes == 1 ? "" : "s")"
+                }
+                return "Starts recording and continues to the next step"
+            case .stop:
+                return "Stops recording on the device"
             }
-            return "Starts recording and continues to the next step"
-        case .stopRecord:
-            return "Stops recording on the device"
         case .wait(let minutes):
             return "Waits \(WaitDurationFormatter.string(forMinutes: minutes)) before continuing"
         case .sync:
@@ -204,10 +173,15 @@ enum StepAction: Hashable {
 // MARK: - StepAction Codable Implementation
 extension StepAction: Codable {
     enum CodingKeys: String, CodingKey {
-        case record, stopRecord, sync, convert, rename, format, cleanup, notify
-        case record, wait, sync, convert, rename, format, cleanup, notify
+        case controlDeck, record, stopRecord, wait, sync, convert, rename, format, cleanup, notify
     }
 
+    enum ControlDeckKeys: String, CodingKey {
+        case command, stopAfterMinutes
+    }
+
+    // Legacy keys, kept only so workflows saved before the two record
+    // steps were merged still decode correctly.
     enum RecordKeys: String, CodingKey {
         case stopAfterMinutes
     }
@@ -236,12 +210,17 @@ extension StepAction: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if container.contains(.record) {
+        if container.contains(.controlDeck) {
+            let nested = try container.nestedContainer(keyedBy: ControlDeckKeys.self, forKey: .controlDeck)
+            let command = try nested.decode(DeckCommand.self, forKey: .command)
+            let stop = try nested.decodeIfPresent(Int.self, forKey: .stopAfterMinutes)
+            self = .controlDeck(command: command, stopAfterMinutes: stop)
+        } else if container.contains(.record) {
             let nested = try container.nestedContainer(keyedBy: RecordKeys.self, forKey: .record)
             let stop = try nested.decodeIfPresent(Int.self, forKey: .stopAfterMinutes)
-            self = .record(stopAfterMinutes: stop)
+            self = .controlDeck(command: .start, stopAfterMinutes: stop)
         } else if container.contains(.stopRecord) {
-            self = .stopRecord
+            self = .controlDeck(command: .stop, stopAfterMinutes: nil)
         } else if container.contains(.wait) {
             let nested = try container.nestedContainer(keyedBy: WaitKeys.self, forKey: .wait)
             let minutes = try nested.decode(Int.self, forKey: .minutes)
@@ -278,11 +257,10 @@ extension StepAction: Codable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .record(let stop):
-            var nested = container.nestedContainer(keyedBy: RecordKeys.self, forKey: .record)
+        case .controlDeck(let command, let stop):
+            var nested = container.nestedContainer(keyedBy: ControlDeckKeys.self, forKey: .controlDeck)
+            try nested.encode(command, forKey: .command)
             try nested.encode(stop, forKey: .stopAfterMinutes)
-        case .stopRecord:
-            _ = container.nestedContainer(keyedBy: DummyKeys.self, forKey: .stopRecord)
         case .wait(let minutes):
             var nested = container.nestedContainer(keyedBy: WaitKeys.self, forKey: .wait)
             try nested.encode(minutes, forKey: .minutes)
@@ -399,8 +377,7 @@ struct Workflow: Identifiable, Codable, Hashable {
 
     /// True if any step needs the shared sync destination mounted.
     var needsDestinationMount: Bool {
-        steps.contains { ![.format, .record, .stopRecord, .notify].contains($0.kind) }
-        steps.contains { $0.kind != .format && $0.kind != .record && $0.kind != .notify && $0.kind != .wait }
+        steps.contains { ![.format, .controlDeck, .wait, .notify].contains($0.kind) }
     }
 
     /// True if this workflow will run on its own via at least one enabled trigger.
