@@ -49,55 +49,64 @@ final class WorkflowEngine: ObservableObject {
             return
         }
 
+        for deck in decks where !appState.currentRunDecks.contains(deck.name) {
+            appState.currentRunDecks.append(deck.name)
+        }
+
         // Each deck may point at its own Cloud Store, or fall back to the
         // shared global destination — mount every distinct store exactly
         // once and reuse the resolved path for every deck that needs it.
+        // This is done up front so every deck has a ready context before
+        // the step loop below starts fanning steps out across them.
         var mountedPaths: [UUID?: String] = [:]
-        var allProcessedFiles: [URL] = []
+        var contexts: [StepContext] = []
 
         for deck in decks {
-            guard appState.isRunning else { break }
-            if !appState.currentRunDecks.contains(deck.name) {
-                appState.currentRunDecks.append(deck.name)
-            }
-
             guard workflow.needsDestinationMount else {
-                var context = StepContext(deck: deck, destDir: URL(fileURLWithPath: "/dev/null"), workflowName: workflow.name)
-                appState.log("— \(deck.name) —")
-                for step in workflow.steps {
-                    guard appState.isRunning else { break }
-                    if case .notify(_, _, _, let sendPerDrive) = step.action, !sendPerDrive {
-                        continue
-                    }
-                    await execute(step, context: &context)
-                }
-                allProcessedFiles.append(contentsOf: context.files)
+                contexts.append(StepContext(deck: deck, destDir: URL(fileURLWithPath: "/dev/null"), workflowName: workflow.name))
                 continue
             }
-
-            let destDir: URL
             do {
-                destDir = try await resolveDestination(for: deck, cache: &mountedPaths)
+                let destDir = try await resolveDestination(for: deck, cache: &mountedPaths)
+                try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+                contexts.append(StepContext(deck: deck, destDir: destDir, workflowName: workflow.name))
             } catch {
                 appState.log("❌ \(deck.name): \(error.localizedDescription)")
                 appState.mountError = error.localizedDescription
                 appState.currentRunErrors += 1
+            }
+        }
+
+        guard !contexts.isEmpty else {
+            finishRun(workflow: workflow)
+            return
+        }
+
+        // Run one step at a time, fanning each step out across every deck
+        // at once — this is what keeps multi-deck control synchronized,
+        // e.g. every HyperDeck starts (or stops) recording together instead
+        // of one finishing its entire step list before the next begins.
+        for step in workflow.steps {
+            guard appState.isRunning else { break }
+            if case .notify(_, _, _, let sendPerDrive) = step.action, !sendPerDrive {
                 continue
             }
-            try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
 
-            var context = StepContext(deck: deck, destDir: destDir, workflowName: workflow.name)
-            appState.log("— \(deck.name) —")
-
-            for step in workflow.steps {
-                guard appState.isRunning else { break }
-                if case .notify(_, _, _, let sendPerDrive) = step.action, !sendPerDrive {
-                    continue
+            contexts = await withTaskGroup(of: StepContext.self) { group in
+                for context in contexts {
+                    group.addTask {
+                        var context = context
+                        await self.execute(step, context: &context)
+                        return context
+                    }
                 }
-                await execute(step, context: &context)
+                var updated: [StepContext] = []
+                for await context in group { updated.append(context) }
+                return updated
             }
-            allProcessedFiles.append(contentsOf: context.files)
         }
+
+        let allProcessedFiles = contexts.flatMap(\.files)
 
         // Send workflow-wide notifications (single email for the entire workflow)
         let workflowWideNotifySteps = workflow.steps.filter {
@@ -109,7 +118,7 @@ final class WorkflowEngine: ObservableObject {
 
         if !workflowWideNotifySteps.isEmpty && appState.isRunning {
             var workflowContext = StepContext(
-                deck: decks.first ?? HyperDeck(name: "Workflow", ipAddress: "", remotePath: ""),
+                deck: contexts.first?.deck ?? HyperDeck(name: "Workflow", ipAddress: "", remotePath: ""),
                 destDir: URL(fileURLWithPath: "/dev/null"),
                 files: allProcessedFiles,
                 workflowName: workflow.name
@@ -287,6 +296,7 @@ final class WorkflowEngine: ObservableObject {
             Array(context.files[$0 ..< min($0 + maxJobs, context.files.count)])
         }
 
+        let deckName = context.deck.name
         var convertedFiles: [URL] = []
 
         for batch in batches {
@@ -303,7 +313,7 @@ final class WorkflowEngine: ObservableObject {
                             self.appState.activeTasks.first { $0.fileName == fileName }?.id
                         }
                         await MainActor.run {
-                            self.appState.log("  🎬 Converting \(fileName)...")
+                            self.appState.log("  🎬 Converting \(fileName) (\(deckName))...")
                             if let id = taskID { self.updateTask(id: id, phase: .converting, convertProgress: 0) }
                         }
 
@@ -329,12 +339,12 @@ final class WorkflowEngine: ObservableObject {
 
             for (input, output, ok) in results {
                 if ok {
-                    appState.log("  ✅ Converted → \(output.lastPathComponent)")
+                    appState.log("  ✅ Converted → \(output.lastPathComponent) (\(deckName))")
                     appState.currentRunConverted += 1
                     convertedFiles.append(output)
                     if deleteOriginal { try? FileManager.default.removeItem(at: input) }
                 } else {
-                    appState.log("  ❌ Conversion failed: \(input.lastPathComponent)")
+                    appState.log("  ❌ Conversion failed: \(input.lastPathComponent) (\(deckName))")
                     appState.currentRunErrors += 1
                     if !deleteOriginal { convertedFiles.append(input) }
                 }
@@ -371,10 +381,10 @@ final class WorkflowEngine: ObservableObject {
                     try FileManager.default.removeItem(at: newURL)
                 }
                 try FileManager.default.moveItem(at: url, to: newURL)
-                appState.log("  ✏️ Renamed → \(newURL.lastPathComponent)")
+                appState.log("  ✏️ Renamed → \(newURL.lastPathComponent) (\(context.deck.name))")
                 renamed.append(newURL)
             } catch {
-                appState.log("  ❌ Rename failed for \(url.lastPathComponent): \(error.localizedDescription)")
+                appState.log("  ❌ Rename failed for \(url.lastPathComponent) (\(context.deck.name)): \(error.localizedDescription)")
                 appState.currentRunErrors += 1
                 renamed.append(url)
             }
