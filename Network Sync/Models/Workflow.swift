@@ -137,6 +137,19 @@ enum StepAction: Hashable {
         }
     }
 
+    /// Compact label for overviews like the workflow card's step chain —
+    /// shows the actual choice made rather than just the step kind, where
+    /// that choice is the interesting part (e.g. "Start Recording" instead
+    /// of the generic "Control HyperDeck").
+    var shortLabel: String {
+        switch self {
+        case .controlDeck(let command, _):
+            return command.title
+        default:
+            return kind.title
+        }
+    }
+
     /// One-line summary shown under the step title in the editor.
     var summary: String {
         switch self {
@@ -372,7 +385,7 @@ struct Workflow: Identifiable, Codable, Hashable {
     }
 
     var stepsSummary: String {
-        steps.isEmpty ? "No steps yet" : steps.map(\.kind.title).joined(separator: "  →  ")
+        steps.isEmpty ? "No steps yet" : steps.map { $0.action.shortLabel }.joined(separator: "  →  ")
     }
 
     /// True if any step needs the shared sync destination mounted.
