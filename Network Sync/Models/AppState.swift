@@ -19,9 +19,6 @@ class AppState: ObservableObject {
     @Published var syncLocation: SyncLocation = SyncLocation() {
         didSet { save(syncLocation, key: "syncLocation") }
     }
-    @Published var conversionSettings: ConversionSettings = ConversionSettings() {
-        didSet { save(conversionSettings, key: "conversionSettings") }
-    }
     @Published var workflows: [Workflow] = [] {
         didSet { save(workflows, key: "workflows") }
     }
@@ -30,9 +27,6 @@ class AppState: ObservableObject {
     }
     @Published var emailNotificationSettings: EmailNotificationSettings = EmailNotificationSettings() {
         didSet { save(emailNotificationSettings, key: "emailNotificationSettings") }
-    }
-    @Published var formatDriveAfterSync: Bool = false {
-        didSet { UserDefaults.standard.set(formatDriveAfterSync, forKey: "formatDriveAfterSync") }
     }
     @Published var remoteControlSettings: RemoteControlSettings = RemoteControlSettings() {
         didSet { save(remoteControlSettings, key: "remoteControlSettings") }
@@ -93,11 +87,9 @@ class AppState: ObservableObject {
         switchers          = load([BlackmagicSwitcher].self, key: "switchers")          ?? []
         cloudStores        = load([CloudStore].self,         key: "cloudStores")        ?? []
         syncLocation       = load(SyncLocation.self,         key: "syncLocation")       ?? SyncLocation()
-        conversionSettings = load(ConversionSettings.self, key: "conversionSettings") ?? ConversionSettings()
         workflows                  = load([Workflow].self,                  key: "workflows")                  ?? []
         workflowRunHistory         = load([WorkflowRun].self,               key: "workflowRunHistory")         ?? []
         emailNotificationSettings  = load(EmailNotificationSettings.self,   key: "emailNotificationSettings")  ?? EmailNotificationSettings()
-        formatDriveAfterSync       = UserDefaults.standard.bool(forKey: "formatDriveAfterSync")
         remoteControlSettings     = load(RemoteControlSettings.self, key: "remoteControlSettings") ?? RemoteControlSettings()
         remoteMappings            = load([RemoteMapping].self,      key: "remoteMappings")         ?? []
     }

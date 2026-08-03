@@ -105,7 +105,7 @@ enum StepAction: Hashable {
     case controlDeck(command: DeckCommand, stopAfterMinutes: Int?)
     case wait(minutes: Int)
     case sync
-    case convert(preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool)
+    case convert(preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool, maxParallelJobs: Int)
     case rename(pattern: String)
     case format
     case cleanup(retentionDays: Int)
@@ -129,7 +129,7 @@ enum StepAction: Hashable {
         case .controlDeck: return .controlDeck(command: .start, stopAfterMinutes: nil)
         case .wait:         return .wait(minutes: 60)
         case .sync:         return .sync
-        case .convert:      return .convert(preset: .fast, deleteOriginal: true)
+        case .convert:      return .convert(preset: .fast, deleteOriginal: true, maxParallelJobs: 2)
         case .rename:       return .rename(pattern: "{device}_{date}_{index}")
         case .format:       return .format
         case .cleanup:      return .cleanup(retentionDays: 30)
@@ -167,8 +167,8 @@ enum StepAction: Hashable {
             return "Waits \(WaitDurationFormatter.string(forMinutes: minutes)) before continuing"
         case .sync:
             return "Downloads any new .mov files"
-        case .convert(let preset, let deleteOriginal):
-            return "\(preset.displayName) preset" + (deleteOriginal ? " · deletes original" : " · keeps original")
+        case .convert(let preset, let deleteOriginal, let maxParallelJobs):
+            return "\(preset.displayName) preset" + (deleteOriginal ? " · deletes original" : " · keeps original") + " · \(maxParallelJobs) parallel"
         case .rename(let pattern):
             return "Pattern: \(pattern)"
         case .format:
@@ -204,7 +204,7 @@ extension StepAction: Codable {
     }
 
     enum ConvertKeys: String, CodingKey {
-        case preset, deleteOriginal
+        case preset, deleteOriginal, maxParallelJobs
     }
 
     enum RenameKeys: String, CodingKey {
@@ -244,7 +244,9 @@ extension StepAction: Codable {
             let nested = try container.nestedContainer(keyedBy: ConvertKeys.self, forKey: .convert)
             let preset = try nested.decode(ConversionSettings.FFmpegPreset.self, forKey: .preset)
             let deleteOriginal = try nested.decode(Bool.self, forKey: .deleteOriginal)
-            self = .convert(preset: preset, deleteOriginal: deleteOriginal)
+            // Pre-per-step-concurrency workflows didn't store this — default to 2.
+            let maxParallelJobs = try nested.decodeIfPresent(Int.self, forKey: .maxParallelJobs) ?? 2
+            self = .convert(preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs)
         } else if container.contains(.rename) {
             let nested = try container.nestedContainer(keyedBy: RenameKeys.self, forKey: .rename)
             let pattern = try nested.decode(String.self, forKey: .pattern)
@@ -279,10 +281,11 @@ extension StepAction: Codable {
             try nested.encode(minutes, forKey: .minutes)
         case .sync:
             _ = container.nestedContainer(keyedBy: DummyKeys.self, forKey: .sync)
-        case .convert(let preset, let deleteOriginal):
+        case .convert(let preset, let deleteOriginal, let maxParallelJobs):
             var nested = container.nestedContainer(keyedBy: ConvertKeys.self, forKey: .convert)
             try nested.encode(preset, forKey: .preset)
             try nested.encode(deleteOriginal, forKey: .deleteOriginal)
+            try nested.encode(maxParallelJobs, forKey: .maxParallelJobs)
         case .rename(let pattern):
             var nested = container.nestedContainer(keyedBy: RenameKeys.self, forKey: .rename)
             try nested.encode(pattern, forKey: .pattern)

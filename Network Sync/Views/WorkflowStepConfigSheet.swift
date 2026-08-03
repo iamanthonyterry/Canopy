@@ -9,6 +9,7 @@ struct WorkflowStepConfigSheet: View {
     // Local editable copies so Cancel doesn't mutate the caller's step.
     @State private var preset: ConversionSettings.FFmpegPreset = .fast
     @State private var deleteOriginal = true
+    @State private var maxParallelJobs = 2
     @State private var pattern = ""
     @State private var retentionDays = 30
     @State private var controlCommand: DeckCommand = .start
@@ -142,6 +143,11 @@ struct WorkflowStepConfigSheet: View {
                 }.labelsHidden().frame(width: 200)
             }
             Toggle("Delete original after converting", isOn: $deleteOriginal)
+            LabeledContent("Max Parallel Jobs") {
+                Stepper("\(maxParallelJobs)", value: $maxParallelJobs, in: 1...8)
+            }
+            Text("How many files this step converts at the same time.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -328,8 +334,8 @@ struct WorkflowStepConfigSheet: View {
             }
         case .sync, .format:
             break
-        case .convert(let p, let del):
-            preset = p; deleteOriginal = del
+        case .convert(let p, let del, let jobs):
+            preset = p; deleteOriginal = del; maxParallelJobs = jobs
         case .rename(let pat):
             pattern = pat
         case .cleanup(let days):
@@ -352,7 +358,7 @@ struct WorkflowStepConfigSheet: View {
         case .wait:
             step.action = .wait(minutes: waitUnit == .hours ? waitValue * 60 : waitValue)
         case .sync:    step.action = .sync
-        case .convert: step.action = .convert(preset: preset, deleteOriginal: deleteOriginal)
+        case .convert: step.action = .convert(preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs)
         case .rename:  step.action = .rename(pattern: pattern.isEmpty ? "{name}" : pattern)
         case .format:  step.action = .format
         case .cleanup: step.action = .cleanup(retentionDays: retentionDays)

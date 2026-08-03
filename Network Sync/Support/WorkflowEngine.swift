@@ -207,7 +207,7 @@ final class WorkflowEngine: ObservableObject {
 
             if !toConvert.isEmpty {
                 var context = StepContext(deck: deck, destDir: destDir, files: toConvert, session: session)
-                await runConvert(context: &context, preset: appState.conversionSettings.preset, deleteOriginal: true)
+                await runConvert(context: &context, preset: .fast, deleteOriginal: true, maxParallelJobs: 2)
             }
         }
 
@@ -226,8 +226,8 @@ final class WorkflowEngine: ObservableObject {
             await runWait(minutes: minutes, session: context.session)
         case .sync:
             await runSync(context: &context)
-        case .convert(let preset, let deleteOriginal):
-            await runConvert(context: &context, preset: preset, deleteOriginal: deleteOriginal)
+        case .convert(let preset, let deleteOriginal, let maxParallelJobs):
+            await runConvert(context: &context, preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs)
         case .rename(let pattern):
             runRename(context: &context, pattern: pattern)
         case .format:
@@ -295,23 +295,19 @@ final class WorkflowEngine: ObservableObject {
 
     // MARK: - Convert step
 
-    private func runConvert(context: inout StepContext, preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool) async {
+    private func runConvert(context: inout StepContext, preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool, maxParallelJobs: Int) async {
         let session = context.session
         guard !context.files.isEmpty else {
             session.log("  ⏭ Convert: no files to convert")
             return
         }
 
-        let settings: ConversionSettings = {
-            var s = appState.conversionSettings
-            s.preset = preset
-            return s
-        }()
+        let settings = ConversionSettings(preset: preset)
 
         let convertedDir = context.destDir.appendingPathComponent("Converted")
         try? FileManager.default.createDirectory(at: convertedDir, withIntermediateDirectories: true)
 
-        let maxJobs = appState.conversionSettings.maxParallelConversions
+        let maxJobs = maxParallelJobs
         let batches = stride(from: 0, to: context.files.count, by: maxJobs).map {
             Array(context.files[$0 ..< min($0 + maxJobs, context.files.count)])
         }
