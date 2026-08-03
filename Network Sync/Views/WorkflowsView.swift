@@ -8,13 +8,19 @@ struct WorkflowsView: View {
     @State private var isCreating = false
     @State private var workflowPendingDelete: Workflow? = nil
 
+    private var inProgress: [WorkflowRunSession] {
+        appState.activeRuns.filter { !$0.isFinished }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
 
-            if appState.isRunning {
-                runningBanner
+            if !inProgress.isEmpty {
+                ForEach(inProgress) { session in
+                    runningBanner(session)
+                }
                 Divider()
             }
 
@@ -64,20 +70,20 @@ struct WorkflowsView: View {
         .padding()
     }
 
-    // MARK: - Running banner (live log while any workflow/pipeline runs)
+    // MARK: - Running banner (one per active run, live log + its own Stop)
 
-    private var runningBanner: some View {
+    private func runningBanner(_ session: WorkflowRunSession) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Running...").font(.subheadline).bold()
+                Text("Running \"\(session.workflow.name)\"...").font(.subheadline).bold()
                 Spacer()
-                Button(role: .destructive) { engine.stop() } label: {
+                Button(role: .destructive) { engine.stop(session) } label: {
                     Label("Stop", systemImage: "stop.fill")
                 }
                 .buttonStyle(.bordered).tint(.red).controlSize(.small)
             }
-            if let lastLine = appState.pipelineLog.last {
+            if let lastLine = session.lines.last {
                 Text(lastLine)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
@@ -86,6 +92,7 @@ struct WorkflowsView: View {
         }
         .padding()
     }
+
 
     // MARK: - Empty state
 
@@ -187,13 +194,19 @@ struct WorkflowsView: View {
 
                 Spacer()
 
-                Button {
-                    Task { await engine.run(workflow) }
-                } label: {
-                    Label("Run", systemImage: "play.fill")
+                if inProgress.contains(where: { $0.workflow.id == workflow.id }) {
+                    Label("Running", systemImage: "circle.fill")
+                        .font(.caption2).bold()
+                        .foregroundStyle(.blue)
+                } else {
+                    Button {
+                        Task { await engine.run(workflow) }
+                    } label: {
+                        Label("Run", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!appState.canRun(workflow) || workflow.steps.isEmpty)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(appState.isRunning || workflow.steps.isEmpty)
             }
         }
         .padding()

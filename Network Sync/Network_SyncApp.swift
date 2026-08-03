@@ -37,12 +37,13 @@ struct Network_SyncApp: App {
                         Button(workflow.name) {
                             Task { await WorkflowEngine.shared.run(workflow) }
                         }
+                        .disabled(!appState.canRun(workflow))
                     }
                 }
-                .disabled(appState.isRunning || runnable.isEmpty)
+                .disabled(runnable.isEmpty)
 
                 if appState.isRunning {
-                    Button("Stop Workflow") {
+                    Button("Stop All Workflows") {
                         WorkflowEngine.shared.stop()
                     }
                     .keyboardShortcut(".", modifiers: .command)

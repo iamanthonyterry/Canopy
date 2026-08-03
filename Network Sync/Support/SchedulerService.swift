@@ -38,20 +38,19 @@ class SchedulerService: ObservableObject {
 
     // MARK: - Tick
     private func tick() {
-        guard !appState.isRunning else { return }
         tickWorkflowSchedules()
     }
 
     // MARK: - Per-workflow schedules
-    // Each workflow can have several triggers; they're evaluated independently
-    // and only one run is started per tick (guarded by appState.isRunning).
+    // Each workflow can have several triggers, evaluated independently. A
+    // due trigger only fires if none of its workflow's target devices are
+    // already busy in another run — if it's due but busy, it's left alone
+    // (not marked as fired) so it's retried on the next tick instead of
+    // being skipped for the day.
     private func tickWorkflowSchedules() {
         for workflow in appState.workflows {
-            guard !appState.isRunning else { return }   // only one run at a time
-
             for trigger in workflow.triggers {
                 guard trigger.isEnabled else { continue }
-                guard !appState.isRunning else { return }
 
                 switch trigger.mode {
                 case .daily:
@@ -63,29 +62,34 @@ class SchedulerService: ObservableObject {
                     }
                     guard isTodayActive(for: trigger) else { continue }
                     guard triggersFiredToday[trigger.id] == nil else { continue }
+                    guard fire(workflow) else { continue }
                     triggersFiredToday[trigger.id] = Date()
-
-                    appState.log("🕐 Scheduled workflow triggered: \(workflow.name)")
-                    Task { await workflowEngine.run(workflow) }
 
                     if !trigger.repeatDaily {
                         disableTrigger(workflowID: workflow.id, triggerID: trigger.id)
                     }
-                    return
 
                 case .oneTime:
                     guard isDue(date: trigger.oneTimeDate) else { continue }
-
-                    appState.log("🕐 Scheduled workflow triggered: \(workflow.name)")
-                    Task { await workflowEngine.run(workflow) }
+                    guard fire(workflow) else { continue }
 
                     // One-time triggers always turn themselves off after firing.
                     disableTrigger(workflowID: workflow.id, triggerID: trigger.id)
-                    return
                 }
             }
         }
     }
+
+    /// Starts a scheduled workflow, unless a device it needs is already busy
+    /// in another run — in which case it's left for the next tick to retry.
+    @discardableResult
+    private func fire(_ workflow: Workflow) -> Bool {
+        guard appState.canRun(workflow) else { return false }
+        appState.log("🕐 Scheduled workflow triggered: \(workflow.name)")
+        Task { await workflowEngine.run(workflow) }
+        return true
+    }
+
 
     /// Flips a single trigger's `isEnabled` off after it fires, leaving the
     /// rest of the workflow's triggers untouched.

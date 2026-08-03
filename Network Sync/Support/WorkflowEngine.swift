@@ -5,6 +5,11 @@ import Combine
 /// workflow's steps in order, passing the current working set of local
 /// files from one step to the next (sync produces files, convert/rename
 /// transform them, format/cleanup act independently of them).
+///
+/// Multiple workflows can run at once as long as they don't target the same
+/// device — each run gets its own `WorkflowRunSession` (its own log, task
+/// list, and cancellation flag) instead of sharing one global "current run"
+/// state, so stopping or watching one run never affects another.
 @MainActor
 final class WorkflowEngine: ObservableObject {
     static let shared = WorkflowEngine()
@@ -16,7 +21,7 @@ final class WorkflowEngine: ObservableObject {
         let deck: HyperDeck
         let destDir: URL
         var files: [URL] = []
-        let workflowName: String
+        let session: WorkflowRunSession
     }
 
     // MARK: - Run (all target devices)
@@ -37,20 +42,18 @@ final class WorkflowEngine: ObservableObject {
     // MARK: - Shared run loop
 
     private func start(_ workflow: Workflow, decks: [HyperDeck]) async {
-        guard !appState.isRunning else { return }
-        appState.isRunning = true
-        appState.beginRun()
-        appState.lastRunWorkflow = workflow
-        appState.log("▶ Workflow started: \(workflow.name)")
+        // The Run buttons are already disabled when this would conflict, so
+        // this mainly guards races — e.g. the scheduler firing at the same
+        // instant someone taps Run manually.
+        guard appState.canRun(workflow) else { return }
+
+        let session = appState.beginRun(for: workflow, deckNames: Set(decks.map(\.name)))
+        session.log("▶ Workflow started: \(workflow.name)")
 
         guard !decks.isEmpty else {
-            appState.log("⚠️ No devices configured for this workflow")
-            finishRun(workflow: workflow)
+            session.log("⚠️ No devices configured for this workflow")
+            finishRun(workflow: workflow, session: session)
             return
-        }
-
-        for deck in decks where !appState.currentRunDecks.contains(deck.name) {
-            appState.currentRunDecks.append(deck.name)
         }
 
         // Each deck may point at its own Cloud Store, or fall back to the
@@ -63,22 +66,22 @@ final class WorkflowEngine: ObservableObject {
 
         for deck in decks {
             guard workflow.needsDestinationMount else {
-                contexts.append(StepContext(deck: deck, destDir: URL(fileURLWithPath: "/dev/null"), workflowName: workflow.name))
+                contexts.append(StepContext(deck: deck, destDir: URL(fileURLWithPath: "/dev/null"), session: session))
                 continue
             }
             do {
-                let destDir = try await resolveDestination(for: deck, cache: &mountedPaths)
+                let destDir = try await resolveDestination(for: deck, session: session, cache: &mountedPaths)
                 try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
-                contexts.append(StepContext(deck: deck, destDir: destDir, workflowName: workflow.name))
+                contexts.append(StepContext(deck: deck, destDir: destDir, session: session))
             } catch {
-                appState.log("❌ \(deck.name): \(error.localizedDescription)")
-                appState.mountError = error.localizedDescription
-                appState.currentRunErrors += 1
+                session.log("❌ \(deck.name): \(error.localizedDescription)")
+                session.mountError = error.localizedDescription
+                session.errors += 1
             }
         }
 
         guard !contexts.isEmpty else {
-            finishRun(workflow: workflow)
+            finishRun(workflow: workflow, session: session)
             return
         }
 
@@ -87,7 +90,7 @@ final class WorkflowEngine: ObservableObject {
         // e.g. every HyperDeck starts (or stops) recording together instead
         // of one finishing its entire step list before the next begins.
         for step in workflow.steps {
-            guard appState.isRunning else { break }
+            guard !session.isCancelled else { break }
             if case .notify(_, _, _, let sendPerDrive) = step.action, !sendPerDrive {
                 continue
             }
@@ -116,12 +119,12 @@ final class WorkflowEngine: ObservableObject {
             return false
         }
 
-        if !workflowWideNotifySteps.isEmpty && appState.isRunning {
+        if !workflowWideNotifySteps.isEmpty && !session.isCancelled {
             var workflowContext = StepContext(
                 deck: contexts.first?.deck ?? HyperDeck(name: "Workflow", ipAddress: "", remotePath: ""),
                 destDir: URL(fileURLWithPath: "/dev/null"),
                 files: allProcessedFiles,
-                workflowName: workflow.name
+                session: session
             )
             for step in workflowWideNotifySteps {
                 if case .notify(let header, let message, let recipients, _) = step.action {
@@ -130,25 +133,39 @@ final class WorkflowEngine: ObservableObject {
             }
         }
 
-        finishRun(workflow: workflow)
+        finishRun(workflow: workflow, session: session)
     }
 
+    /// Stops every run currently in progress.
     func stop() {
-        appState.isRunning = false
-        appState.log("⏹ Workflow stopped by user")
-        appState.commitRun()
+        for session in appState.activeRuns where !session.isFinished {
+            stop(session)
+        }
+    }
+
+    /// Stops just one run, leaving any other concurrent runs untouched.
+    func stop(_ session: WorkflowRunSession) {
+        session.isCancelled = true
+        session.log("⏹ Workflow stopped by user")
     }
 
     // MARK: - Retry failed tasks
-    // Re-downloads and re-converts whichever files errored out on the last
+    // Re-downloads and re-converts whichever files errored out on a previous
     // run, using each deck's normal destination (its Cloud Store, or the
     // shared global destination) and the app's current conversion settings.
+    // Gets its own session like any other run, so it's blocked only if one
+    // of those specific decks is already busy elsewhere.
 
     func retryFailed() async {
         let failed = appState.failedTasks
-        guard !failed.isEmpty, !appState.isRunning else { return }
-        appState.isRunning = true
-        appState.log("↩ Retrying \(failed.count) failed file(s)...")
+        guard !failed.isEmpty else { return }
+
+        let deckNames = Set(failed.map(\.deckName))
+        guard appState.busyDeckNames.isDisjoint(with: deckNames) else { return }
+
+        let workflow = Workflow(name: "Retry Failed")
+        let session = appState.beginRun(for: workflow, deckNames: deckNames)
+        session.log("↩ Retrying \(failed.count) failed file(s)...")
 
         var mountedPaths: [UUID?: String] = [:]
         let byDeck = Dictionary(grouping: failed, by: \.deckName)
@@ -158,11 +175,11 @@ final class WorkflowEngine: ObservableObject {
 
             let destDir: URL
             do {
-                destDir = try await resolveDestination(for: deck, cache: &mountedPaths)
+                destDir = try await resolveDestination(for: deck, session: session, cache: &mountedPaths)
             } catch {
-                appState.log("❌ \(deck.name): \(error.localizedDescription)")
-                appState.mountError = error.localizedDescription
-                appState.currentRunErrors += 1
+                session.log("❌ \(deck.name): \(error.localizedDescription)")
+                session.mountError = error.localizedDescription
+                session.errors += 1
                 continue
             }
 
@@ -183,19 +200,20 @@ final class WorkflowEngine: ObservableObject {
                 } else {
                     let reason = result.failureReason ?? "unknown error"
                     updateTask(id: task.id, phase: .error, errorMessage: "Retry failed: \(reason)")
-                    appState.log("  ❌ Retry failed: \(task.fileName) (\(reason))")
-                    appState.currentRunErrors += 1
+                    session.log("  ❌ Retry failed: \(task.fileName) (\(reason))")
+                    session.errors += 1
                 }
             }
 
             if !toConvert.isEmpty {
-                var context = StepContext(deck: deck, destDir: destDir, files: toConvert, workflowName: "Retry Failed")
+                var context = StepContext(deck: deck, destDir: destDir, files: toConvert, session: session)
                 await runConvert(context: &context, preset: appState.conversionSettings.preset, deleteOriginal: true)
             }
         }
 
-        appState.isRunning = false
-        appState.log("↩ Retry complete")
+        session.log("↩ Retry complete")
+        finishRun(workflow: workflow, session: session)
+        appState.pruneCleanSessions()
     }
 
     // MARK: - Step dispatch
@@ -205,7 +223,7 @@ final class WorkflowEngine: ObservableObject {
         case .controlDeck(let command, let stopAfterMinutes):
             await runControlDeck(context: &context, command: command, stopAfterMinutes: stopAfterMinutes)
         case .wait(let minutes):
-            await runWait(minutes: minutes)
+            await runWait(minutes: minutes, session: context.session)
         case .sync:
             await runSync(context: &context)
         case .convert(let preset, let deleteOriginal):
@@ -225,17 +243,18 @@ final class WorkflowEngine: ObservableObject {
 
     private func runSync(context: inout StepContext) async {
         let deck = context.deck
-        appState.log("  📡 Scanning \(deck.name) (\(deck.ipAddress))...")
+        let session = context.session
+        session.log("  📡 Scanning \(deck.name) (\(deck.ipAddress))...")
 
         let remoteFiles = await FTPService.listMovFiles(on: deck)
         guard !remoteFiles.isEmpty else {
-            appState.log("  \(deck.name): no .mov files found")
+            session.log("  \(deck.name): no .mov files found")
             return
         }
-        appState.log("  \(deck.name): \(remoteFiles.count) file(s) found")
+        session.log("  \(deck.name): \(remoteFiles.count) file(s) found")
 
         for fileName in remoteFiles {
-            guard appState.isRunning else { return }
+            guard !session.isCancelled else { return }
 
             let destURL = context.destDir.appendingPathComponent(fileName)
             let convertedURL = context.destDir
@@ -243,14 +262,14 @@ final class WorkflowEngine: ObservableObject {
                 .appendingPathComponent((fileName as NSString).deletingPathExtension + ".mp4")
 
             if FileManager.default.fileExists(atPath: convertedURL.path) {
-                appState.log("  ⏭ \(fileName) already processed")
-                appState.currentRunSkipped += 1
+                session.log("  ⏭ \(fileName) already processed")
+                session.skipped += 1
                 continue
             }
 
-            let task = addTask(fileName: fileName, deckName: deck.name)
+            let task = addTask(fileName: fileName, deckName: deck.name, in: session)
             updateTask(id: task.id, phase: .downloading, syncProgress: 0)
-            appState.log("  ⬇ Downloading \(fileName)...")
+            session.log("  ⬇ Downloading \(fileName)...")
 
             // FTPService.downloadFile already retries transient failures
             // internally (dropped connection, stalled transfer), cleaning up
@@ -263,13 +282,13 @@ final class WorkflowEngine: ObservableObject {
             guard result.success else {
                 let reason = result.failureReason ?? "unknown error"
                 updateTask(id: task.id, phase: .error, errorMessage: "Download failed after retries: \(reason)")
-                appState.log("  ❌ Download failed: \(fileName) — \(reason)")
-                appState.currentRunErrors += 1
+                session.log("  ❌ Download failed: \(fileName) — \(reason)")
+                session.errors += 1
                 continue
             }
 
             updateTask(id: task.id, phase: .done, syncProgress: 1)
-            appState.log("  ✅ Downloaded \(fileName)")
+            session.log("  ✅ Downloaded \(fileName)")
             context.files.append(destURL)
         }
     }
@@ -277,8 +296,9 @@ final class WorkflowEngine: ObservableObject {
     // MARK: - Convert step
 
     private func runConvert(context: inout StepContext, preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool) async {
+        let session = context.session
         guard !context.files.isEmpty else {
-            appState.log("  ⏭ Convert: no files to convert")
+            session.log("  ⏭ Convert: no files to convert")
             return
         }
 
@@ -300,7 +320,7 @@ final class WorkflowEngine: ObservableObject {
         var convertedFiles: [URL] = []
 
         for batch in batches {
-            guard appState.isRunning else { break }
+            guard !session.isCancelled else { break }
 
             let results: [(input: URL, output: URL, ok: Bool)] = await withTaskGroup(of: (URL, URL, Bool).self) { group in
                 for inputURL in batch {
@@ -310,10 +330,10 @@ final class WorkflowEngine: ObservableObject {
                             (fileName as NSString).deletingPathExtension + ".mp4"
                         )
                         let taskID = await MainActor.run {
-                            self.appState.activeTasks.first { $0.fileName == fileName }?.id
+                            self.taskID(forFileName: fileName, deckName: deckName)
                         }
                         await MainActor.run {
-                            self.appState.log("  🎬 Converting \(fileName) (\(deckName))...")
+                            session.log("  🎬 Converting \(fileName) (\(deckName))...")
                             if let id = taskID { self.updateTask(id: id, phase: .converting, convertProgress: 0) }
                         }
 
@@ -339,13 +359,13 @@ final class WorkflowEngine: ObservableObject {
 
             for (input, output, ok) in results {
                 if ok {
-                    appState.log("  ✅ Converted → \(output.lastPathComponent) (\(deckName))")
-                    appState.currentRunConverted += 1
+                    session.log("  ✅ Converted → \(output.lastPathComponent) (\(deckName))")
+                    session.converted += 1
                     convertedFiles.append(output)
                     if deleteOriginal { try? FileManager.default.removeItem(at: input) }
                 } else {
-                    appState.log("  ❌ Conversion failed: \(input.lastPathComponent) (\(deckName))")
-                    appState.currentRunErrors += 1
+                    session.log("  ❌ Conversion failed: \(input.lastPathComponent) (\(deckName))")
+                    session.errors += 1
                     if !deleteOriginal { convertedFiles.append(input) }
                 }
             }
@@ -357,8 +377,9 @@ final class WorkflowEngine: ObservableObject {
     // MARK: - Rename step
 
     private func runRename(context: inout StepContext, pattern: String) {
+        let session = context.session
         guard !context.files.isEmpty else {
-            appState.log("  ⏭ Rename: no files to rename")
+            session.log("  ⏭ Rename: no files to rename")
             return
         }
 
@@ -381,11 +402,11 @@ final class WorkflowEngine: ObservableObject {
                     try FileManager.default.removeItem(at: newURL)
                 }
                 try FileManager.default.moveItem(at: url, to: newURL)
-                appState.log("  ✏️ Renamed → \(newURL.lastPathComponent) (\(context.deck.name))")
+                session.log("  ✏️ Renamed → \(newURL.lastPathComponent) (\(context.deck.name))")
                 renamed.append(newURL)
             } catch {
-                appState.log("  ❌ Rename failed for \(url.lastPathComponent) (\(context.deck.name)): \(error.localizedDescription)")
-                appState.currentRunErrors += 1
+                session.log("  ❌ Rename failed for \(url.lastPathComponent) (\(context.deck.name)): \(error.localizedDescription)")
+                session.errors += 1
                 renamed.append(url)
             }
         }
@@ -397,57 +418,58 @@ final class WorkflowEngine: ObservableObject {
 
     private func runControlDeck(context: inout StepContext, command: DeckCommand, stopAfterMinutes: Int?) async {
         let deck = context.deck
+        let session = context.session
         let service = HyperDeckService(host: deck.ipAddress)
 
         await service.fetchTransport()
         guard service.isConnected else {
-            appState.log("  ❌ \(deck.name) is not reachable — skipping control step")
-            appState.currentRunErrors += 1
+            session.log("  ❌ \(deck.name) is not reachable — skipping control step")
+            session.errors += 1
             return
         }
 
         switch command {
         case .start:
             if service.transport == .recording {
-                appState.log("  ⏺ \(deck.name) is already recording")
+                session.log("  ⏺ \(deck.name) is already recording")
             } else {
-                appState.log("  ⏺ Starting recording on \(deck.name)...")
+                session.log("  ⏺ Starting recording on \(deck.name)...")
                 await service.record()
                 if let error = service.lastError {
-                    appState.log("  ❌ \(deck.name) failed to start recording: \(error)")
-                    appState.currentRunErrors += 1
+                    session.log("  ❌ \(deck.name) failed to start recording: \(error)")
+                    session.errors += 1
                     return
                 }
-                appState.log("  ✅ \(deck.name) is recording")
+                session.log("  ✅ \(deck.name) is recording")
             }
 
             guard let minutes = stopAfterMinutes else { return }
 
-            appState.log("  ⏳ Will stop \(deck.name) after \(minutes) minute\(minutes == 1 ? "" : "s")...")
+            session.log("  ⏳ Will stop \(deck.name) after \(minutes) minute\(minutes == 1 ? "" : "s")...")
             try? await Task.sleep(for: .seconds(minutes * 60))
-            guard appState.isRunning else { return }
+            guard !session.isCancelled else { return }
 
             await service.stop()
             if let error = service.lastError {
-                appState.log("  ❌ \(deck.name) failed to stop recording: \(error)")
-                appState.currentRunErrors += 1
+                session.log("  ❌ \(deck.name) failed to stop recording: \(error)")
+                session.errors += 1
             } else {
-                appState.log("  ⏹ \(deck.name) stopped recording")
+                session.log("  ⏹ \(deck.name) stopped recording")
             }
 
         case .stop:
             guard service.transport == .recording else {
-                appState.log("  ⏭ \(deck.name) is not recording")
+                session.log("  ⏭ \(deck.name) is not recording")
                 return
             }
 
-            appState.log("  ⏹ Stopping recording on \(deck.name)...")
+            session.log("  ⏹ Stopping recording on \(deck.name)...")
             await service.stop()
             if let error = service.lastError {
-                appState.log("  ❌ \(deck.name) failed to stop recording: \(error)")
-                appState.currentRunErrors += 1
+                session.log("  ❌ \(deck.name) failed to stop recording: \(error)")
+                session.errors += 1
             } else {
-                appState.log("  ✅ \(deck.name) stopped recording")
+                session.log("  ✅ \(deck.name) stopped recording")
             }
         }
     }
@@ -455,43 +477,45 @@ final class WorkflowEngine: ObservableObject {
     // MARK: - Wait step
 
     /// Pauses the workflow for a fixed duration before moving on. Sleeps in
-    /// short chunks (rather than one long `Task.sleep`) so the user's Stop
+    /// short chunks (rather than one long `Task.sleep`) so this run's Stop
     /// button takes effect promptly instead of after the full wait elapses.
-    private func runWait(minutes: Int) async {
+    private func runWait(minutes: Int, session: WorkflowRunSession) async {
         guard minutes > 0 else { return }
         let totalSeconds = minutes * 60
-        appState.log("  ⏳ Waiting \(WaitDurationFormatter.string(forMinutes: minutes)) before continuing...")
+        session.log("  ⏳ Waiting \(WaitDurationFormatter.string(forMinutes: minutes)) before continuing...")
 
         var elapsed = 0
         let chunk = 5
         while elapsed < totalSeconds {
-            guard appState.isRunning else { return }
+            guard !session.isCancelled else { return }
             let sleepSeconds = min(chunk, totalSeconds - elapsed)
             try? await Task.sleep(for: .seconds(sleepSeconds))
             elapsed += sleepSeconds
         }
-        appState.log("  ⏳ Wait complete")
+        session.log("  ⏳ Wait complete")
     }
 
     // MARK: - Format step
 
     private func runFormat(context: inout StepContext) async {
-        appState.log("  🗑 Erasing \(context.deck.name)'s drive (\(context.deck.ipAddress))...")
+        let session = context.session
+        session.log("  🗑 Erasing \(context.deck.name)'s drive (\(context.deck.ipAddress))...")
         do {
             try await HyperDeckService.formatDrive(deck: context.deck)
-            appState.log("  ✅ \(context.deck.name)'s drive erased successfully")
+            session.log("  ✅ \(context.deck.name)'s drive erased successfully")
         } catch {
-            appState.log("  ❌ \(context.deck.name) drive erase failed: \(error.localizedDescription)")
-            appState.currentRunErrors += 1
+            session.log("  ❌ \(context.deck.name) drive erase failed: \(error.localizedDescription)")
+            session.errors += 1
         }
     }
 
     // MARK: - Cleanup step
 
     private func runCleanup(context: inout StepContext, retentionDays: Int) async {
+        let session = context.session
         let cutoff = Date().addingTimeInterval(-Double(retentionDays) * 86400)
         let base = context.destDir
-        appState.log("  🧹 Cleaning destination folder — removing files older than \(retentionDays) day(s)...")
+        session.log("  🧹 Cleaning \(context.deck.name)'s destination folder — removing files older than \(retentionDays) day(s)...")
 
         let deletedCount = await Task.detached(priority: .background) {
             let fm = FileManager.default
@@ -514,7 +538,7 @@ final class WorkflowEngine: ObservableObject {
             return deleted
         }.value
 
-        appState.log("  🗑 Cleanup removed \(deletedCount) old file(s)")
+        session.log("  🗑 Cleanup removed \(deletedCount) old file(s)")
     }
 
     // MARK: - Notification step
@@ -525,17 +549,18 @@ final class WorkflowEngine: ObservableObject {
         message: String,
         recipients: [NotificationRecipient]
     ) async {
+        let session = context.session
         guard !recipients.isEmpty else {
-            appState.log("  ⏭ Notification: no recipients configured")
+            session.log("  ⏭ Notification: no recipients configured")
             return
         }
         guard GmailAuthService.shared.isConnected else {
-            appState.log("  ⚠️ Notification: connect a Gmail account in Settings to send email")
+            session.log("  ⚠️ Notification: connect a Gmail account in Settings to send email")
             return
         }
 
         // Apply template variables
-        let duration = Date().timeIntervalSince(appState.currentRunStart)
+        let duration = Date().timeIntervalSince(session.startedAt)
         let totalSeconds = Int(duration)
         let mins = totalSeconds / 60
         let secs = totalSeconds % 60
@@ -545,18 +570,18 @@ final class WorkflowEngine: ObservableObject {
         let fileNamesBody = context.files.isEmpty ? "No files" : context.files.map { "- \($0.lastPathComponent)" }.joined(separator: "\n")
 
         let resolvedHeader = header
-            .replacingOccurrences(of: "{workflow_name}", with: context.workflowName)
-            .replacingOccurrences(of: "{workflow}", with: context.workflowName)
+            .replacingOccurrences(of: "{workflow_name}", with: session.workflow.name)
+            .replacingOccurrences(of: "{workflow}", with: session.workflow.name)
             .replacingOccurrences(of: "{time_taken}", with: timeTakenStr)
             .replacingOccurrences(of: "{file_names}", with: fileNamesHeader)
 
         let resolvedMessage = message
-            .replacingOccurrences(of: "{workflow_name}", with: context.workflowName)
-            .replacingOccurrences(of: "{workflow}", with: context.workflowName)
+            .replacingOccurrences(of: "{workflow_name}", with: session.workflow.name)
+            .replacingOccurrences(of: "{workflow}", with: session.workflow.name)
             .replacingOccurrences(of: "{time_taken}", with: timeTakenStr)
             .replacingOccurrences(of: "{file_names}", with: fileNamesBody)
 
-        appState.log("  ✉️ Sending notification \"\(resolvedHeader)\" to \(recipients.count) recipient(s)...")
+        session.log("  ✉️ Sending notification \"\(resolvedHeader)\" to \(recipients.count) recipient(s)...")
         var failed: [(recipient: String, reason: String)] = []
 
         for recipient in recipients {
@@ -584,39 +609,37 @@ final class WorkflowEngine: ObservableObject {
         }
 
         if failed.isEmpty {
-            appState.log("  ✅ Notification sent")
+            session.log("  ✅ Notification sent")
         } else {
             for failure in failed {
-                appState.log("  ⚠️ Failed to email \(failure.recipient): \(failure.reason)")
+                session.log("  ⚠️ Failed to email \(failure.recipient): \(failure.reason)")
             }
-            appState.currentRunErrors += 1
+            session.errors += 1
         }
     }
 
     // MARK: - Finish
 
-    private func finishRun(workflow: Workflow) {
-        appState.syncLocation.resolvedMountPath = nil
-        appState.isRunning = false
-        let c = appState.currentRunConverted
-        let e = appState.currentRunErrors
-        appState.log("✅ Workflow finished — \(c) processed, \(e) errors")
+    private func finishRun(workflow: Workflow, session: WorkflowRunSession) {
+        let c = session.converted
+        let e = session.errors
+        session.log("✅ Workflow finished — \(c) processed, \(e) errors")
 
         let run = WorkflowRun(
             workflowName:   workflow.name,
-            startedAt:      appState.currentRunStart,
+            startedAt:      session.startedAt,
             finishedAt:     Date(),
             processed:      c,
             errors:         e,
-            decksProcessed: appState.currentRunDecks,
-            log:            appState.pipelineLog
+            decksProcessed: Array(session.deckNames).sorted(),
+            log:            session.lines
         )
         appState.workflowRunHistory.insert(run, at: 0)
         if appState.workflowRunHistory.count > 50 {
             appState.workflowRunHistory = Array(appState.workflowRunHistory.prefix(50))
         }
 
-        appState.commitRun()
+        appState.finish(session)
         NotificationService.sendCompletion(converted: c, errors: e)
     }
 
@@ -639,9 +662,10 @@ final class WorkflowEngine: ObservableObject {
     /// Resolves the destination folder for a single deck: its own assigned
     /// Cloud Store + subfolder if one is set, otherwise the shared global
     /// sync destination. Mounts are cached per store so decks sharing a
-    /// store (including "no store" → the global default) only mount once.
+    /// store (including "no store" → the global default) only mount once
+    /// per run.
     private func resolveDestination(
-        for deck: HyperDeck, cache mountedPaths: inout [UUID?: String]
+        for deck: HyperDeck, session: WorkflowRunSession, cache mountedPaths: inout [UUID?: String]
     ) async throws -> URL {
         if let storeID = deck.cloudStoreID,
            let store = appState.cloudStores.first(where: { $0.id == storeID }) {
@@ -649,10 +673,10 @@ final class WorkflowEngine: ObservableObject {
             if let cached = mountedPaths[storeID] {
                 mountPath = cached
             } else {
-                appState.log("Mounting \(store.name)...")
+                session.log("Mounting \(store.name)...")
                 mountPath = try await SMBService.mount(store: store)
                 mountedPaths[storeID] = mountPath
-                appState.log("✅ Mounted \(store.name) at \(mountPath)")
+                session.log("✅ Mounted \(store.name) at \(mountPath)")
             }
             // Use the folder the user picked in Sync Destination exactly as
             // selected — don't nest an extra deck-name subfolder inside it.
@@ -665,21 +689,35 @@ final class WorkflowEngine: ObservableObject {
         if let cached = mountedPaths[nil] {
             mountPath = cached
         } else {
-            appState.log("Mounting \(appState.syncLocation.volumeName)...")
+            session.log("Mounting \(appState.syncLocation.volumeName)...")
             mountPath = try await mountSMBVolume(location: appState.syncLocation)
             appState.syncLocation.resolvedMountPath = mountPath
             mountedPaths[nil] = mountPath
-            appState.log("✅ Mounted at \(mountPath)")
+            session.log("✅ Mounted at \(mountPath)")
         }
         return URL(fileURLWithPath: appState.syncLocation.recordsPath)
             .appendingPathComponent(deck.name)
     }
 
     @discardableResult
-    private func addTask(fileName: String, deckName: String) -> SyncTask {
+    private func addTask(fileName: String, deckName: String, in session: WorkflowRunSession) -> SyncTask {
         let t = SyncTask(fileName: fileName, deckName: deckName)
-        appState.activeTasks.append(t)
+        session.tasks.append(t)
         return t
+    }
+
+    /// Looks up a task by file + device name rather than by whichever
+    /// session happens to be at hand — needed because with multiple decks
+    /// converting at once, two devices can produce identically named clips
+    /// (e.g. "Clip0001.mov"), and because a retried task's original entry
+    /// lives in an older session, not the fresh "Retry Failed" one.
+    private func taskID(forFileName fileName: String, deckName: String) -> UUID? {
+        for session in appState.activeRuns {
+            if let match = session.tasks.first(where: { $0.fileName == fileName && $0.deckName == deckName }) {
+                return match.id
+            }
+        }
+        return nil
     }
 
     private func updateTask(
@@ -689,19 +727,25 @@ final class WorkflowEngine: ObservableObject {
         convertProgress: Double? = nil,
         errorMessage: String? = nil
     ) {
-        guard let i = appState.activeTasks.firstIndex(where: { $0.id == id }) else { return }
-        if let v = phase           { appState.activeTasks[i].phase           = v }
-        if let v = syncProgress    { appState.activeTasks[i].syncProgress    = v }
-        if let v = convertProgress { appState.activeTasks[i].convertProgress = v }
-        if let v = errorMessage    { appState.activeTasks[i].errorMessage    = v }
+        for session in appState.activeRuns {
+            guard let i = session.tasks.firstIndex(where: { $0.id == id }) else { continue }
+            if let v = phase           { session.tasks[i].phase           = v }
+            if let v = syncProgress    { session.tasks[i].syncProgress    = v }
+            if let v = convertProgress { session.tasks[i].convertProgress = v }
+            if let v = errorMessage    { session.tasks[i].errorMessage    = v }
+            return
+        }
     }
 
     /// Clears a task back to its initial state before a retry attempt.
     private func resetTask(id: UUID) {
-        guard let i = appState.activeTasks.firstIndex(where: { $0.id == id }) else { return }
-        appState.activeTasks[i].phase           = .downloading
-        appState.activeTasks[i].syncProgress    = 0
-        appState.activeTasks[i].convertProgress = 0
-        appState.activeTasks[i].errorMessage    = nil
+        for session in appState.activeRuns {
+            guard let i = session.tasks.firstIndex(where: { $0.id == id }) else { continue }
+            session.tasks[i].phase           = .downloading
+            session.tasks[i].syncProgress    = 0
+            session.tasks[i].convertProgress = 0
+            session.tasks[i].errorMessage    = nil
+            return
+        }
     }
 }

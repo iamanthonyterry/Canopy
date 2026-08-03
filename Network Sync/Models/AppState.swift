@@ -42,26 +42,51 @@ class AppState: ObservableObject {
     }
 
     // MARK: - Live Pipeline State
-    @Published var isRunning = false
-    @Published var activeTasks: [SyncTask] = []
-    @Published var pipelineLog: [String] = []
-    @Published var mountError: String? = nil
-    /// The workflow behind the run currently in progress (or most recently
-    /// finished) — lets the UI offer a same-workflow retry after a mount error.
-    @Published var lastRunWorkflow: Workflow? = nil
+    // Every in-progress (or just-finished-with-something-to-show) workflow
+    // run gets its own session here, instead of one shared set of "current
+    // run" properties — that's what lets unrelated workflows run at the
+    // same time. A session is removed once it finishes cleanly; one that
+    // hit a mount error or has failed tasks sticks around so the user can
+    // retry or dismiss it.
+    @Published var activeRuns: [WorkflowRunSession] = []
 
-    // Failed tasks eligible for retry
-    var failedTasks: [SyncTask] { activeTasks.filter { $0.phase == .error } }
+    var isRunning: Bool { activeRuns.contains { !$0.isFinished } }
+    var allTasks: [SyncTask] { activeRuns.flatMap(\.tasks) }
+    var failedTasks: [SyncTask] { allTasks.filter { $0.phase == .error } }
 
-    // MARK: - Current run counters
-    var currentRunConverted = 0
-    var currentRunSkipped   = 0
-    var currentRunErrors    = 0
-    var currentRunDecks: [String] = []
-    var currentRunStart: Date = Date()
+    /// Names of devices currently in use by any in-progress run.
+    var busyDeckNames: Set<String> {
+        activeRuns.filter { !$0.isFinished }.reduce(into: Set<String>()) { $0.formUnion($1.deckNames) }
+    }
 
-    // MARK: - Elapsed time (published so views can observe)
-    @Published var runStartTime: Date? = nil
+    func targetDeckNames(for workflow: Workflow) -> Set<String> {
+        let decks = workflow.targetDeckIDs.isEmpty
+            ? hyperDecks
+            : hyperDecks.filter { workflow.targetDeckIDs.contains($0.id) }
+        return Set(decks.map(\.name))
+    }
+
+    /// False only if running this workflow right now would touch a device
+    /// that's already busy in another in-progress run.
+    func canRun(_ workflow: Workflow) -> Bool {
+        busyDeckNames.isDisjoint(with: targetDeckNames(for: workflow))
+    }
+
+    // MARK: - System log
+    // General activity log for things that aren't tied to a specific
+    // workflow run — remote control / OSC commands, scheduler activity,
+    // and the like. A workflow run's own progress goes through its
+    // `WorkflowRunSession` instead (see below).
+    @Published var systemLog: [String] = []
+
+    func log(_ message: String) {
+        let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        systemLog.append("[\(ts)] \(message)")
+        if systemLog.count > 200 {
+            systemLog.removeFirst(systemLog.count - 200)
+        }
+    }
+
 
     init() {
         hyperDecks         = load([HyperDeck].self,          key: "hyperDecks")         ?? []
@@ -161,29 +186,44 @@ class AppState: ObservableObject {
     }
 
     // MARK: - Run lifecycle
-    func beginRun() {
-        currentRunConverted = 0
-        currentRunSkipped   = 0
-        currentRunErrors    = 0
-        currentRunDecks     = []
-        currentRunStart     = Date()
-        activeTasks         = []
-        pipelineLog         = []
-        runStartTime        = Date()
-        mountError          = nil
+    /// Starts tracking a new run, clearing out any old finished session for
+    /// this same workflow first so its previous results don't linger
+    /// alongside the new ones.
+    func beginRun(for workflow: Workflow, deckNames: Set<String>) -> WorkflowRunSession {
+        activeRuns.removeAll { $0.workflow.id == workflow.id && $0.isFinished }
+        let session = WorkflowRunSession(workflow: workflow, deckNames: deckNames)
+        activeRuns.append(session)
+        return session
     }
 
-    /// Ends the live-progress phase of a run. Recording the completed run
-    /// itself is each engine's job (see WorkflowEngine.finishRun), since only
-    /// it knows which workflow ran and what it accomplished.
-    func commitRun() {
-        runStartTime = nil
+    /// Marks a run finished. A session with an unresolved mount error or
+    /// failed tasks stays visible (so the user can retry or dismiss it);
+    /// a fully clean run is removed immediately since there's nothing left
+    /// to show for it.
+    func finish(_ session: WorkflowRunSession) {
+        session.isFinished = true
+        if session.mountError == nil && session.failedTasks.isEmpty {
+            activeRuns.removeAll { $0.id == session.id }
+        }
+        // The shared default sync destination's resolved mount path is
+        // cached globally — only clear it once every run that might be
+        // relying on it has finished, so a still-running sibling doesn't
+        // lose its resolved path out from under it.
+        if !activeRuns.contains(where: { !$0.isFinished }) {
+            syncLocation.resolvedMountPath = nil
+        }
     }
 
-    // MARK: - Log
-    func log(_ message: String) {
-        let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-        pipelineLog.append("[\(ts)] \(message)")
+    /// Removes a finished session the user has acknowledged (e.g. dismissed
+    /// a mount-error banner, or retried its failed tasks to completion).
+    func dismiss(_ session: WorkflowRunSession) {
+        activeRuns.removeAll { $0.id == session.id }
+    }
+
+    /// Drops any finished session that no longer has anything worth
+    /// showing — called after retrying failed tasks in place.
+    func pruneCleanSessions() {
+        activeRuns.removeAll { $0.isFinished && $0.mountError == nil && $0.failedTasks.isEmpty }
     }
 
     // MARK: - Persistence

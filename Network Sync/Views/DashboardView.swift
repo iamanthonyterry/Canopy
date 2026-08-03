@@ -26,9 +26,13 @@ struct DashboardView: View {
     @State private var showingAddCloudStore = false
     @State private var selection: DashboardSelection?
 
-    var activeCount: Int  { appState.activeTasks.filter { $0.phase == .downloading || $0.phase == .converting }.count }
-    var doneCount: Int    { appState.activeTasks.filter { $0.phase == .done }.count }
-    var errorCount: Int   { appState.activeTasks.filter { $0.phase == .error }.count }
+    var inProgress: [WorkflowRunSession] { appState.activeRuns.filter { !$0.isFinished } }
+    var erroredMounts: [WorkflowRunSession] { appState.activeRuns.filter { $0.mountError != nil } }
+
+    var activeCount: Int  { inProgress.flatMap(\.tasks).filter { $0.phase == .downloading || $0.phase == .converting }.count }
+    var doneCount: Int    { inProgress.flatMap(\.tasks).filter { $0.phase == .done }.count }
+    var errorCount: Int   { inProgress.flatMap(\.tasks).filter { $0.phase == .error }.count }
+
 
     var totalDevices: Int  { appState.hyperDecks.count + appState.switchers.count + appState.cloudStores.count }
 
@@ -42,8 +46,10 @@ struct DashboardView: View {
             headerBar
             Divider()
 
-            if let error = appState.mountError {
-                mountErrorBanner(error)
+            if !erroredMounts.isEmpty {
+                ForEach(erroredMounts) { session in
+                    mountErrorBanner(session)
+                }
                 Divider()
             }
 
@@ -69,25 +75,24 @@ struct DashboardView: View {
     }
 
     // MARK: - Mount error banner
-    private func mountErrorBanner(_ message: String) -> some View {
+    private func mountErrorBanner(_ session: WorkflowRunSession) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Sync stopped — couldn't reach storage").font(.subheadline).bold()
-                Text(message).font(.caption).foregroundStyle(.secondary)
+                Text("\"\(session.workflow.name)\" stopped — couldn't reach storage").font(.subheadline).bold()
+                Text(session.mountError ?? "").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            if let workflow = appState.lastRunWorkflow {
-                Button {
-                    Task { await workflowEngine.run(workflow) }
-                } label: {
-                    Label("Retry", systemImage: "arrow.counterclockwise")
-                }
-                .buttonStyle(.bordered)
-            }
             Button {
-                appState.mountError = nil
+                Task { await workflowEngine.run(session.workflow) }
+            } label: {
+                Label("Retry", systemImage: "arrow.counterclockwise")
+            }
+            .buttonStyle(.bordered)
+            .disabled(!appState.canRun(session.workflow))
+            Button {
+                appState.dismiss(session)
             } label: {
                 Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
             }
@@ -96,6 +101,7 @@ struct DashboardView: View {
         .padding(12)
         .background(Color.red.opacity(0.1))
     }
+
 
     // MARK: - Header
     private var headerBar: some View {
@@ -108,8 +114,9 @@ struct DashboardView: View {
                 }
                 Spacer()
 
-                if appState.isRunning {
+                if !inProgress.isEmpty {
                     HStack(spacing: 10) {
+                        statPill("\(inProgress.count) running", color: .blue)
                         statPill("\(activeCount) active", color: .blue)
                         statPill("\(doneCount) done", color: .green)
                         if errorCount > 0 { statPill("\(errorCount) errors", color: .red) }
@@ -132,12 +139,13 @@ struct DashboardView: View {
                 }.buttonStyle(.borderedProminent)
             }
 
-            if let start = appState.runStartTime {
-                ElapsedTimeView(startTime: start)
+            if let earliest = inProgress.map(\.startedAt).min() {
+                ElapsedTimeView(startTime: earliest)
             }
         }
         .padding()
     }
+
 
     @ViewBuilder private var scanButton: some View {
         Button {
@@ -284,48 +292,90 @@ struct DashboardView: View {
 
     // MARK: - Action bar
     private var actionBar: some View {
-        HStack(spacing: 16) {
-            // Last run summary
-            if let last = appState.workflowRunHistory.first, !appState.isRunning {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Last run: \(last.workflowName) · \(last.finishedAt.formatted(.relative(presentation: .named)))")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text("\(last.processed) processed · \(last.durationFormatted)")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(.leading)
+        VStack(spacing: 10) {
+            if !inProgress.isEmpty {
+                activeRunsList
             }
 
-            Spacer()
-
-            // Retry button — visible after a run with errors
-            if !appState.isRunning && !appState.failedTasks.isEmpty {
-                Button {
-                    Task { await workflowEngine.retryFailed() }
-                } label: {
-                    Label("Retry \(appState.failedTasks.count) Failed", systemImage: "arrow.counterclockwise")
-                        .padding(.horizontal, 16).padding(.vertical, 8)
+            HStack(spacing: 16) {
+                // Last run summary
+                if let last = appState.workflowRunHistory.first {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Last run: \(last.workflowName) · \(last.finishedAt.formatted(.relative(presentation: .named)))")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text("\(last.processed) processed · \(last.durationFormatted)")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(.leading)
                 }
-                .buttonStyle(.bordered)
-                .tint(.orange)
-            }
 
-            if appState.isRunning {
-                Button(role: .destructive) {
-                    workflowEngine.stop()
-                } label: {
-                    Label("Stop Workflow", systemImage: "stop.fill")
-                        .padding(.horizontal, 28).padding(.vertical, 8)
+                Spacer()
+
+                // Retry button — visible whenever there are failed tasks
+                // worth another try, regardless of what else is running.
+                if !appState.failedTasks.isEmpty {
+                    Button {
+                        Task { await workflowEngine.retryFailed() }
+                    } label: {
+                        Label("Retry \(appState.failedTasks.count) Failed", systemImage: "arrow.counterclockwise")
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.orange)
                 }
-                .buttonStyle(.borderedProminent).tint(.red)
-            } else {
+
+                if !inProgress.isEmpty {
+                    Button(role: .destructive) {
+                        workflowEngine.stop()
+                    } label: {
+                        Label("Stop All", systemImage: "stop.fill")
+                            .padding(.horizontal, 20).padding(.vertical, 8)
+                    }
+                    .buttonStyle(.bordered).tint(.red)
+                }
+
                 runWorkflowMenu
-            }
 
-            Spacer()
+                Spacer()
+            }
         }
         .padding()
     }
+
+    // MARK: - Active runs list
+    // One row per run currently in progress, each with its own live status
+    // and its own Stop button — stopping one never touches the others.
+    private var activeRunsList: some View {
+        VStack(spacing: 6) {
+            ForEach(inProgress) { session in
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(session.workflow.name).font(.subheadline).bold()
+                        if let lastLine = session.lines.last {
+                            Text(lastLine)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer()
+                    ElapsedTimeView(startTime: session.startedAt, compact: true)
+                    Button(role: .destructive) {
+                        workflowEngine.stop(session)
+                    } label: {
+                        Label("Stop", systemImage: "stop.fill")
+                    }
+                    .buttonStyle(.bordered).tint(.red).controlSize(.small)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(Color.primary.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        .padding(.horizontal)
+    }
+
 
     // MARK: - Run Workflow menu
     // The primary dashboard action: pick any user-defined workflow and run
@@ -343,6 +393,7 @@ struct DashboardView: View {
                     Button(workflow.name) {
                         Task { await workflowEngine.run(workflow) }
                     }
+                    .disabled(!appState.canRun(workflow))
                 }
             } label: {
                 Label("Run Workflow", systemImage: "play.fill")

@@ -85,7 +85,7 @@ struct DeckDetailPane: View {
     private var canSave: Bool { !name.isEmpty && !ipAddress.isEmpty }
 
     private var deckTasks: [SyncTask] {
-        appState.activeTasks.filter { $0.deckName == deck.name }
+        appState.allTasks.filter { $0.deckName == deck.name }
     }
 
     var body: some View {
@@ -190,9 +190,10 @@ struct DeckDetailPane: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .buttonStyle(.borderedProminent)
-            .disabled(liveStatus != .online || appState.isRunning)
+            .disabled(liveStatus != .online || appState.busyDeckNames.contains(deck.name))
         }
     }
+
 
     // MARK: - Task progress
     private var taskProgress: some View {
