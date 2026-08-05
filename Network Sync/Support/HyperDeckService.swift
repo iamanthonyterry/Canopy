@@ -281,6 +281,15 @@ final class HyperDeckService: ObservableObject {
         await HyperDeckService(host: host).checkMediaPresent()
     }
 
+    /// One-shot convenience: is this deck recording right now? Used by
+    /// ConnectionMonitor's background poll so recording state is tracked
+    /// continuously, not only while that deck's detail pane is open.
+    static func isRecording(host: String) async -> Bool {
+        let service = HyperDeckService(host: host)
+        await service.fetchTransport()
+        return service.transport == .recording
+    }
+
     // MARK: - Private Networking
 
     /// Sends a command, retrying a couple of times if a single attempt

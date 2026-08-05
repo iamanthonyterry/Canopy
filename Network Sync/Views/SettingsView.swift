@@ -12,6 +12,7 @@ struct SettingsView: View {
                 Text("Settings").font(.title2).bold().padding(.horizontal)
                 //cloudStoreSection
                 emailSection
+                AlertSettingsView()
                 RemoteControlSettingsView()
                 //systemSection
                 Spacer(minLength: 24)

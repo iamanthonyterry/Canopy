@@ -34,6 +34,9 @@ class AppState: ObservableObject {
     @Published var remoteMappings: [RemoteMapping] = [] {
         didSet { save(remoteMappings, key: "remoteMappings") }
     }
+    @Published var alertSettings: AlertSettings = AlertSettings() {
+        didSet { save(alertSettings, key: "alertSettings") }
+    }
 
     // MARK: - Live Pipeline State
     // Every in-progress (or just-finished-with-something-to-show) workflow
@@ -92,6 +95,7 @@ class AppState: ObservableObject {
         emailNotificationSettings  = load(EmailNotificationSettings.self,   key: "emailNotificationSettings")  ?? EmailNotificationSettings()
         remoteControlSettings     = load(RemoteControlSettings.self, key: "remoteControlSettings") ?? RemoteControlSettings()
         remoteMappings            = load([RemoteMapping].self,      key: "remoteMappings")         ?? []
+        alertSettings             = load(AlertSettings.self,        key: "alertSettings")          ?? AlertSettings()
     }
 
     // MARK: - HyperDeck CRUD

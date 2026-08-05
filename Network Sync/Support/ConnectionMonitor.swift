@@ -12,6 +12,13 @@ final class ConnectionMonitor: ObservableObject {
 
     @Published private(set) var statuses: [String: DeckStatus] = [:]
 
+    /// IP addresses of HyperDecks that were recording as of the last poll.
+    /// Tracked continuously (not just while a deck's detail pane is open)
+    /// so AlertingService can tell a routine "deck's off the network" from
+    /// "deck went dark mid-recording" — the latter is the one that's
+    /// actually urgent.
+    @Published private(set) var recordingHosts: Set<String> = []
+
     private var monitorTask: Task<Void, Never>?
     private let pollInterval: Duration = .seconds(5)
 
@@ -25,6 +32,10 @@ final class ConnectionMonitor: ObservableObject {
 
     func status(for host: String) -> DeckStatus {
         statuses[host] ?? .unknown
+    }
+
+    func isRecording(host: String) -> Bool {
+        recordingHosts.contains(host)
     }
 
     /// Starts the continuous polling loop. Safe to call more than once.
@@ -47,7 +58,13 @@ final class ConnectionMonitor: ObservableObject {
     /// e.g. from a manual "Refresh" button, without waiting for the next
     /// poll cycle.
     func pingNow(deck: HyperDeck) async {
-        apply(await Self.checkDeck(deck), for: deck.ipAddress)
+        let (status, isRecording) = await Self.checkDeck(deck)
+        apply(status, for: deck.ipAddress)
+        if isRecording {
+            recordingHosts.insert(deck.ipAddress)
+        } else {
+            recordingHosts.remove(deck.ipAddress)
+        }
     }
 
     func pingNow(store: CloudStore) async {
@@ -83,13 +100,28 @@ final class ConnectionMonitor: ObservableObject {
         guard !(decks.isEmpty && switchers.isEmpty && stores.isEmpty) else {
             if !statuses.isEmpty { statuses.removeAll() }
             if !consecutiveFailures.isEmpty { consecutiveFailures.removeAll() }
+            if !recordingHosts.isEmpty { recordingHosts.removeAll() }
             return
         }
 
-        await withTaskGroup(of: (String, DeckStatus).self) { group in
-            for deck in decks {
-                group.addTask { (deck.ipAddress, await Self.checkDeck(deck)) }
+        // HyperDecks report recording state alongside reachability (both
+        // come from the same "transport info" round trip), so they're
+        // gathered separately from switchers/stores rather than folded into
+        // one shared (host, DeckStatus) task group.
+        async let deckResults: [(host: String, status: DeckStatus, isRecording: Bool)] =
+            withTaskGroup(of: (String, DeckStatus, Bool).self) { group in
+                for deck in decks {
+                    group.addTask {
+                        let (status, recording) = await Self.checkDeck(deck)
+                        return (deck.ipAddress, status, recording)
+                    }
+                }
+                var collected: [(String, DeckStatus, Bool)] = []
+                for await result in group { collected.append(result) }
+                return collected
             }
+
+        await withTaskGroup(of: (String, DeckStatus).self) { group in
             for switcher in switchers {
                 group.addTask { (switcher.ipAddress, await ATEMProbe.ping(host: switcher.ipAddress)) }
             }
@@ -100,6 +132,13 @@ final class ConnectionMonitor: ObservableObject {
                 apply(status, for: host)
             }
         }
+
+        var stillRecording: Set<String> = []
+        for (host, status, isRecording) in await deckResults {
+            apply(status, for: host)
+            if isRecording { stillRecording.insert(host) }
+        }
+        recordingHosts = stillRecording
 
         // Drop entries for devices that were removed since the last poll.
         // Only touches the dictionaries when there's actually something
@@ -122,20 +161,23 @@ final class ConnectionMonitor: ObservableObject {
     /// disk/SSD is actually installed. Each of these fails in a different,
     /// user-actionable way, so they're kept as distinct statuses rather than
     /// being collapsed into one generic error.
-    private static func checkDeck(_ deck: HyperDeck) async -> DeckStatus {
+    private static func checkDeck(_ deck: HyperDeck) async -> (status: DeckStatus, isRecording: Bool) {
         let reachable = await ping(host: deck.ipAddress, port: 9993)
-        guard reachable == .online else { return reachable }
+        guard reachable == .online else { return (reachable, false) }
 
         switch await FTPService.probeAuth(on: deck) {
-        case .unauthorized: return .unauthorized
-        case .pathNotFound: return .pathNotFound
+        case .unauthorized: return (.unauthorized, false)
+        case .pathNotFound: return (.pathNotFound, false)
         case .authorized, .inconclusive: break
         }
 
-        if await HyperDeckService.checkMediaPresent(host: deck.ipAddress) == false {
-            return .noMedia
+        async let mediaPresent = HyperDeckService.checkMediaPresent(host: deck.ipAddress)
+        async let recording = HyperDeckService.isRecording(host: deck.ipAddress)
+
+        if await mediaPresent == false {
+            return (.noMedia, await recording)
         }
-        return .online
+        return (.online, await recording)
     }
 
     /// Reachability first, then — only if reachable — confirms the stored

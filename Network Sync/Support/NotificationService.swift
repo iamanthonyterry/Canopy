@@ -27,6 +27,26 @@ struct NotificationService {
         UNUserNotificationCenter.current().add(request)
     }
 
+    // Fired by AlertingService when a device that's actively recording (or
+    // mid-workflow) drops offline, loses auth, runs out of media, or is
+    // about to run out of storage. Marked time-sensitive so it stands a
+    // better chance of cutting through Focus modes during a live service —
+    // this is the one notification in the app where that matters.
+    static func sendDeviceAlert(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .defaultCritical
+        content.interruptionLevel = .timeSensitive
+
+        let request = UNNotificationRequest(
+            identifier: "device-alert-\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+
     // Fired when a scheduled run is about to start (one-minute warning)
     static func sendScheduledWarning(at date: Date) {
         let content = UNMutableNotificationContent()

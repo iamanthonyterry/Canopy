@@ -13,6 +13,7 @@ struct Network_SyncApp: App {
                     NotificationService.requestPermission()
                     scheduler.sync()
                     ConnectionMonitor.shared.start()
+                    AlertingService.shared.start()
                     RemoteControlEngine.shared.applySettings()
                 }
                 .onOpenURL { url in
