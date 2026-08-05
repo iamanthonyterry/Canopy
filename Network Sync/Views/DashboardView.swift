@@ -25,6 +25,7 @@ struct DashboardView: View {
     @State private var showingAddSwitcher = false
     @State private var showingAddCloudStore = false
     @State private var selection: DashboardSelection?
+    @State private var showMode = false
 
     var inProgress: [WorkflowRunSession] { appState.activeRuns.filter { !$0.isFinished } }
     var erroredMounts: [WorkflowRunSession] { appState.activeRuns.filter { $0.mountError != nil } }
@@ -42,6 +43,14 @@ struct DashboardView: View {
     }
 
     var body: some View {
+        if showMode {
+            ShowModeView(onExit: { showMode = false })
+        } else {
+            normalDashboard
+        }
+    }
+
+    private var normalDashboard: some View {
         VStack(spacing: 0) {
             headerBar
             Divider()
@@ -129,6 +138,13 @@ struct DashboardView: View {
                 }
 
                 scanButton
+
+                Button {
+                    showMode = true
+                } label: {
+                    Label("Show Mode", systemImage: "tv")
+                }
+                .buttonStyle(.bordered)
 
                 Menu {
                     Button("HyperDeck") { showingAddDeck = true }
