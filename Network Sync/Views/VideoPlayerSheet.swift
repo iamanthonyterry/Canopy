@@ -54,18 +54,25 @@ struct VideoPlayerSheet: View {
             .padding()
             Divider()
 
-            // VideoPlayer is mounted unconditionally (its `player:` param
-            // is optional) rather than being swapped in via an if/else
-            // branch. Inserting an AVKit-backed NSViewRepresentable into
-            // the tree mid-transition — which is what happens when a
-            // ViewBuilder branch switches to it while this sheet is still
-            // being laid out — trips a Swift-runtime metadata crash in
-            // _AVKit_SwiftUI (fatalError inside getSuperclassMetadata,
-            // reached via SheetBridge.createSheet / DynamicContainerInfo
-            // transition machinery). Keeping it always-present and
-            // layering the loading/error state on top avoids that path.
+            // PlayerContainerView (below) wraps AVKit's plain AppKit
+            // AVPlayerView instead of SwiftUI's own VideoPlayer. VideoPlayer
+            // is backed by the private _AVKit_SwiftUI framework, and
+            // instantiating its generic view-representable metadata for the
+            // first time during any reentrant SwiftUI view-graph update
+            // (sheet presentation, initial window construction — anywhere
+            // Update.ensure/GraphHost nests one graph update inside another)
+            // loses a race in the Swift runtime's generic metadata cache and
+            // aborts with a fatalError inside getSuperclassMetadata. It's
+            // timing-dependent, so it wouldn't reproduce in an Xcode Debug
+            // build but would crash a notarized Release build (sometimes on
+            // first sheet presentation, sometimes on every launch depending
+            // on exactly where the metadata got instantiated). AVPlayerView
+            // is an ordinary NSView with no such generic metadata dance, so
+            // it sidesteps the bug entirely. It's still mounted
+            // unconditionally, same as VideoPlayer(player:) was, so no
+            // swap-in-mid-transition crash either.
             ZStack {
-                VideoPlayer(player: player)
+                PlayerContainerView(player: player)
                 if player == nil {
                     statusOverlay
                 }
@@ -346,6 +353,28 @@ struct VideoPlayerSheet: View {
         cancellables.removeAll()
         if let downloadedFileURL {
             try? FileManager.default.removeItem(at: downloadedFileURL)
+        }
+    }
+}
+
+// MARK: - Player Container
+
+/// Wraps AVKit's AppKit `AVPlayerView` directly rather than using SwiftUI's
+/// `VideoPlayer` — see the comment above its call site in `VideoPlayerSheet`
+/// for why.
+private struct PlayerContainerView: NSViewRepresentable {
+    let player: AVPlayer?
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.controlsStyle = .inline
+        view.player = player
+        return view
+    }
+
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        if nsView.player !== player {
+            nsView.player = player
         }
     }
 }

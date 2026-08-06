@@ -1,5 +1,4 @@
 import SwiftUI
-import AVKit
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
@@ -54,27 +53,6 @@ struct ContentView: View {
             case .settings:         SettingsView()
             }
         }
-        .background(videoPlayerWarmUp)
-    }
-
-    // Forces AVKit's SwiftUI-representable generic metadata to be resolved
-    // once, here, during ordinary app-launch view construction. Without this,
-    // the first VideoPlayer a user ever creates is the one inside
-    // VideoPlayerSheet's .sheet — and building that metadata for the first
-    // time while the sheet's reentrant view-graph update is in flight (a
-    // ToolbarReader preference pass runs concurrently with
-    // SheetBridge.createSheet) can lose a race in the Swift runtime's
-    // generic metadata cache, aborting with a fatalError inside
-    // _AVKit_SwiftUI's getSuperclassMetadata. It only reproduces reliably in
-    // optimized Release builds, not Xcode's unoptimized Debug builds, since
-    // it's a timing-dependent race. Instantiating the type here — during a
-    // plain, non-reentrant update at launch — resolves it once up front so
-    // the sheet later just looks it up.
-    private var videoPlayerWarmUp: some View {
-        VideoPlayer(player: nil)
-            .frame(width: 0, height: 0)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
     }
 
     private var scheduledWorkflows: [Workflow] {
