@@ -27,63 +27,27 @@ func resolveConnectionStatus(_ conn: NWConnection) async -> DeckStatus {
     }
 }
 
-// MARK: - HyperDeck Detail Pane
-// The right-hand settings view for a selected HyperDeck: editable device
-// info, sync destination, a connection test, live transport controls,
-// the file list, and device actions (refresh / delete).
+// MARK: - HyperDeck Content Pane
+// The right-hand content + controls for a selected HyperDeck: live status,
+// transport controls, sync progress, and its file browser. Device settings
+// (name, IP, credentials, sync destination) live in the gear-button sheet
+// on the device row instead of here.
 
-struct DeckDetailPane: View {
+struct DeckContentPane: View {
     let deck: HyperDeck
     @EnvironmentObject var appState: AppState
     @StateObject private var workflowEngine = WorkflowEngine.shared
     @ObservedObject private var monitor = ConnectionMonitor.shared
     @StateObject private var hyperDeck: HyperDeckService
 
-    @State private var name: String
-    @State private var ipAddress: String
-    @State private var remotePath: String
-    @State private var username: String
-    @State private var password: String
-    @State private var cloudStoreID: UUID?
-    @State private var cloudStorePath: String
-    @State private var capacityText: String
-
-    @State private var files: [String] = []
-    @State private var isFetchingFiles = false
-    @State private var isShowingFiles = false
-    @State private var showPathPicker = false
-    @State private var showFolderPicker = false
     @State private var showFormatConfirm = false
-    @State private var showDeleteConfirm = false
-    @State private var pingTestStatus: DeckStatus = .unknown
-    @State private var isTesting = false
 
     init(deck: HyperDeck) {
         self.deck = deck
         _hyperDeck = StateObject(wrappedValue: HyperDeckService(host: deck.ipAddress))
-        _name           = State(initialValue: deck.name)
-        _ipAddress      = State(initialValue: deck.ipAddress)
-        _remotePath     = State(initialValue: deck.remotePath)
-        _username       = State(initialValue: deck.username)
-        _password       = State(initialValue: deck.password)
-        _cloudStoreID   = State(initialValue: deck.cloudStoreID)
-        _cloudStorePath = State(initialValue: deck.cloudStorePath)
-        _capacityText   = State(initialValue: deck.capacityGB.map { String(format: "%g", $0) } ?? "")
     }
 
     private var liveStatus: DeckStatus { monitor.status(for: deck.ipAddress) }
-    private var selectedStore: CloudStore? {
-        guard let id = cloudStoreID else { return nil }
-        return appState.cloudStores.first { $0.id == id }
-    }
-    private var isDirty: Bool {
-        name != deck.name || ipAddress != deck.ipAddress || remotePath != deck.remotePath
-            || username != deck.username || password != deck.password
-            || cloudStoreID != deck.cloudStoreID || cloudStorePath != deck.cloudStorePath
-            || capacityText != (deck.capacityGB.map { String(format: "%g", $0) } ?? "")
-    }
-    private var canSave: Bool { !name.isEmpty && !ipAddress.isEmpty }
-
     private var deckTasks: [SyncTask] {
         appState.allTasks.filter { $0.deckName == deck.name }
     }
@@ -93,45 +57,22 @@ struct DeckDetailPane: View {
             header
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if !deckTasks.isEmpty { taskProgress }
-
-                    if liveStatus == .online {
-                        HyperDeckControls(hyperDeck: hyperDeck, showFormatConfirm: $showFormatConfirm)
-                            .padding(.horizontal)
-                    }
-
-                    settingsForm
-
-                    filesSection
-                        .padding(.horizontal)
-                }
-                .padding(.vertical, 12)
+            if !deckTasks.isEmpty {
+                taskProgress
+                Divider()
             }
 
-            Divider()
-            footer
-        }
-        .task { await fetchFiles() }
-        .onChange(of: liveStatus) { _, newValue in
-            if newValue == .online && files.isEmpty { Task { await fetchFiles() } }
+            if liveStatus == .online {
+                HyperDeckControls(hyperDeck: hyperDeck, showFormatConfirm: $showFormatConfirm)
+                    .padding(.horizontal)
+                    .padding(.vertical, 10)
+                Divider()
+            }
+
+            DeviceFilesBrowser(device: .hyperDeck(deck))
         }
         .onAppear { hyperDeck.startPolling() }
         .onDisappear { hyperDeck.stopPolling() }
-        .sheet(isPresented: $showPathPicker) {
-            DeckPathPickerSheet(ipAddress: ipAddress, username: username, password: password) { path in
-                remotePath = path
-            }
-        }
-        .sheet(isPresented: $showFolderPicker) {
-            if let store = selectedStore {
-                FolderPickerSheet(store: store) { path in
-                    cloudStorePath = path
-                }
-                .environmentObject(appState)
-            }
-        }
         .confirmationDialog(
             "Format Drive?",
             isPresented: $showFormatConfirm,
@@ -143,14 +84,6 @@ struct DeckDetailPane: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will erase all media on \(deck.name). This cannot be undone.")
-        }
-        .confirmationDialog(
-            "Delete \(deck.name)?",
-            isPresented: $showDeleteConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) { appState.deleteDeck(id: deck.id) }
-            Button("Cancel", role: .cancel) {}
         }
     }
 
@@ -164,7 +97,7 @@ struct DeckDetailPane: View {
             Spacer()
             StatusBadge(status: liveStatus)
             Button {
-                Task { await monitor.pingNow(deck: deck); await fetchFiles() }
+                Task { await monitor.pingNow(deck: deck) }
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
@@ -194,7 +127,6 @@ struct DeckDetailPane: View {
         }
     }
 
-
     // MARK: - Task progress
     private var taskProgress: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -215,191 +147,10 @@ struct DeckDetailPane: View {
             }
         }
         .padding(.horizontal)
+        .padding(.top, 10)
     }
 
-    // MARK: - Settings form
-    private var settingsForm: some View {
-        Form {
-            Section("Device Info") {
-                LabeledContent("Name") {
-                    TextField("e.g. ISO 1", text: $name).textFieldStyle(.roundedBorder)
-                }
-                LabeledContent("IP Address") {
-                    TextField("192.168.x.x", text: $ipAddress).textFieldStyle(.roundedBorder)
-                }
-                LabeledContent("Remote Path") {
-                    HStack(spacing: 8) {
-                        TextField("usb/DriveName", text: $remotePath).textFieldStyle(.roundedBorder)
-                        Button {
-                            showPathPicker = true
-                        } label: {
-                            Label("Browse…", systemImage: "folder")
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
-                LabeledContent("Media Capacity") {
-                    HStack(spacing: 6) {
-                        TextField("e.g. 500", text: $capacityText)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                        Text("GB")
-                    }
-                }
-            }
-
-            Section("Credentials") {
-                LabeledContent("Username") {
-                    TextField("Username", text: $username).textFieldStyle(.roundedBorder)
-                }
-                LabeledContent("Password") {
-                    SecureField("Password", text: $password).textFieldStyle(.roundedBorder)
-                }
-            }
-
-            Section("Sync Destination") {
-                LabeledContent("Cloud Store") {
-                    Picker("", selection: $cloudStoreID) {
-                        Text("Global Default").tag(Optional<UUID>.none)
-                        if !appState.cloudStores.isEmpty {
-                            Divider()
-                            ForEach(appState.cloudStores) { store in
-                                Text(store.name).tag(Optional(store.id))
-                            }
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 200)
-                    .onChange(of: cloudStoreID) { cloudStorePath = "" }
-                }
-
-                if let store = selectedStore {
-                    LabeledContent("Folder") {
-                        HStack(spacing: 8) {
-                            Text(cloudStorePath.isEmpty ? "Volume root" : cloudStorePath)
-                                .foregroundStyle(cloudStorePath.isEmpty ? .secondary : .primary)
-                                .lineLimit(1)
-                                .truncationMode(.head)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Button {
-                                showFolderPicker = true
-                            } label: {
-                                Label("Browse…", systemImage: "folder")
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                    let folder = cloudStorePath.isEmpty ? "/" : "/\(cloudStorePath)"
-                    Label("→ \(store.name)\(folder)", systemImage: "externaldrive.connected.to.line.below")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Label("Uses the global sync destination from Settings.", systemImage: "info.circle")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-
-
-            Section {
-                HStack {
-                    Button(action: testConnection) {
-                        if isTesting {
-                            ProgressView().controlSize(.small)
-                            Text("Testing…")
-                        } else {
-                            Label("Test Connection", systemImage: "network")
-                        }
-                    }.disabled(ipAddress.isEmpty || isTesting)
-                    Spacer()
-                    if pingTestStatus != .unknown {
-                        Label(
-                            pingTestStatus == .online ? "Connected" : "No Response",
-                            systemImage: pingTestStatus == .online ? "checkmark.circle.fill" : "xmark.circle.fill"
-                        )
-                        .foregroundStyle(pingTestStatus == .online ? .green : .red)
-                        .font(.subheadline)
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .frame(minHeight: 480)
-    }
-
-    // MARK: - Files
-    @ViewBuilder private var filesSection: some View {
-        DisclosureGroup(isExpanded: $isShowingFiles) {
-            if isFetchingFiles {
-                ProgressView().padding(.vertical, 6)
-            } else if files.isEmpty {
-                Text(emptyFilesMessage).font(.caption).foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(files, id: \.self) { file in
-                        Text(file)
-                            .font(.system(size: 11, design: .monospaced))
-                            .lineLimit(1)
-                    }
-                }
-                .padding(.top, 4)
-            }
-        } label: {
-            Text("Files on Deck (\(files.count))").font(.subheadline).bold()
-        }
-    }
-
-    // MARK: - Footer
-    private var footer: some View {
-        HStack {
-            Button(role: .destructive) { showDeleteConfirm = true } label: {
-                Label("Delete Device", systemImage: "trash")
-            }
-            Spacer()
-            Button("Save Changes") { save() }
-                .buttonStyle(.borderedProminent)
-                .disabled(!isDirty || !canSave)
-        }
-        .padding()
-    }
-
-    // MARK: - Actions
-    private func save() {
-        var d = deck
-        d.name = name; d.ipAddress = ipAddress; d.remotePath = remotePath
-        d.username = username; d.password = password
-        d.cloudStoreID = cloudStoreID; d.cloudStorePath = cloudStorePath
-        d.capacityGB = Double(capacityText)
-        appState.updateDeck(d)
-    }
-
-    private func testConnection() {
-        isTesting = true; pingTestStatus = .unknown
-        Task {
-            guard let port = NWEndpoint.Port(rawValue: 9993) else { isTesting = false; return }
-            let conn = NWConnection(host: NWEndpoint.Host(ipAddress), port: port, using: .tcp)
-            conn.start(queue: .global())
-            pingTestStatus = await resolveConnectionStatus(conn)
-            isTesting = false
-        }
-    }
-
-    private func fetchFiles() async {
-        guard liveStatus == .online else { isFetchingFiles = false; return }
-        isFetchingFiles = true
-        files = await FTPService.listMovFiles(on: deck)
-        isFetchingFiles = false
-    }
-
-    // Explains *why* the file list is empty, matching whichever specific
-    // failure the monitor detected — not just a generic fallback.
-    private var emptyFilesMessage: String {
-        switch liveStatus {
-        case .unauthorized: "Login failed — check username/password."
-        case .pathNotFound: "Remote folder not found — check the file location above."
-        case .noMedia:      "No drive detected in the deck."
-        default:            "No .mov files found."
-        }
-    }
-
+    // MARK: - Helpers
     private func taskIcon(_ phase: SyncTask.Phase) -> String {
         switch phase {
         case .queued: "clock"
@@ -476,4 +227,3 @@ struct HyperDeckControls: View {
         }
     }
 }
-

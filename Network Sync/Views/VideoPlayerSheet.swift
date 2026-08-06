@@ -5,7 +5,7 @@ import AppKit
 import UniformTypeIdentifiers
 import Combine
 
-// Presented by StorageBrowserView when the user plays a video file so they
+// Presented by DeviceFilesBrowser when the user plays a video file so they
 // can preview a clip without leaving the app. Cloud Store files live on an
 // already-mounted SMB volume and play directly; HyperDeck files only exist
 // over FTP, so they're downloaded to a temp location first, then played

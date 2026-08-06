@@ -27,6 +27,7 @@ struct DeckListRow: View {
     let deck: HyperDeck
     @EnvironmentObject var appState: AppState
     @ObservedObject private var monitor = ConnectionMonitor.shared
+    @State private var showingSettings = false
 
     private var status: DeckStatus { monitor.status(for: deck.ipAddress) }
 
@@ -39,19 +40,28 @@ struct DeckListRow: View {
             }
             Spacer()
             Button {
-                Task { await monitor.pingNow(deck: deck) }
+                showingSettings = true
             } label: {
-                Image(systemName: "arrow.clockwise")
+                Image(systemName: "gearshape")
             }
             .buttonStyle(.borderless)
+            .help("Device Settings")
         }
         .padding(.vertical, 2)
         .contextMenu {
+            Button {
+                Task { await monitor.pingNow(deck: deck) }
+            } label: {
+                Label("Refresh Status", systemImage: "arrow.clockwise")
+            }
             Button(role: .destructive) {
                 appState.deleteDeck(id: deck.id)
             } label: {
                 Label("Delete Device", systemImage: "trash")
             }
+        }
+        .sheet(isPresented: $showingSettings) {
+            DeckEditSheet(deck: deck)
         }
     }
 }
@@ -62,6 +72,7 @@ struct SwitcherListRow: View {
     let switcher: BlackmagicSwitcher
     @EnvironmentObject var appState: AppState
     @ObservedObject private var monitor = ConnectionMonitor.shared
+    @State private var showingSettings = false
 
     private var status: DeckStatus { monitor.status(for: switcher.ipAddress) }
 
@@ -74,19 +85,28 @@ struct SwitcherListRow: View {
             }
             Spacer()
             Button {
-                Task { await monitor.pingNow(switcher: switcher) }
+                showingSettings = true
             } label: {
-                Image(systemName: "arrow.clockwise")
+                Image(systemName: "gearshape")
             }
             .buttonStyle(.borderless)
+            .help("Device Settings")
         }
         .padding(.vertical, 2)
         .contextMenu {
+            Button {
+                Task { await monitor.pingNow(switcher: switcher) }
+            } label: {
+                Label("Refresh Status", systemImage: "arrow.clockwise")
+            }
             Button(role: .destructive) {
                 appState.deleteSwitcher(id: switcher.id)
             } label: {
                 Label("Delete Device", systemImage: "trash")
             }
+        }
+        .sheet(isPresented: $showingSettings) {
+            SwitcherEditSheet(switcher: switcher)
         }
     }
 }
@@ -97,6 +117,7 @@ struct CloudStoreListRow: View {
     let store: CloudStore
     @EnvironmentObject var appState: AppState
     @ObservedObject private var monitor = ConnectionMonitor.shared
+    @State private var showingSettings = false
 
     private var status: DeckStatus { monitor.status(for: store.ipAddress) }
 
@@ -109,19 +130,28 @@ struct CloudStoreListRow: View {
             }
             Spacer()
             Button {
-                Task { await monitor.pingNow(store: store) }
+                showingSettings = true
             } label: {
-                Image(systemName: "arrow.clockwise")
+                Image(systemName: "gearshape")
             }
             .buttonStyle(.borderless)
+            .help("Device Settings")
         }
         .padding(.vertical, 2)
         .contextMenu {
+            Button {
+                Task { await monitor.pingNow(store: store) }
+            } label: {
+                Label("Refresh Status", systemImage: "arrow.clockwise")
+            }
             Button(role: .destructive) {
                 appState.deleteCloudStore(id: store.id)
             } label: {
                 Label("Delete Device", systemImage: "trash")
             }
+        }
+        .sheet(isPresented: $showingSettings) {
+            CloudStoreEditSheet(store: store)
         }
     }
 }

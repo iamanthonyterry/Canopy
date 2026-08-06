@@ -12,8 +12,9 @@ enum DashboardSelection: Hashable {
 // MARK: - DashboardView
 // Home base: shows every configured device (HyperDecks, ATEM Switchers,
 // Cloud Stores) plus anything found on the network, all in one place.
-// Two columns: the left lists every device with quick controls, and the
-// right shows the settings and controls for whichever device is selected.
+// Two columns: the left lists every device with a settings gear button,
+// and the right shows the content and controls for whichever device is
+// selected — transport controls, sync progress, and its file browser.
 
 struct DashboardView: View {
     @EnvironmentObject var appState: AppState
@@ -212,26 +213,26 @@ struct DashboardView: View {
         .listStyle(.sidebar)
     }
 
-    // MARK: - Right column: selected device's settings
+    // MARK: - Right column: selected device's content & controls
     @ViewBuilder private var detailPane: some View {
         switch selection {
         case .deck(let id):
             if let deck = appState.hyperDecks.first(where: { $0.id == id }) {
-                DeckDetailPane(deck: deck)
+                DeckContentPane(deck: deck)
                     .id(deck.id)
             } else {
                 emptyDetailState
             }
         case .switcher(let id):
             if let switcher = appState.switchers.first(where: { $0.id == id }) {
-                SwitcherDetailPane(switcher: switcher)
+                SwitcherContentPane(switcher: switcher)
                     .id(switcher.id)
             } else {
                 emptyDetailState
             }
         case .cloudStore(let id):
             if let store = appState.cloudStores.first(where: { $0.id == id }) {
-                CloudStoreDetailPane(store: store)
+                CloudStoreContentPane(store: store)
                     .id(store.id)
             } else {
                 emptyDetailState
@@ -248,7 +249,7 @@ struct DashboardView: View {
                 .foregroundStyle(.secondary)
             Text("Select a device")
                 .font(.headline)
-            Text("Choose a device on the left to view its settings and controls.")
+            Text("Choose a device on the left to view its content and controls.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

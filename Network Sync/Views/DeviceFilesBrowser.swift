@@ -1,7 +1,8 @@
 import SwiftUI
 
 // MARK: - Device Source
-
+// Identifies which underlying device a browsable file tree belongs to, so
+// download/mount and video preview logic can pick the right protocol.
 enum DeviceSource: Identifiable, Hashable, Equatable {
     case hyperDeck(HyperDeck)
     case cloudStore(CloudStore)
@@ -15,54 +16,16 @@ enum DeviceSource: Identifiable, Hashable, Equatable {
         }
     }
 
-    var name: String {
-        switch self {
-        case .hyperDeck(let d):  return d.name
-        case .cloudStore(let s): return s.name
-        case .switcher(let s):   return s.name
-        }
-    }
-
-    var ipAddress: String {
-        switch self {
-        case .hyperDeck(let d):  return d.ipAddress
-        case .cloudStore(let s): return s.ipAddress
-        case .switcher(let s):   return s.ipAddress
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .hyperDeck:  return "server.rack"
-        case .cloudStore: return "externaldrive.badge.wifi"
-        case .switcher:   return "switch.2"
-        }
-    }
-
-    var iconColor: Color {
-        switch self {
-        case .hyperDeck:  return .blue
-        case .cloudStore: return .purple
-        case .switcher:   return .orange
-        }
-    }
-
     var supportsFileBrowsing: Bool {
         switch self {
         case .hyperDeck, .cloudStore: return true
-        case .switcher: return false
+        case .switcher:                return false
         }
     }
 
-    static func == (lhs: DeviceSource, rhs: DeviceSource) -> Bool {
-        lhs.id == rhs.id
-    }
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-    }
+    static func == (lhs: DeviceSource, rhs: DeviceSource) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
-
 
 // MARK: - File Node
 
@@ -123,13 +86,14 @@ struct PlaybackTarget: Identifiable {
     var id: String { node.id }
 }
 
+// MARK: - Device Files Browser
+// The file content + controls for a single device: shown on the right side
+// of the dashboard for whichever HyperDeck or Cloud Store is selected.
+// Search, sort, expand folders, and preview video — all scoped to `device`.
 
-// MARK: - Main View
+struct DeviceFilesBrowser: View {
+    let device: DeviceSource
 
-struct StorageBrowserView: View {
-    @EnvironmentObject var appState: AppState
-
-    @State private var selectedDevice: DeviceSource?
     @State private var rootNodes: [FileNode] = []
     @State private var isLoadingFiles = false
     @State private var loadError: String?
@@ -137,199 +101,85 @@ struct StorageBrowserView: View {
     @State private var searchText = ""
     @State private var sortOrder: SortOrder = .name
     @State private var playbackTarget: PlaybackTarget?
-
-    @State private var storageInfo: [String: StorageInfo] = [:]
-    @State private var storageLoading: Set<String> = []
+    @State private var storageInfo: StorageInfo?
+    @State private var isLoadingStorage = false
 
     enum SortOrder: String, CaseIterable {
         case name = "Name", size = "Size", modified = "Modified"
     }
 
-    private var allDevices: [DeviceSource] {
-        appState.hyperDecks.map { .hyperDeck($0) }
-        + appState.cloudStores.map { .cloudStore($0) }
-        + appState.switchers.map { .switcher($0) }
-    }
-
     var body: some View {
-        HSplitView {
-            devicesSidebar
-                .frame(minWidth: 200, maxWidth: 240)
-            filesBrowser
+        VStack(spacing: 0) {
+            toolbar
+            Divider()
+            if device.supportsFileBrowsing {
+                searchBar
+                Divider()
+            }
+            content
         }
-        .task(id: allDevices.map(\.id)) {
-            await loadAllStorageInfo()
+        .task(id: device.id) {
+            async let storage: () = loadStorageInfo()
+            loadFiles()
+            await storage
         }
         .sheet(item: $playbackTarget) { target in
             VideoPlayerSheet(node: target.node, device: target.device)
         }
     }
 
-    // MARK: - Storage Info
+    // MARK: - Toolbar
 
-    /// Loads used/total storage for every browsable device concurrently, so
-    /// the sidebar fills in progressively rather than waiting on the slowest
-    /// device (a HyperDeck's recursive FTP walk can take a few seconds).
-    private func loadAllStorageInfo() async {
-        let devices = allDevices.filter { $0.supportsFileBrowsing && storageInfo[$0.id] == nil }
-        guard !devices.isEmpty else { return }
-
-        await MainActor.run { for device in devices { storageLoading.insert(device.id) } }
-
-        await withTaskGroup(of: (String, StorageInfo?).self) { group in
-            for device in devices {
-                let id = device.id
-                group.addTask {
-                    (id, await fetchStorageInfo(for: device))
-                }
+    private var toolbar: some View {
+        HStack(spacing: 12) {
+            Text("Files").font(.headline)
+            if device.supportsFileBrowsing {
+                StorageSummaryView(info: storageInfo, isLoading: isLoadingStorage)
             }
-            for await (id, info) in group {
-                await MainActor.run {
-                    storageLoading.remove(id)
-                    if let info { storageInfo[id] = info }
-                }
-            }
-        }
-    }
-
-    private func fetchStorageInfo(for device: DeviceSource) async -> StorageInfo? {
-        switch device {
-        case .hyperDeck(let deck):
-            return await StorageCapacityService.capacity(for: deck)
-        case .cloudStore(let store):
-            return try? await StorageCapacityService.capacity(for: store)
-        case .switcher:
-            return nil
-        }
-    }
-
-    private func refreshStorageInfo(for device: DeviceSource) {
-        storageInfo[device.id] = nil
-        storageLoading.insert(device.id)
-        Task {
-            let info = await fetchStorageInfo(for: device)
-            await MainActor.run {
-                storageLoading.remove(device.id)
-                if let info { storageInfo[device.id] = info }
-            }
-        }
-    }
-
-    // MARK: - Devices Sidebar
-
-    private var devicesSidebar: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Devices").font(.title3).bold()
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-
-            Divider()
-
-            if allDevices.isEmpty {
-                VStack(spacing: 8) {
-                    Spacer()
-                    Image(systemName: "network.slash")
-                        .font(.system(size: 32)).foregroundStyle(.secondary)
-                    Text("No Devices").foregroundStyle(.secondary).font(.callout)
-                    Text("Add devices on the Devices page.")
-                        .font(.caption).foregroundStyle(.tertiary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 12)
-                    Spacer()
-                }
-            } else {
-                List(allDevices, id: \.id, selection: $selectedDevice) { device in
-                    DeviceSourceRow(
-                        device: device,
-                        storageInfo: storageInfo[device.id],
-                        isLoadingStorage: storageLoading.contains(device.id)
-                    ).tag(device)
-                }
-                .listStyle(.inset)
-            }
-        }
-        .onChange(of: selectedDevice) { _, _ in loadFiles() }
-    }
-
-
-    // MARK: - Files Browser
-
-    private var filesBrowser: some View {
-        VStack(spacing: 0) {
-            // Toolbar
-            HStack(spacing: 12) {
-                if let device = selectedDevice {
-                    Image(systemName: device.icon).foregroundStyle(device.iconColor)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(device.name).font(.title3).bold()
-                        Text(device.ipAddress).font(.caption).foregroundStyle(.secondary)
-                    }
-                    if device.supportsFileBrowsing {
-                        StorageSummaryView(
-                            info: storageInfo[device.id],
-                            isLoading: storageLoading.contains(device.id)
-                        )
-                        .padding(.leading, 4)
-                    }
-                    Spacer()
-                    if device.supportsFileBrowsing {
-                        HStack(spacing: 0) {
-                            ForEach(SortOrder.allCases, id: \.self) { order in
-                                SortOrderButton(order: order, selected: sortOrder == order) {
-                                    sortOrder = order
-                                }
-                            }
+            Spacer()
+            if device.supportsFileBrowsing {
+                HStack(spacing: 0) {
+                    ForEach(SortOrder.allCases, id: \.self) { order in
+                        SortOrderButton(order: order, selected: sortOrder == order) {
+                            sortOrder = order
                         }
-                        Button {
-                            loadFiles()
-                            refreshStorageInfo(for: device)
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(isLoadingFiles)
-                    }
-                } else {
-                    Text("Select a device").font(.title3).foregroundStyle(.secondary)
-                    Spacer()
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-
-            Divider()
-
-            // Search bar (only when browsable)
-            if selectedDevice?.supportsFileBrowsing == true {
-                HStack {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("Search files…", text: $searchText).textFieldStyle(.plain)
-                    if !searchText.isEmpty {
-                        Button { searchText = "" } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.borderless)
                     }
                 }
-                .padding(.horizontal, 12).padding(.vertical, 8)
-                .background(Color(NSColor.controlBackgroundColor))
-                Divider()
+                Button {
+                    loadFiles()
+                    refreshStorageInfo()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .disabled(isLoadingFiles)
             }
-
-            // Content
-            filesContent
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
-    @ViewBuilder
-    private var filesContent: some View {
-        if selectedDevice == nil {
-            emptySelection
-        } else if let device = selectedDevice, !device.supportsFileBrowsing {
-            noFilesState(for: device)
+    private var searchBar: some View {
+        HStack {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search files…", text: $searchText).textFieldStyle(.plain)
+            if !searchText.isEmpty {
+                Button { searchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(NSColor.controlBackgroundColor))
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder private var content: some View {
+        if !device.supportsFileBrowsing {
+            noFilesState
         } else if isLoadingFiles {
             VStack { Spacer(); ProgressView("Loading files…"); Spacer() }
         } else if let error = loadError {
@@ -349,9 +199,7 @@ struct StorageBrowserView: View {
                             node: node, depth: 0, selectedFile: $selectedFile,
                             onToggle: toggleNode,
                             onPlay: { selected in
-                                if let device = selectedDevice {
-                                    playbackTarget = PlaybackTarget(node: selected, device: device)
-                                }
+                                playbackTarget = PlaybackTarget(node: selected, device: device)
                             }
                         )
                     }
@@ -361,23 +209,10 @@ struct StorageBrowserView: View {
         }
     }
 
-
-    // MARK: - Empty / Error States
-
-    private var emptySelection: some View {
+    private var noFilesState: some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "externaldrive").font(.system(size: 48)).foregroundStyle(.secondary)
-            Text("Select a device to browse files").foregroundStyle(.secondary)
-            Spacer()
-        }
-    }
-
-    private func noFilesState(for device: DeviceSource) -> some View {
-        VStack(spacing: 12) {
-            Spacer()
-            Image(systemName: device.icon).font(.system(size: 48)).foregroundStyle(.secondary)
-            Text(device.name).font(.title3).bold()
+            Image(systemName: "externaldrive").font(.system(size: 40)).foregroundStyle(.secondary)
             Text("This device type doesn't expose a file system.")
                 .foregroundStyle(.secondary).multilineTextAlignment(.center)
             Spacer()
@@ -397,7 +232,7 @@ struct StorageBrowserView: View {
         }
     }
 
-    // MARK: - Computed / Filtering
+    // MARK: - Filtering / Sorting
 
     private var filteredNodes: [FileNode] {
         guard !searchText.isEmpty else { return sortedNodes(rootNodes) }
@@ -424,11 +259,10 @@ struct StorageBrowserView: View {
         return result
     }
 
-
     // MARK: - Load Files
 
     private func loadFiles() {
-        guard let device = selectedDevice, device.supportsFileBrowsing else { return }
+        guard device.supportsFileBrowsing else { return }
         isLoadingFiles = true
         loadError = nil
         rootNodes = []
@@ -512,16 +346,14 @@ struct StorageBrowserView: View {
         }
     }
 
-
     // MARK: - Toggle Node (expand/collapse directories)
 
     private func toggleNode(_ nodeID: String) {
-        guard let device = selectedDevice else { return }
-        toggleInTree(&rootNodes, id: nodeID, device: device)
+        toggleInTree(&rootNodes, id: nodeID)
     }
 
     @discardableResult
-    private func toggleInTree(_ nodes: inout [FileNode], id: String, device: DeviceSource) -> Bool {
+    private func toggleInTree(_ nodes: inout [FileNode], id: String) -> Bool {
         for i in nodes.indices {
             if nodes[i].id == id {
                 if nodes[i].isExpanded {
@@ -530,9 +362,9 @@ struct StorageBrowserView: View {
                     if nodes[i].children == nil {
                         let node = nodes[i]
                         Task {
-                            let children = await loadChildren(for: node, device: device)
+                            let children = await loadChildren(for: node)
                             await MainActor.run {
-                                _ = toggleInTree(&rootNodes, id: id, device: device, setChildren: children)
+                                _ = toggleInTree(&rootNodes, id: id, setChildren: children)
                             }
                         }
                         return true
@@ -541,8 +373,7 @@ struct StorageBrowserView: View {
                 }
                 return true
             }
-            if var children = nodes[i].children,
-               toggleInTree(&children, id: id, device: device) {
+            if var children = nodes[i].children, toggleInTree(&children, id: id) {
                 nodes[i].children = children
                 return true
             }
@@ -551,7 +382,7 @@ struct StorageBrowserView: View {
     }
 
     @discardableResult
-    private func toggleInTree(_ nodes: inout [FileNode], id: String, device: DeviceSource, setChildren: [FileNode]) -> Bool {
+    private func toggleInTree(_ nodes: inout [FileNode], id: String, setChildren: [FileNode]) -> Bool {
         for i in nodes.indices {
             if nodes[i].id == id {
                 nodes[i].children = setChildren
@@ -559,7 +390,7 @@ struct StorageBrowserView: View {
                 return true
             }
             if var children = nodes[i].children,
-               toggleInTree(&children, id: id, device: device, setChildren: setChildren) {
+               toggleInTree(&children, id: id, setChildren: setChildren) {
                 nodes[i].children = children
                 return true
             }
@@ -567,7 +398,7 @@ struct StorageBrowserView: View {
         return false
     }
 
-    private func loadChildren(for node: FileNode, device: DeviceSource) async -> [FileNode] {
+    private func loadChildren(for node: FileNode) async -> [FileNode] {
         switch device {
         case .hyperDeck(let deck):
             guard let path = node.ftpPath else { return [] }
@@ -579,8 +410,39 @@ struct StorageBrowserView: View {
             return []
         }
     }
-}
 
+    // MARK: - Storage Info
+
+    private func loadStorageInfo() async {
+        guard device.supportsFileBrowsing else { return }
+        isLoadingStorage = true
+        let info = await fetchStorageInfo()
+        await MainActor.run {
+            isLoadingStorage = false
+            storageInfo = info
+        }
+    }
+
+    private func refreshStorageInfo() {
+        storageInfo = nil
+        isLoadingStorage = true
+        Task {
+            let info = await fetchStorageInfo()
+            await MainActor.run {
+                isLoadingStorage = false
+                storageInfo = info
+            }
+        }
+    }
+
+    private func fetchStorageInfo() async -> StorageInfo? {
+        switch device {
+        case .hyperDeck(let deck):  return await StorageCapacityService.capacity(for: deck)
+        case .cloudStore(let store): return try? await StorageCapacityService.capacity(for: store)
+        case .switcher:              return nil
+        }
+    }
+}
 
 // MARK: - File Node Row
 
@@ -596,12 +458,9 @@ struct FileNodeView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                // Indent
                 if depth > 0 {
                     Rectangle().fill(Color.clear).frame(width: CGFloat(depth) * 16)
                 }
-
-                // Expand chevron or spacer
                 if node.isDirectory {
                     Image(systemName: node.isExpanded ? "chevron.down" : "chevron.right")
                         .font(.caption2)
@@ -610,31 +469,21 @@ struct FileNodeView: View {
                 } else {
                     Spacer().frame(width: 12)
                 }
-
-                // Icon + name
                 Image(systemName: node.icon)
                     .foregroundStyle(node.iconColor)
                     .frame(width: 18)
-
                 Text(node.name)
                     .lineLimit(1)
                     .truncationMode(.middle)
-
                 Spacer()
-
-                // Play button (video files only)
                 if node.isVideo {
-                    Button {
-                        onPlay(node)
-                    } label: {
+                    Button { onPlay(node) } label: {
                         Image(systemName: "play.circle.fill")
                     }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.purple)
                     .help("Play")
                 }
-
-                // Size (files only)
                 if !node.sizeFormatted.isEmpty {
                     Text(node.sizeFormatted)
                         .font(.caption)
@@ -653,11 +502,8 @@ struct FileNodeView: View {
                     if node.isVideo { onPlay(node) }
                 }
             }
-
             Divider().padding(.leading, CGFloat(depth) * 16 + 38)
         }
-
-        // Children
         if node.isExpanded, let children = node.children {
             ForEach(children) { child in
                 FileNodeView(
@@ -672,7 +518,7 @@ struct FileNodeView: View {
 // MARK: - Sort Order Button
 
 private struct SortOrderButton: View {
-    let order: StorageBrowserView.SortOrder
+    let order: DeviceFilesBrowser.SortOrder
     let selected: Bool
     let action: () -> Void
 
@@ -686,67 +532,6 @@ private struct SortOrderButton: View {
     }
 }
 
-// MARK: - Device Source Row
-
-struct DeviceSourceRow: View {
-    let device: DeviceSource
-    var storageInfo: StorageInfo?
-    var isLoadingStorage: Bool = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                Image(systemName: device.icon)
-                    .font(.system(size: 18))
-                    .foregroundStyle(device.iconColor)
-                    .frame(width: 24)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(device.name).font(.system(.body, weight: .medium))
-                    Text(device.ipAddress)
-                        .font(.caption2).foregroundStyle(.tertiary)
-                }
-                Spacer()
-                if !device.supportsFileBrowsing {
-                    Image(systemName: "nosign")
-                        .font(.caption2).foregroundStyle(.tertiary)
-                } else if isLoadingStorage {
-                    ProgressView().controlSize(.small)
-                }
-            }
-
-            if device.supportsFileBrowsing, let storageInfo {
-                StorageBarView(info: storageInfo, tint: device.iconColor)
-                    .padding(.leading, 34)
-            }
-        }
-        .padding(.vertical, 3)
-    }
-}
-
-// MARK: - Storage Bar (compact, used in the devices sidebar)
-
-struct StorageBarView: View {
-    let info: StorageInfo
-    var tint: Color = .accentColor
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            if let fraction = info.fraction {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.primary.opacity(0.08))
-                        Capsule().fill(tint)
-                            .frame(width: geo.size.width * fraction)
-                    }
-                }
-                .frame(height: 5)
-            }
-            Text(info.summary)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-    }
-}
 
 // MARK: - Storage Summary (compact, used in the files browser toolbar)
 
@@ -771,4 +556,3 @@ struct StorageSummaryView: View {
         }
     }
 }
-

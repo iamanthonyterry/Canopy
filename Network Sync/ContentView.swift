@@ -7,7 +7,6 @@ struct ContentView: View {
     enum NavItem: String, Hashable, CaseIterable {
         case dashboard = "Dashboard"
         case workflows = "Workflows"
-        case storage   = "View Content"
         case history   = "History"
         case settings  = "Settings"
 
@@ -15,7 +14,6 @@ struct ContentView: View {
             switch self {
             case .dashboard: return "play.tv"
             case .workflows: return "flowchart"
-            case .storage:   return "externaldrive"
             case .history:   return "clock.arrow.circlepath"
             case .settings:  return "gearshape"
             }
@@ -48,7 +46,6 @@ struct ContentView: View {
             switch selection {
             case .dashboard, .none: DashboardView()
             case .workflows:        WorkflowsView()
-            case .storage:          StorageBrowserView()
             case .history:          HistoryView()
             case .settings:         SettingsView()
             }

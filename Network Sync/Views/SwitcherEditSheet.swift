@@ -11,6 +11,13 @@ struct SwitcherEditSheet: View {
     @State private var pingStatus: DeckStatus = .unknown
     @State private var isTesting = false
 
+    @State private var savedConfigs: [ATEMSwitcherState] = []
+    @State private var newConfigName = ""
+    @State private var isSavingConfig = false
+    @State private var restoringConfigID: UUID?
+    @State private var configError: String?
+    @State private var configToRestore: ATEMSwitcherState?
+
     init(switcher: BlackmagicSwitcher?) {
         existingSwitcher = switcher
         _name      = State(initialValue: switcher?.name      ?? "")
@@ -67,10 +74,111 @@ struct SwitcherEditSheet: View {
                         }
                     }
                 }
+
+                if existingSwitcher != nil {
+                    configSection
+                }
             }
             .formStyle(.grouped)
         }
         .frame(width: 440)
+        .onAppear { loadConfigs() }
+        .alert("Restore this config?", isPresented: .init(get: { configToRestore != nil }, set: { if !$0 { configToRestore = nil } })) {
+            Button("Cancel", role: .cancel) { configToRestore = nil }
+            Button("Restore", role: .destructive) {
+                if let config = configToRestore { restore(config) }
+                configToRestore = nil
+            }
+        } message: {
+            Text("This immediately changes program, preview, and keyer state on the live switcher.")
+        }
+    }
+
+    @ViewBuilder
+    private var configSection: some View {
+        Section("Saved Configs") {
+            HStack {
+                TextField("Config name", text: $newConfigName).textFieldStyle(.roundedBorder)
+                Button(action: saveCurrentState) {
+                    if isSavingConfig {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label("Save Current", systemImage: "square.and.arrow.down")
+                    }
+                }
+                .disabled(newConfigName.isEmpty || isSavingConfig)
+            }
+
+            if savedConfigs.isEmpty {
+                Text("No saved configs yet — capture the switcher's current program/preview/keyer state above.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(savedConfigs) { config in
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(config.name)
+                        Text(config.savedAt, style: .relative)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if restoringConfigID == config.id {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button("Restore") { configToRestore = config }
+                        Button(role: .destructive) { deleteConfig(config) } label: {
+                            Image(systemName: "trash")
+                        }
+                    }
+                }
+            }
+            if let configError {
+                Text(configError).font(.caption).foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func loadConfigs() {
+        guard let id = existingSwitcher?.id else { return }
+        savedConfigs = ATEMConfigStore.list(for: id)
+    }
+
+    private func saveCurrentState() {
+        guard let id = existingSwitcher?.id else { return }
+        isSavingConfig = true; configError = nil
+        let name = newConfigName
+        Task {
+            defer { isSavingConfig = false }
+            do {
+                var state = try await ATEMStateSession.capture(from: ipAddress)
+                state.name = name
+                try ATEMConfigStore.save(state, switcherID: id)
+                newConfigName = ""
+                loadConfigs()
+            } catch {
+                configError = error.localizedDescription
+            }
+        }
+    }
+
+    private func restore(_ config: ATEMSwitcherState) {
+        restoringConfigID = config.id; configError = nil
+        Task {
+            defer { restoringConfigID = nil }
+            do {
+                try await ATEMRestoreService.restore(config, to: ipAddress)
+            } catch {
+                configError = error.localizedDescription
+            }
+        }
+    }
+
+    private func deleteConfig(_ config: ATEMSwitcherState) {
+        guard let id = existingSwitcher?.id else { return }
+        ATEMConfigStore.delete(config, switcherID: id)
+        loadConfigs()
     }
 
     private func save() {
