@@ -40,7 +40,15 @@ nonisolated private final class ATEMRestoreSession: @unchecked Sendable {
     private let lock = NSLock()
     private var finished = false
 
+    // `localSessionID` proposes a session id in the initial SYN, but the
+    // switcher's SYN-ACK reply may assign a different one — confirmed on
+    // real hardware, where packets sent using the originally-proposed id
+    // were silently dropped. Every packet from the handshake ACK onward
+    // must carry whichever id the switcher actually replied with;
+    // `sessionID` holds that once known. See ATEMControlService for the
+    // full story.
     private let localSessionID = UInt16.random(in: 1...0x7FFF)
+    private var sessionID: UInt16 = 0
     private var localPacketID: UInt16 = 0
     private var queue: [PendingCommand]
 
@@ -69,9 +77,15 @@ nonisolated private final class ATEMRestoreSession: @unchecked Sendable {
         return commands
     }
 
+    // `stateUpdateHandler` below captures `self` strongly and NWConnection
+    // retains its own handler, so this object is kept alive by that
+    // intentional retain cycle for as long as the connection is live —
+    // otherwise, with no other owner, it would deallocate as soon as
+    // `start()` returns (before the handshake can complete), leaving the
+    // continuation captured inside it dropped without ever resuming. The
+    // cycle is broken in `finish()`. Mirrors ATEMCommandSession/ATEMStateCapture.
     func start(timeout: TimeInterval) {
-        connection.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
+        connection.stateUpdateHandler = { state in
             switch state {
             case .ready:
                 self.sendHello()
@@ -105,13 +119,14 @@ nonisolated private final class ATEMRestoreSession: @unchecked Sendable {
                 self.finish(ATEMControlError.rejected)
                 return
             }
+            self.sessionID = Self.readUInt16(data, at: 2)
             let remotePacketID = Self.readUInt16(data, at: 10)
             self.sendHandshakeAck(acking: remotePacketID)
         }
     }
 
     private func sendHandshakeAck(acking remotePacketID: UInt16) {
-        let packet = Self.makePacket(flags: .ack, session: localSessionID, ackNumber: remotePacketID, packetID: 0, payload: Data())
+        let packet = Self.makePacket(flags: .ack, session: sessionID, ackNumber: remotePacketID, packetID: 0, payload: Data())
         connection.send(content: packet, completion: .contentProcessed { [weak self] error in
             if let error { self?.finish(error); return }
             self?.sendNext()
@@ -137,7 +152,7 @@ nonisolated private final class ATEMRestoreSession: @unchecked Sendable {
         block.append(Data(command.name.utf8))
         block.append(command.payload)
 
-        let packet = Self.makePacket(flags: .reliable, session: localSessionID, ackNumber: 0, packetID: localPacketID, payload: block)
+        let packet = Self.makePacket(flags: .reliable, session: sessionID, ackNumber: 0, packetID: localPacketID, payload: block)
         connection.send(content: packet, completion: .contentProcessed { [weak self] error in
             if let error { self?.finish(error); return }
             self?.sendNext()
@@ -151,6 +166,7 @@ nonisolated private final class ATEMRestoreSession: @unchecked Sendable {
         lock.unlock()
         guard !alreadyFinished else { return }
 
+        connection.stateUpdateHandler = nil
         connection.cancel()
         if let error {
             continuation.resume(throwing: error)

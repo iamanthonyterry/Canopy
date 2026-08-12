@@ -42,12 +42,14 @@ enum ATEMControlError: LocalizedError {
 // session) — for a single instant command that's unnecessary, and the
 // switcher just times out our session on its own a few seconds later.
 //
-// NOTE: this has been written directly from the reverse-engineered protocol
-// docs and has not been validated against real ATEM hardware in this
-// environment. If Cut/Auto don't fire on a real switcher, the first thing
-// to check is whether the switcher expects the *session id it assigns*
-// (rather than the id we originally proposed) for the command packet in
-// step 4 — see the comment on `sendCommand()` below.
+// NOTE: this was written directly from the reverse-engineered protocol
+// docs. Real-hardware testing (via the live control panel, which shares
+// this same handshake shape) turned up exactly the suspected session-id
+// issue: the switcher assigns its own session id in the SYN-ACK reply, and
+// every packet from the handshake ACK onward (including the command
+// itself) has to carry that one instead of the id we originally proposed,
+// or it's silently dropped. `ATEMCommandSession` now reads it from the
+// SYN-ACK before sending anything further.
 enum ATEMControlService {
     /// The instant commands this service can send. `programInput` and
     /// `previewInput` select a source directly onto program/preview —
@@ -113,10 +115,15 @@ nonisolated private final class ATEMCommandSession: @unchecked Sendable {
     private let lock = NSLock()
     private var finished = false
 
-    // The protocol wants a client-chosen session id for the handshake.
-    // Docs indicate the switcher's SYN-ACK echoes this value back, so we
-    // keep using it for every packet in this short-lived session.
+    // `localSessionID` proposes a session id in the initial SYN. Some ATEM
+    // firmware echoes it straight back in the SYN-ACK reply, but others
+    // assign a *different* session id there — confirmed against real
+    // hardware, where commands sent using the originally-proposed id were
+    // silently dropped. Every packet from the handshake ACK onward
+    // (including the command itself) must carry whichever id the switcher
+    // actually replied with; `sessionID` holds that once known.
     private let localSessionID = UInt16.random(in: 1...0x7FFF)
+    private var sessionID: UInt16 = 0
     private var localPacketID: UInt16 = 0
 
     init(host: String, port: UInt16, command: ATEMControlService.Command, meIndex: UInt8, continuation: CheckedContinuation<Void, Error>) {
@@ -188,6 +195,7 @@ nonisolated private final class ATEMCommandSession: @unchecked Sendable {
                 self.finish(.failure(ATEMControlError.rejected))
                 return
             }
+            self.sessionID = Self.readUInt16(data, at: 2)
             let remotePacketID = Self.readUInt16(data, at: 10)
             self.sendHandshakeAck(acking: remotePacketID)
         }
@@ -196,7 +204,7 @@ nonisolated private final class ATEMCommandSession: @unchecked Sendable {
     // MARK: Step 2 — ACK the handshake
 
     private func sendHandshakeAck(acking remotePacketID: UInt16) {
-        let packet = Self.makePacket(flags: .ack, session: localSessionID, ackNumber: remotePacketID, packetID: 0, payload: Data())
+        let packet = Self.makePacket(flags: .ack, session: sessionID, ackNumber: remotePacketID, packetID: 0, payload: Data())
         connection.send(content: packet, completion: .contentProcessed { [weak self] error in
             if let error {
                 self?.finish(.failure(error))
@@ -208,11 +216,6 @@ nonisolated private final class ATEMCommandSession: @unchecked Sendable {
 
     // MARK: Step 3 — send the command
 
-    /// If this never fires on real hardware, the most likely culprit is the
-    /// session id: some ATEM firmware reassigns a *new* session id after the
-    /// handshake ACK rather than keeping the one the client proposed. That
-    /// would mean reading the switcher's next packet before sending this one
-    /// and adopting whatever session id it carries.
     private func sendCommand() {
         localPacketID += 1
 
@@ -238,7 +241,7 @@ nonisolated private final class ATEMCommandSession: @unchecked Sendable {
         block.append(commandName)
         block.append(commandData)
 
-        let packet = Self.makePacket(flags: .reliable, session: localSessionID, ackNumber: 0, packetID: localPacketID, payload: block)
+        let packet = Self.makePacket(flags: .reliable, session: sessionID, ackNumber: 0, packetID: localPacketID, payload: block)
         connection.send(content: packet, completion: .contentProcessed { [weak self] error in
             if let error {
                 self?.finish(.failure(error))

@@ -53,7 +53,7 @@ struct SwitcherContentPane: View {
         VStack(spacing: 0) {
             header
             Divider()
-            SwitcherControlPanel(switcher: switcher, isOnline: liveStatus == .online)
+            SwitcherControlPanel(switcher: switcher)
         }
     }
 

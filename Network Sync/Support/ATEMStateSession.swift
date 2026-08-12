@@ -44,7 +44,14 @@ nonisolated private final class ATEMStateCapture: @unchecked Sendable {
     private var finished = false
     private var idleWorkItem: DispatchWorkItem?
 
+    // `localSessionID` proposes a session id in the initial SYN, but the
+    // switcher's SYN-ACK reply may assign a different one — confirmed on
+    // real hardware for outgoing commands (see ATEMControlService); ACKs
+    // here appear tolerated either way, but tracking the assigned id keeps
+    // this consistent with every other session type. `sessionID` holds it
+    // once known, read off the first incoming packet (the SYN-ACK itself).
     private let localSessionID = UInt16.random(in: 1...0x7FFF)
+    private var sessionID: UInt16 = 0
     private var state = ATEMSwitcherState()
     private var idleTimeout: TimeInterval = 1.5
 
@@ -134,6 +141,7 @@ nonisolated private final class ATEMStateCapture: @unchecked Sendable {
             if let error { self.finish(error); return }
             guard let data, data.count >= 12 else { self.receiveLoop(); return }
 
+            self.sessionID = Self.readUInt16(data, at: 2)
             let remotePacketID = Self.readUInt16(data, at: 10)
             if remotePacketID != 0 {
                 self.sendAck(acking: remotePacketID)
@@ -146,7 +154,7 @@ nonisolated private final class ATEMStateCapture: @unchecked Sendable {
     }
 
     private func sendAck(acking remotePacketID: UInt16) {
-        let packet = Self.makePacket(flags: .ack, session: localSessionID, ackNumber: remotePacketID, payload: Data())
+        let packet = Self.makePacket(flags: .ack, session: sessionID, ackNumber: remotePacketID, payload: Data())
         connection.send(content: packet, completion: .contentProcessed { _ in })
     }
 

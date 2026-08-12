@@ -4,52 +4,42 @@ import SwiftUI
 //
 // A live control surface for a selected ATEM switcher: program/preview bus
 // selection and Cut/Auto transitions, sent immediately over the network via
-// ATEMControlService. Button highlights reflect whatever the switcher is
-// actually doing — including changes made from a physical panel or another
-// piece of software — via a state capture (ATEMStateSession) that's
-// re-polled on a short interval while this panel is visible.
+// a single persistent ATEMLiveSession for as long as this panel is on
+// screen. Button highlights reflect whatever the switcher is actually
+// doing — including changes made from a physical panel or another piece of
+// software — since the session continuously decodes the switcher's state
+// rather than polling it.
 struct SwitcherControlPanel: View {
     let switcher: BlackmagicSwitcher
-    let isOnline: Bool
 
     @AppStorage private var inputCount: Int
-    @State private var liveState: ATEMSwitcherState?
-    @State private var pendingSource: UInt16?
-    @State private var isCutting = false
-    @State private var isAutoTransitioning = false
-    @State private var errorMessage: String?
+    @StateObject private var session: ATEMLiveSession
 
     // 0-indexed M/E number. Every switcher model has at least this one, and
     // ATEMControlService/ATEMStateSession already default to it elsewhere.
     private let meIndex: UInt8 = 0
 
-    init(switcher: BlackmagicSwitcher, isOnline: Bool) {
+    init(switcher: BlackmagicSwitcher) {
         self.switcher = switcher
-        self.isOnline = isOnline
         _inputCount = AppStorage(wrappedValue: 8, "atem.\(switcher.id.uuidString).inputCount")
+        _session = StateObject(wrappedValue: ATEMLiveSession(host: switcher.ipAddress))
     }
 
     private var currentME: MixEffectState? {
-        liveState?.mixEffects.first(where: { $0.index == meIndex })
+        session.state.mixEffects.first(where: { $0.index == meIndex })
     }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                if !isOnline {
-                    Label("Switcher is offline — controls will still send, but may not reach it.", systemImage: "wifi.slash")
-                        .font(.caption).foregroundStyle(.orange)
-                } else if let errorMessage {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption).foregroundStyle(.red)
-                }
+                statusBanner
 
                 busRow(title: "PROGRAM", color: .red, selected: currentME?.programInput) { source in
-                    send(.programInput(source: source), source: source)
+                    session.send(.programInput(source: source), meIndex: meIndex)
                 }
 
                 busRow(title: "PREVIEW", color: .green, selected: currentME?.previewInput) { source in
-                    send(.previewInput(source: source), source: source)
+                    session.send(.previewInput(source: source), meIndex: meIndex)
                 }
 
                 transitionControls
@@ -61,7 +51,23 @@ struct SwitcherControlPanel: View {
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .top)
         }
-        .task(id: switcher.ipAddress) { await pollLoop() }
+        .onAppear { session.connect() }
+        .onDisappear { session.disconnect() }
+    }
+
+    // MARK: - Status
+
+    @ViewBuilder
+    private var statusBanner: some View {
+        if let lastError = session.lastError {
+            Label(lastError, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption).foregroundStyle(.red)
+        } else if !session.isConnected {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Connecting to switcher…").font(.caption).foregroundStyle(.secondary)
+            }
+        }
     }
 
     // MARK: - Bus rows
@@ -82,7 +88,7 @@ struct SwitcherControlPanel: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(isSelected ? color : .secondary)
-                    .disabled(pendingSource == source)
+                    .disabled(!session.isConnected)
                 }
             }
         }
@@ -93,69 +99,20 @@ struct SwitcherControlPanel: View {
     private var transitionControls: some View {
         HStack(spacing: 16) {
             Button {
-                Task { await sendTransition(.cut, busy: $isCutting) }
+                session.send(.cut, meIndex: meIndex)
             } label: {
                 Text("CUT").font(.headline).frame(maxWidth: .infinity, minHeight: 50)
             }
             .buttonStyle(.borderedProminent).tint(.red)
-            .disabled(isCutting || isAutoTransitioning)
+            .disabled(!session.isConnected)
 
             Button {
-                Task { await sendTransition(.auto, busy: $isAutoTransitioning) }
+                session.send(.auto, meIndex: meIndex)
             } label: {
                 Text("AUTO").font(.headline).frame(maxWidth: .infinity, minHeight: 50)
             }
             .buttonStyle(.borderedProminent).tint(.blue)
-            .disabled(isCutting || isAutoTransitioning)
-        }
-    }
-
-    // MARK: - Sending commands
-
-    private func send(_ command: ATEMControlService.Command, source: UInt16) {
-        pendingSource = source
-        Task {
-            defer { pendingSource = nil }
-            do {
-                try await ATEMControlService.send(command, meIndex: meIndex, to: switcher.ipAddress)
-                errorMessage = nil
-                await refresh()
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-
-    private func sendTransition(_ command: ATEMControlService.Command, busy: Binding<Bool>) async {
-        busy.wrappedValue = true
-        defer { busy.wrappedValue = false }
-        do {
-            try await ATEMControlService.send(command, meIndex: meIndex, to: switcher.ipAddress)
-            errorMessage = nil
-            await refresh()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    // MARK: - Live state polling
-
-    private func pollLoop() async {
-        while !Task.isCancelled {
-            await refresh()
-            try? await Task.sleep(for: .seconds(4))
-        }
-    }
-
-    private func refresh() async {
-        do {
-            let state = try await ATEMStateSession.capture(from: switcher.ipAddress)
-            liveState = state
-            errorMessage = nil
-        } catch {
-            // Keep whatever was last captured on screen; only surface the
-            // error once we've never managed to capture anything at all.
-            if liveState == nil { errorMessage = error.localizedDescription }
+            .disabled(!session.isConnected)
         }
     }
 }
