@@ -95,6 +95,19 @@ final class WorkflowEngine: ObservableObject {
                 continue
             }
 
+            if step.requiresConfirmation {
+                session.log("⏸ Paused — waiting for confirmation on \"\(step.kind.title)\"")
+                let shouldContinue = await session.waitForConfirmation(on: step)
+                guard shouldContinue else {
+                    if !session.isCancelled {
+                        session.isCancelled = true
+                        session.log("⏹ Workflow stopped — confirmation declined")
+                    }
+                    break
+                }
+                session.log("▶️ Confirmed \"\(step.kind.title)\" — continuing")
+            }
+
             contexts = await withTaskGroup(of: StepContext.self) { group in
                 for context in contexts {
                     group.addTask {
@@ -147,6 +160,9 @@ final class WorkflowEngine: ObservableObject {
     func stop(_ session: WorkflowRunSession) {
         session.isCancelled = true
         session.log("⏹ Workflow stopped by user")
+        // Release a paused confirmation prompt, if any, so the run doesn't
+        // hang forever waiting for a response that will never come.
+        session.resolveConfirmation(proceed: false)
     }
 
     // MARK: - Retry failed tasks

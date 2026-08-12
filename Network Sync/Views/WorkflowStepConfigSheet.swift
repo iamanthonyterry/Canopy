@@ -22,6 +22,7 @@ struct WorkflowStepConfigSheet: View {
     @State private var notifyRecipients: [NotificationRecipient] = []
     @State private var notifySendPerDrive = true
     @State private var showingAddRecipient = false
+    @State private var requiresConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,6 +69,13 @@ struct WorkflowStepConfigSheet: View {
 
                 case .notify:
                     notifyFields
+                }
+
+                Section {
+                    Toggle("Ask for confirmation before this step", isOn: $requiresConfirmation)
+                } footer: {
+                    Text("Pauses the workflow here until someone confirms it should continue.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)
@@ -317,6 +325,7 @@ struct WorkflowStepConfigSheet: View {
     // MARK: - Load / Save
 
     private func load() {
+        requiresConfirmation = step.requiresConfirmation
         switch step.action {
         case .controlDeck(let command, let savedMinutes):
             controlCommand = command
@@ -349,6 +358,7 @@ struct WorkflowStepConfigSheet: View {
     }
 
     private func save() {
+        step.requiresConfirmation = requiresConfirmation
         switch step.kind {
         case .controlDeck:
             step.action = .controlDeck(

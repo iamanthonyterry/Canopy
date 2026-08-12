@@ -129,7 +129,15 @@ struct WorkflowEditorSheet: View {
                 .foregroundStyle(step.kind.color)
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
-                Text(step.kind.title).font(.body)
+                HStack(spacing: 5) {
+                    Text(step.kind.title).font(.body)
+                    if step.requiresConfirmation {
+                        Image(systemName: "hand.raised.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                            .help("Asks for confirmation before running")
+                    }
+                }
                 Text(step.action.summary).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()

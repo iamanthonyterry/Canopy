@@ -19,7 +19,7 @@ struct WorkflowsView: View {
 
             if !inProgress.isEmpty {
                 ForEach(inProgress) { session in
-                    runningBanner(session)
+                    RunningWorkflowBanner(session: session, engine: engine)
                 }
                 Divider()
             }
@@ -69,30 +69,6 @@ struct WorkflowsView: View {
         }
         .padding()
     }
-
-    // MARK: - Running banner (one per active run, live log + its own Stop)
-
-    private func runningBanner(_ session: WorkflowRunSession) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Running \"\(session.workflow.name)\"...").font(.subheadline).bold()
-                Spacer()
-                Button(role: .destructive) { engine.stop(session) } label: {
-                    Label("Stop", systemImage: "stop.fill")
-                }
-                .buttonStyle(.bordered).tint(.red).controlSize(.small)
-            }
-            if let lastLine = session.lines.last {
-                Text(lastLine)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-        .padding()
-    }
-
 
     // MARK: - Empty state
 
@@ -227,5 +203,60 @@ struct WorkflowsView: View {
 
     private func lastRun(for workflow: Workflow) -> WorkflowRun? {
         appState.workflowRunHistory.first { $0.workflowName == workflow.name }
+    }
+}
+
+// MARK: - Running Workflow Banner
+
+/// Live status + controls for one in-progress run. Kept as its own view
+/// (rather than a helper inside WorkflowsView) so it can observe the
+/// session directly — that's what lets the confirmation prompt below
+/// appear the instant a step pauses, without waiting on some unrelated
+/// redraw elsewhere in the app.
+private struct RunningWorkflowBanner: View {
+    @ObservedObject var session: WorkflowRunSession
+    let engine: WorkflowEngine
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Running \"\(session.workflow.name)\"...").font(.subheadline).bold()
+                Spacer()
+                Button(role: .destructive) { engine.stop(session) } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+                .buttonStyle(.bordered).tint(.red).controlSize(.small)
+            }
+            if let lastLine = session.lines.last {
+                Text(lastLine)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if let step = session.pendingConfirmationStep {
+                confirmationPrompt(for: step)
+            }
+        }
+        .padding()
+    }
+
+    private func confirmationPrompt(for step: WorkflowStep) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "hand.raised.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Confirm \"\(step.kind.title)\"?").font(.subheadline).bold()
+                Text(step.action.summary).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Stop") { session.resolveConfirmation(proceed: false) }
+                .buttonStyle(.bordered).controlSize(.small)
+            Button("Continue") { session.resolveConfirmation(proceed: true) }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }

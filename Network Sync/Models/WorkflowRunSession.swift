@@ -23,6 +23,12 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
     /// are unaffected.
     @Published var isCancelled = false
 
+    /// The step currently paused and waiting on a confirmation response —
+    /// non-nil only while a `.requiresConfirmation` step is holding the
+    /// run. Drives the confirmation prompt in the UI.
+    @Published var pendingConfirmationStep: WorkflowStep? = nil
+    private var confirmationContinuation: CheckedContinuation<Bool, Never>?
+
     var converted = 0
     var skipped = 0
     var errors = 0
@@ -37,5 +43,25 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
     func log(_ message: String) {
         let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         lines.append("[\(ts)] \(message)")
+    }
+
+    // MARK: - Step confirmation
+
+    /// Suspends the run until the user responds to this step's
+    /// confirmation prompt. Returns `true` to proceed, `false` to stop.
+    func waitForConfirmation(on step: WorkflowStep) async -> Bool {
+        await withCheckedContinuation { continuation in
+            confirmationContinuation = continuation
+            pendingConfirmationStep = step
+        }
+    }
+
+    /// Resolves a pending confirmation, if any. Also called when the run
+    /// is stopped outright so a paused run doesn't hang forever.
+    func resolveConfirmation(proceed: Bool) {
+        guard let continuation = confirmationContinuation else { return }
+        confirmationContinuation = nil
+        pendingConfirmationStep = nil
+        continuation.resume(returning: proceed)
     }
 }

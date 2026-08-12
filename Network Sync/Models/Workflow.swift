@@ -353,10 +353,40 @@ enum RenamePatternEngine {
 }
 
 // MARK: - Workflow Step
-struct WorkflowStep: Identifiable, Codable, Hashable {
+struct WorkflowStep: Identifiable, Hashable {
     var id = UUID()
     var action: StepAction
+    /// When true, the run pauses right before this step and waits for
+    /// someone to confirm it should continue.
+    var requiresConfirmation: Bool = false
     var kind: StepKind { action.kind }
+
+    init(id: UUID = UUID(), action: StepAction, requiresConfirmation: Bool = false) {
+        self.id = id
+        self.action = action
+        self.requiresConfirmation = requiresConfirmation
+    }
+}
+
+extension WorkflowStep: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id, action, requiresConfirmation
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        action = try container.decode(StepAction.self, forKey: .action)
+        // Workflows saved before this feature existed won't have this key.
+        requiresConfirmation = try container.decodeIfPresent(Bool.self, forKey: .requiresConfirmation) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(action, forKey: .action)
+        try container.encode(requiresConfirmation, forKey: .requiresConfirmation)
+    }
 }
 
 // MARK: - Workflow

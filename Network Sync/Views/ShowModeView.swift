@@ -80,35 +80,7 @@ struct ShowModeView: View {
                 .foregroundStyle(.secondary)
 
             ForEach(inProgress) { session in
-                HStack(spacing: 18) {
-                    Circle().fill(.blue).frame(width: 16, height: 16)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(session.workflow.name)
-                            .font(.system(size: 24, weight: .semibold))
-                        if let lastLine = session.lines.last {
-                            Text(lastLine)
-                                .font(.system(size: 14, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                    Spacer()
-                    TimelineView(.periodic(from: session.startedAt, by: 1)) { context in
-                        Text(elapsedString(context.date.timeIntervalSince(session.startedAt)))
-                            .font(.system(size: 22, weight: .medium, design: .monospaced))
-                    }
-                    Button(role: .destructive) {
-                        workflowEngine.stop(session)
-                    } label: {
-                        Label("Stop", systemImage: "stop.fill")
-                            .font(.system(size: 15, weight: .semibold))
-                            .padding(.horizontal, 4).padding(.vertical, 2)
-                    }
-                    .buttonStyle(.bordered).tint(.red).controlSize(.large)
-                }
-                .padding(20)
-                .background(Color.blue.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                activeRunCard(session)
             }
         }
     }
@@ -201,11 +173,88 @@ struct ShowModeView: View {
         }
     }
 
-    private func elapsedString(_ elapsed: TimeInterval) -> String {
-        let h = Int(elapsed) / 3600
-        let m = Int(elapsed) % 3600 / 60
-        let s = Int(elapsed) % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
-        return String(format: "%d:%02d", m, s)
+    private func activeRunCard(_ session: WorkflowRunSession) -> some View {
+        ActiveRunCard(session: session, engine: workflowEngine)
     }
+}
+
+// MARK: - Active Run Card
+
+/// One in-progress run's status, sized for glancing at from across a room.
+/// Its own view (not a helper method on ShowModeView) so it observes the
+/// session directly and the confirmation prompt appears the moment a step
+/// pauses.
+private struct ActiveRunCard: View {
+    @ObservedObject var session: WorkflowRunSession
+    let engine: WorkflowEngine
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 18) {
+                Circle().fill(.blue).frame(width: 16, height: 16)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(session.workflow.name)
+                        .font(.system(size: 24, weight: .semibold))
+                    if let lastLine = session.lines.last {
+                        Text(lastLine)
+                            .font(.system(size: 14, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+                TimelineView(.periodic(from: session.startedAt, by: 1)) { context in
+                    Text(elapsedTimeString(context.date.timeIntervalSince(session.startedAt)))
+                        .font(.system(size: 22, weight: .medium, design: .monospaced))
+                }
+                Button(role: .destructive) {
+                    engine.stop(session)
+                } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .padding(.horizontal, 4).padding(.vertical, 2)
+                }
+                .buttonStyle(.bordered).tint(.red).controlSize(.large)
+            }
+
+            if let step = session.pendingConfirmationStep {
+                confirmationPrompt(for: step)
+            }
+        }
+        .padding(20)
+        .background(Color.blue.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func confirmationPrompt(for step: WorkflowStep) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: "hand.raised.fill")
+                .font(.system(size: 20))
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Confirm \"\(step.kind.title)\"?")
+                    .font(.system(size: 17, weight: .semibold))
+                Text(step.action.summary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Stop") { session.resolveConfirmation(proceed: false) }
+                .buttonStyle(.bordered).controlSize(.large)
+            Button("Continue") { session.resolveConfirmation(proceed: true) }
+                .buttonStyle(.borderedProminent).controlSize(.large)
+        }
+        .padding(16)
+        .background(Color.orange.opacity(0.15))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+/// Shared by ShowModeView and ActiveRunCard.
+private func elapsedTimeString(_ elapsed: TimeInterval) -> String {
+    let h = Int(elapsed) / 3600
+    let m = Int(elapsed) % 3600 / 60
+    let s = Int(elapsed) % 60
+    if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
+    return String(format: "%d:%02d", m, s)
 }
