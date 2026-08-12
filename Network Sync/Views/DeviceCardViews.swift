@@ -38,10 +38,10 @@ struct StatusBadge: View {
 }
 
 // MARK: - ATEM Switcher Content Pane
-// The right-hand content for a selected switcher: live status and a
-// refresh/run-workflow header. Switchers don't expose a file system, so
-// there's nothing to browse here — device settings live in the gear-button
-// sheet on the device row.
+// The right-hand content for a selected switcher: live status/refresh in
+// the header, and a live switcher control panel below (program/preview bus,
+// Cut/Auto) instead of a file browser — switchers don't expose a file
+// system. Device settings live in the gear-button sheet on the device row.
 
 struct SwitcherContentPane: View {
     let switcher: BlackmagicSwitcher
@@ -53,7 +53,7 @@ struct SwitcherContentPane: View {
         VStack(spacing: 0) {
             header
             Divider()
-            emptyState
+            SwitcherControlPanel(switcher: switcher, isOnline: liveStatus == .online)
         }
     }
 
@@ -72,19 +72,6 @@ struct SwitcherContentPane: View {
             }
             .buttonStyle(.borderless)
         }
-        .padding()
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 10) {
-            Spacer()
-            Image(systemName: "switch.2")
-                .font(.system(size: 36)).foregroundStyle(.secondary)
-            Text("No file system to browse on this device.")
-                .foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
     }
 }

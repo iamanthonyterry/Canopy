@@ -49,14 +49,18 @@ enum ATEMControlError: LocalizedError {
 // (rather than the id we originally proposed) for the command packet in
 // step 4 — see the comment on `sendCommand()` below.
 enum ATEMControlService {
-    /// The instant commands this service can send. `programInput` selects a
-    /// source directly onto program — `source` is the switcher's video
-    /// source id, which for every physical input matches its 1-based input
-    /// number (1 = Input 1, 2 = Input 2, ...).
+    /// The instant commands this service can send. `programInput` and
+    /// `previewInput` select a source directly onto program/preview —
+    /// `source` is the switcher's video source id, which for every physical
+    /// input matches its 1-based input number (1 = Input 1, 2 = Input 2,
+    /// ...). `previewInput` mirrors `programInput`'s wire format exactly;
+    /// the OpenSwitcher docs list "CPgI" and "CPvI" as the same command
+    /// shape targeting the program vs. preview bus respectively.
     enum Command {
         case cut
         case auto
         case programInput(source: UInt16)
+        case previewInput(source: UInt16)
 
         /// Raw 4-character ASCII command name, matching the wire protocol.
         /// `nonisolated` so `ATEMCommandSession` (itself nonisolated, per
@@ -66,6 +70,7 @@ enum ATEMControlService {
             case .cut:          "DCut"
             case .auto:         "DAut"
             case .programInput: "CPgI"
+            case .previewInput: "CPvI"
             }
         }
     }
@@ -220,7 +225,7 @@ nonisolated private final class ATEMCommandSession: @unchecked Sendable {
         switch command {
         case .cut, .auto:
             commandData = Data([meIndex, 0, 0, 0])
-        case .programInput(let source):
+        case .programInput(let source), .previewInput(let source):
             commandData = Data([meIndex, 0, UInt8(source >> 8), UInt8(source & 0xFF)])
         }
 
