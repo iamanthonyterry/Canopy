@@ -53,10 +53,16 @@ nonisolated private final class ATEMStateCapture: @unchecked Sendable {
         self.continuation = continuation
     }
 
+    // `stateUpdateHandler` below captures `self` strongly and NWConnection
+    // retains its own handler, so this object is kept alive by that
+    // intentional retain cycle for as long as the connection is live —
+    // otherwise, with no other owner, it would deallocate as soon as
+    // `start()` returns (before any state dump can arrive), leaving `self`
+    // nil in every callback and the continuation never resumed. The cycle
+    // is broken in `finish()`. Mirrors ATEMProbe's ProbeResolver.
     func start(idleTimeout: TimeInterval, maxDuration: TimeInterval) {
         self.idleTimeout = idleTimeout
-        connection.stateUpdateHandler = { [weak self] nwState in
-            guard let self else { return }
+        connection.stateUpdateHandler = { nwState in
             switch nwState {
             case .ready:
                 self.sendHello()
@@ -69,8 +75,8 @@ nonisolated private final class ATEMStateCapture: @unchecked Sendable {
         connection.start(queue: .global())
         resetIdleTimer(idleTimeout)
 
-        DispatchQueue.global().asyncAfter(deadline: .now() + maxDuration) { [weak self] in
-            self?.finish(nil)
+        DispatchQueue.global().asyncAfter(deadline: .now() + maxDuration) {
+            self.finish(nil)
         }
     }
 
@@ -85,6 +91,7 @@ nonisolated private final class ATEMStateCapture: @unchecked Sendable {
         guard !alreadyFinished else { return }
 
         idleWorkItem?.cancel()
+        connection.stateUpdateHandler = nil
         connection.cancel()
         if let error {
             continuation.resume(throwing: error)

@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # Network Sync release script
-# Usage: ./release.sh 0.0.22-alpha
+# Usage: ./release.sh 0.0.23-alpha
 # Github Release push: 
-#  gh release create v0.0.22-alpha build/NetworkSync-0.0.22-alpha.zip build/appcast.xml --title "0.0.22-alpha" --notes "Twenty-second alpha release"
+#  gh release create v0.0.23-alpha build/NetworkSync-0.0.23-alpha.zip build/appcast.xml --title "0.0.23-alpha" --notes "Twenty-third alpha release"
 # Bumps MARKETING_VERSION, archives, exports, notarizes, staples, zips,
 # and generates the Sparkle appcast — ready to upload to a GitHub Release.
 

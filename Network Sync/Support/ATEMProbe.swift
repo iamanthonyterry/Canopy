@@ -56,9 +56,15 @@ nonisolated private final class ProbeResolver: @unchecked Sendable {
         self.continuation = continuation
     }
 
+    // `stateUpdateHandler` below captures `self` strongly and NWConnection
+    // retains its own handler, so this object is kept alive by that
+    // intentional retain cycle for as long as the connection is live —
+    // otherwise, with no other owner, it would deallocate as soon as
+    // `start()` returns (before any network response can arrive), leaving
+    // `self` nil in every callback and the continuation never resumed. The
+    // cycle is broken in `finish()`.
     nonisolated func start(sending packet: Data, timeout: TimeInterval) {
-        connection.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
+        connection.stateUpdateHandler = { state in
             switch state {
             case .ready:
                 self.connection.send(content: packet, completion: .contentProcessed { error in
@@ -75,8 +81,8 @@ nonisolated private final class ProbeResolver: @unchecked Sendable {
         }
         connection.start(queue: .global())
 
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak self] in
-            self?.finish(.offline)
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+            self.finish(.offline)
         }
     }
 
@@ -87,6 +93,7 @@ nonisolated private final class ProbeResolver: @unchecked Sendable {
         lock.unlock()
         guard !alreadyResolved else { return }
 
+        connection.stateUpdateHandler = nil
         connection.cancel()
         continuation.resume(returning: status)
     }
