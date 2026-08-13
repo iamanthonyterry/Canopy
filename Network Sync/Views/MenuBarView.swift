@@ -35,45 +35,47 @@ struct MenuBarView: View {
             }
         }
 
-        Divider()
+        if appState.isAdmin {
+            Divider()
 
-        if !inProgress.isEmpty {
-            Button(role: .destructive) {
-                workflowEngine.stop()
-            } label: {
-                Label("Stop All Workflows", systemImage: "stop.fill")
-            }
-        }
-
-        let runnable = appState.workflows.filter { !$0.steps.isEmpty }
-        if runnable.isEmpty {
-            if inProgress.isEmpty {
-                Text("No workflows — create one in the app")
-                    .foregroundStyle(.secondary)
-            }
-        } else {
-            Menu("Run Workflow") {
-                ForEach(runnable.sorted { $0.sortOrder < $1.sortOrder }) { workflow in
-                    Button(workflow.name) {
-                        Task { await workflowEngine.run(workflow) }
-                    }
-                    .disabled(!appState.canRun(workflow))
+            if !inProgress.isEmpty {
+                Button(role: .destructive) {
+                    workflowEngine.stop()
+                } label: {
+                    Label("Stop All Workflows", systemImage: "stop.fill")
                 }
             }
-        }
 
-        Divider()
+            let runnable = appState.workflows.filter { !$0.steps.isEmpty }
+            if runnable.isEmpty {
+                if inProgress.isEmpty {
+                    Text("No workflows — create one in the app")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Menu("Run Workflow") {
+                    ForEach(runnable.sorted { $0.sortOrder < $1.sortOrder }) { workflow in
+                        Button(workflow.name) {
+                            Task { await workflowEngine.run(workflow) }
+                        }
+                        .disabled(!appState.canRun(workflow))
+                    }
+                }
+            }
 
-        // Schedule status
-        let scheduled = appState.workflows.filter { $0.isScheduled }
-        if !scheduled.isEmpty {
-            ForEach(scheduled) { workflow in
-                ForEach(workflow.activeTriggers) { trigger in
-                    Label(
-                        "\(workflow.name) at \(trigger.mode == .oneTime ? trigger.displayOneTimeDate : trigger.displayTime)",
-                        systemImage: "clock"
-                    )
-                    .foregroundStyle(.secondary)
+            Divider()
+
+            // Schedule status
+            let scheduled = appState.workflows.filter { $0.isScheduled }
+            if !scheduled.isEmpty {
+                ForEach(scheduled) { workflow in
+                    ForEach(workflow.activeTriggers) { trigger in
+                        Label(
+                            "\(workflow.name) at \(trigger.mode == .oneTime ? trigger.displayOneTimeDate : trigger.displayTime)",
+                            systemImage: "clock"
+                        )
+                        .foregroundStyle(.secondary)
+                    }
                 }
             }
         }

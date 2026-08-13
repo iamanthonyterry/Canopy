@@ -2,11 +2,30 @@ import Foundation
 import Combine
 import SwiftUI
 
+// MARK: - User Role
+// Admin has full access. Content Manager is a restricted mode for operators
+// who should only be able to view and trim/export video — no device setup,
+// workflow automation, ATEM control, or other settings.
+enum UserRole: String, Codable, CaseIterable, Hashable {
+    case admin = "Admin"
+    case contentManager = "Content Manager"
+
+    var icon: String {
+        switch self {
+        case .admin:          return "person.badge.key.fill"
+        case .contentManager: return "film"
+        }
+    }
+}
+
 @MainActor
 class AppState: ObservableObject {
     static let shared = AppState()
 
     // MARK: - Persisted State
+    @Published var userRole: UserRole = .admin {
+        didSet { save(userRole, key: "userRole") }
+    }
     @Published var hyperDecks: [HyperDeck] = [] {
         didSet { save(hyperDecks, key: "hyperDecks") }
     }
@@ -47,6 +66,8 @@ class AppState: ObservableObject {
     // retry or dismiss it.
     @Published var activeRuns: [WorkflowRunSession] = []
 
+    var isAdmin: Bool { userRole == .admin }
+
     var isRunning: Bool { activeRuns.contains { !$0.isFinished } }
     var allTasks: [SyncTask] { activeRuns.flatMap(\.tasks) }
     var failedTasks: [SyncTask] { allTasks.filter { $0.phase == .error } }
@@ -86,6 +107,7 @@ class AppState: ObservableObject {
 
 
     init() {
+        userRole           = load(UserRole.self,             key: "userRole")           ?? .admin
         hyperDecks         = load([HyperDeck].self,          key: "hyperDecks")         ?? []
         switchers          = load([BlackmagicSwitcher].self, key: "switchers")          ?? []
         cloudStores        = load([CloudStore].self,         key: "cloudStores")        ?? []

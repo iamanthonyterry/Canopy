@@ -62,7 +62,7 @@ struct DeckContentPane: View {
                 Divider()
             }
 
-            if liveStatus == .online {
+            if appState.isAdmin && liveStatus == .online {
                 HyperDeckControls(hyperDeck: hyperDeck, showFormatConfirm: $showFormatConfirm)
                     .padding(.horizontal)
                     .padding(.vertical, 10)
@@ -102,7 +102,9 @@ struct DeckContentPane: View {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
-            runWorkflowMenu
+            if appState.isAdmin {
+                runWorkflowMenu
+            }
         }
         .padding()
     }

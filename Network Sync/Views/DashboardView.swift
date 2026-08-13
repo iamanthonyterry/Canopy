@@ -94,13 +94,15 @@ struct DashboardView: View {
                 Text(session.mountError ?? "").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Button {
-                Task { await workflowEngine.run(session.workflow) }
-            } label: {
-                Label("Retry", systemImage: "arrow.counterclockwise")
+            if appState.isAdmin {
+                Button {
+                    Task { await workflowEngine.run(session.workflow) }
+                } label: {
+                    Label("Retry", systemImage: "arrow.counterclockwise")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!appState.canRun(session.workflow))
             }
-            .buttonStyle(.bordered)
-            .disabled(!appState.canRun(session.workflow))
             Button {
                 appState.dismiss(session)
             } label: {
@@ -138,22 +140,24 @@ struct DashboardView: View {
                     }
                 }
 
-                scanButton
+                if appState.isAdmin {
+                    scanButton
 
-                Button {
-                    showMode = true
-                } label: {
-                    Label("Show Mode", systemImage: "tv")
+                    Button {
+                        showMode = true
+                    } label: {
+                        Label("Show Mode", systemImage: "tv")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Menu {
+                        Button("HyperDeck") { showingAddDeck = true }
+                        Button("ATEM Switcher") { showingAddSwitcher = true }
+                        Button("Cloud Store") { showingAddCloudStore = true }
+                    } label: {
+                        Label("Add Device", systemImage: "plus")
+                    }.buttonStyle(.borderedProminent)
                 }
-                .buttonStyle(.bordered)
-
-                Menu {
-                    Button("HyperDeck") { showingAddDeck = true }
-                    Button("ATEM Switcher") { showingAddSwitcher = true }
-                    Button("Cloud Store") { showingAddCloudStore = true }
-                } label: {
-                    Label("Add Device", systemImage: "plus")
-                }.buttonStyle(.borderedProminent)
             }
 
             if let earliest = inProgress.map(\.startedAt).min() {
@@ -190,7 +194,7 @@ struct DashboardView: View {
                 }
             }
 
-            if !appState.switchers.isEmpty {
+            if appState.isAdmin && !appState.switchers.isEmpty {
                 Section("ATEM Switchers") {
                     ForEach(appState.switchers) { switcher in
                         SwitcherListRow(switcher: switcher)
@@ -208,7 +212,9 @@ struct DashboardView: View {
                 }
             }
 
-            discoveredSection
+            if appState.isAdmin {
+                discoveredSection
+            }
         }
         .listStyle(.sidebar)
     }
@@ -224,7 +230,9 @@ struct DashboardView: View {
                 emptyDetailState
             }
         case .switcher(let id):
-            if let switcher = appState.switchers.first(where: { $0.id == id }) {
+            if !appState.isAdmin {
+                restrictedDetailState
+            } else if let switcher = appState.switchers.first(where: { $0.id == id }) {
                 SwitcherContentPane(switcher: switcher)
                     .id(switcher.id)
             } else {
@@ -240,6 +248,22 @@ struct DashboardView: View {
         case .none:
             emptyDetailState
         }
+    }
+
+    private var restrictedDetailState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 36))
+                .foregroundStyle(.secondary)
+            Text("Admin Access Required")
+                .font(.headline)
+            Text("Switch to Admin mode to control this device.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
     }
 
     private var emptyDetailState: some View {
@@ -328,30 +352,32 @@ struct DashboardView: View {
 
                 Spacer()
 
-                // Retry button — visible whenever there are failed tasks
-                // worth another try, regardless of what else is running.
-                if !appState.failedTasks.isEmpty {
-                    Button {
-                        Task { await workflowEngine.retryFailed() }
-                    } label: {
-                        Label("Retry \(appState.failedTasks.count) Failed", systemImage: "arrow.counterclockwise")
-                            .padding(.horizontal, 16).padding(.vertical, 8)
+                if appState.isAdmin {
+                    // Retry button — visible whenever there are failed tasks
+                    // worth another try, regardless of what else is running.
+                    if !appState.failedTasks.isEmpty {
+                        Button {
+                            Task { await workflowEngine.retryFailed() }
+                        } label: {
+                            Label("Retry \(appState.failedTasks.count) Failed", systemImage: "arrow.counterclockwise")
+                                .padding(.horizontal, 16).padding(.vertical, 8)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.orange)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.orange)
-                }
 
-                if !inProgress.isEmpty {
-                    Button(role: .destructive) {
-                        workflowEngine.stop()
-                    } label: {
-                        Label("Stop All", systemImage: "stop.fill")
-                            .padding(.horizontal, 20).padding(.vertical, 8)
+                    if !inProgress.isEmpty {
+                        Button(role: .destructive) {
+                            workflowEngine.stop()
+                        } label: {
+                            Label("Stop All", systemImage: "stop.fill")
+                                .padding(.horizontal, 20).padding(.vertical, 8)
+                        }
+                        .buttonStyle(.bordered).tint(.red)
                     }
-                    .buttonStyle(.bordered).tint(.red)
-                }
 
-                runWorkflowMenu
+                    runWorkflowMenu
+                }
 
                 Spacer()
             }

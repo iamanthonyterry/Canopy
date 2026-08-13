@@ -30,24 +30,26 @@ struct Network_SyncApp: App {
                 }
                 .disabled(!UpdateService.shared.canCheckForUpdates)
             }
-            CommandGroup(after: .appInfo) {
-                let runnable = appState.workflows.filter { !$0.steps.isEmpty }
+            if appState.isAdmin {
+                CommandGroup(after: .appInfo) {
+                    let runnable = appState.workflows.filter { !$0.steps.isEmpty }
 
-                Menu("Run Workflow") {
-                    ForEach(runnable.sorted { $0.sortOrder < $1.sortOrder }) { workflow in
-                        Button(workflow.name) {
-                            Task { await WorkflowEngine.shared.run(workflow) }
+                    Menu("Run Workflow") {
+                        ForEach(runnable.sorted { $0.sortOrder < $1.sortOrder }) { workflow in
+                            Button(workflow.name) {
+                                Task { await WorkflowEngine.shared.run(workflow) }
+                            }
+                            .disabled(!appState.canRun(workflow))
                         }
-                        .disabled(!appState.canRun(workflow))
                     }
-                }
-                .disabled(runnable.isEmpty)
+                    .disabled(runnable.isEmpty)
 
-                if appState.isRunning {
-                    Button("Stop All Workflows") {
-                        WorkflowEngine.shared.stop()
+                    if appState.isRunning {
+                        Button("Stop All Workflows") {
+                            WorkflowEngine.shared.stop()
+                        }
+                        .keyboardShortcut(".", modifiers: .command)
                     }
-                    .keyboardShortcut(".", modifiers: .command)
                 }
             }
         }
