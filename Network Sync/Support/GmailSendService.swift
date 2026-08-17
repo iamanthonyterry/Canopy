@@ -8,12 +8,12 @@ enum GmailSendService {
         case requestFailed(String)
     }
 
-    static func send(to recipients: [String], subject: String, body: String) async throws {
+    static func send(to recipients: [String], subject: String, body: String, isHTML: Bool = false) async throws {
         guard let accessToken = await GmailAuthService.shared.validAccessToken() else {
             throw SendError.notConnected
         }
 
-        let raw = buildRawMessage(to: recipients, subject: subject, body: body)
+        let raw = buildRawMessage(to: recipients, subject: subject, body: body, isHTML: isHTML)
         let base64URL = raw
             .base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
@@ -48,11 +48,11 @@ enum GmailSendService {
     }
 
     /// Sends one email per recipient, returning the recipient/reason pairs that failed.
-    static func sendIndividually(to recipients: [String], subject: String, body: String) async -> [(recipient: String, reason: String)] {
+    static func sendIndividually(to recipients: [String], subject: String, body: String, isHTML: Bool = false) async -> [(recipient: String, reason: String)] {
         var failed: [(recipient: String, reason: String)] = []
         for recipient in recipients {
             do {
-                try await send(to: [recipient], subject: subject, body: body)
+                try await send(to: [recipient], subject: subject, body: body, isHTML: isHTML)
             } catch {
                 failed.append((recipient, describe(error)))
             }
@@ -71,14 +71,52 @@ enum GmailSendService {
         }
     }
 
-    private static func buildRawMessage(to recipients: [String], subject: String, body: String) -> Data {
+    private static func buildRawMessage(to recipients: [String], subject: String, body: String, isHTML: Bool) -> Data {
+        guard isHTML else {
+            let message = """
+            To: \(recipients.joined(separator: ", "))
+            Subject: \(subject)
+            Content-Type: text/plain; charset="UTF-8"
+
+            \(body)
+            """
+            return Data(message.utf8)
+        }
+
+        // multipart/alternative so clients that can't render HTML still show
+        // something readable, rather than raw markup.
+        let boundary = "np_boundary_\(UUID().uuidString)"
         let message = """
         To: \(recipients.joined(separator: ", "))
         Subject: \(subject)
+        Content-Type: multipart/alternative; boundary="\(boundary)"
+
+        --\(boundary)
         Content-Type: text/plain; charset="UTF-8"
 
+        \(plainTextFallback(from: body))
+
+        --\(boundary)
+        Content-Type: text/html; charset="UTF-8"
+
         \(body)
+
+        --\(boundary)--
         """
         return Data(message.utf8)
+    }
+
+    /// Strips tags/entities for the plain-text alternative part of an HTML
+    /// email — the HTML part is what recipients actually see.
+    private static func plainTextFallback(from html: String) -> String {
+        let stripped = html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        let decoded = stripped
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+        return decoded.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

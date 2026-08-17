@@ -91,7 +91,7 @@ final class WorkflowEngine: ObservableObject {
         // of one finishing its entire step list before the next begins.
         for step in workflow.steps {
             guard !session.isCancelled else { break }
-            if case .notify(_, _, _, let sendPerDrive) = step.action, !sendPerDrive {
+            if case .notify(_, _, _, let sendPerDrive, _) = step.action, !sendPerDrive {
                 continue
             }
 
@@ -126,7 +126,7 @@ final class WorkflowEngine: ObservableObject {
 
         // Send workflow-wide notifications (single email for the entire workflow)
         let workflowWideNotifySteps = workflow.steps.filter {
-            if case .notify(_, _, _, let sendPerDrive) = $0.action {
+            if case .notify(_, _, _, let sendPerDrive, _) = $0.action {
                 return !sendPerDrive
             }
             return false
@@ -140,8 +140,8 @@ final class WorkflowEngine: ObservableObject {
                 session: session
             )
             for step in workflowWideNotifySteps {
-                if case .notify(let header, let message, let recipients, _) = step.action {
-                    await runNotify(context: &workflowContext, header: header, message: message, recipients: recipients)
+                if case .notify(let header, let message, let recipients, _, let isHTML) = step.action {
+                    await runNotify(context: &workflowContext, header: header, message: message, recipients: recipients, isHTML: isHTML)
                 }
             }
         }
@@ -250,8 +250,8 @@ final class WorkflowEngine: ObservableObject {
             await runFormat(context: &context)
         case .cleanup(let retentionDays):
             await runCleanup(context: &context, retentionDays: retentionDays)
-        case .notify(let header, let message, let recipients, _):
-            await runNotify(context: &context, header: header, message: message, recipients: recipients)
+        case .notify(let header, let message, let recipients, _, let isHTML):
+            await runNotify(context: &context, header: header, message: message, recipients: recipients, isHTML: isHTML)
         }
     }
 
@@ -559,7 +559,8 @@ final class WorkflowEngine: ObservableObject {
         context: inout StepContext,
         header: String,
         message: String,
-        recipients: [NotificationRecipient]
+        recipients: [NotificationRecipient],
+        isHTML: Bool
     ) async {
         let session = context.session
         guard !recipients.isEmpty else {
@@ -579,7 +580,14 @@ final class WorkflowEngine: ObservableObject {
         let timeTakenStr = mins > 0 ? "\(mins)m \(secs)s" : "\(secs)s"
 
         let fileNamesHeader = context.files.isEmpty ? "no files" : context.files.map(\.lastPathComponent).joined(separator: ", ")
-        let fileNamesBody = context.files.isEmpty ? "No files" : context.files.map { "- \($0.lastPathComponent)" }.joined(separator: "\n")
+        let fileNamesBody: String
+        if context.files.isEmpty {
+            fileNamesBody = isHTML ? "<p>No files</p>" : "No files"
+        } else if isHTML {
+            fileNamesBody = "<ul>" + context.files.map { "<li>\($0.lastPathComponent)</li>" }.joined() + "</ul>"
+        } else {
+            fileNamesBody = context.files.map { "- \($0.lastPathComponent)" }.joined(separator: "\n")
+        }
 
         let resolvedHeader = header
             .replacingOccurrences(of: "{workflow_name}", with: session.workflow.name)
@@ -606,7 +614,7 @@ final class WorkflowEngine: ObservableObject {
                 .replacingOccurrences(of: "{name}", with: recipient.name)
 
             do {
-                try await GmailSendService.send(to: [recipient.email], subject: recipientHeader, body: recipientMessage)
+                try await GmailSendService.send(to: [recipient.email], subject: recipientHeader, body: recipientMessage, isHTML: isHTML)
             } catch {
                 let reason: String
                 if case GmailSendService.SendError.requestFailed(let message) = error {

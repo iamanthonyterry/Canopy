@@ -21,6 +21,7 @@ struct WorkflowStepConfigSheet: View {
     @State private var notifyMessage = ""
     @State private var notifyRecipients: [NotificationRecipient] = []
     @State private var notifySendPerDrive = true
+    @State private var notifyIsHTML = false
     @State private var showingAddRecipient = false
     @State private var requiresConfirmation = false
 
@@ -242,10 +243,17 @@ struct WorkflowStepConfigSheet: View {
                     TextField("e.g. Sync Complete", text: $notifyHeader)
                         .textFieldStyle(.roundedBorder)
                 }
+                Toggle("Send as HTML", isOn: $notifyIsHTML)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Message").font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Text("Message").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        if notifyIsHTML {
+                            Text("HTML source").font(.caption2).foregroundStyle(.tertiary)
+                        }
+                    }
                     TextEditor(text: $notifyMessage)
-                        .font(.body)
+                        .font(notifyIsHTML ? .system(.body, design: .monospaced) : .body)
                         .frame(minHeight: 80, maxHeight: 160)
                         .scrollContentBackground(.hidden)
                         .background(Color(nsColor: .textBackgroundColor))
@@ -254,7 +262,11 @@ struct WorkflowStepConfigSheet: View {
                             RoundedRectangle(cornerRadius: 6)
                                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                         )
-                    
+                    if notifyIsHTML {
+                        Text("Write raw HTML (e.g. <b>, <a href>, inline styles) — it's sent as the email body.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Available variables").font(.caption).bold()
                             .padding(.top, 4)
@@ -349,11 +361,12 @@ struct WorkflowStepConfigSheet: View {
             pattern = pat
         case .cleanup(let days):
             retentionDays = days
-        case .notify(let header, let message, let recipients, let sendPerDrive):
+        case .notify(let header, let message, let recipients, let sendPerDrive, let isHTML):
             notifyHeader = header
             notifyMessage = message
             notifyRecipients = recipients
             notifySendPerDrive = sendPerDrive
+            notifyIsHTML = isHTML
         }
     }
 
@@ -377,7 +390,8 @@ struct WorkflowStepConfigSheet: View {
                 header: notifyHeader.isEmpty ? "Workflow update" : notifyHeader,
                 message: notifyMessage,
                 recipients: notifyRecipients,
-                sendPerDrive: notifySendPerDrive
+                sendPerDrive: notifySendPerDrive,
+                isHTML: notifyIsHTML
             )
         }
         dismiss()
