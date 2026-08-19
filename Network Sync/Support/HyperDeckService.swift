@@ -413,7 +413,7 @@ final class HyperDeckService: ObservableObject {
     /// false if `text` looks like the start of that notification but hasn't
     /// reached its terminating blank line yet — the caller should keep
     /// reading rather than treat what it has as a real response.
-    private static func consumeConnectionPreamble(_ text: inout String) -> Bool {
+    private nonisolated static func consumeConnectionPreamble(_ text: inout String) -> Bool {
         guard text.lowercased().hasPrefix("500 connection info:") else { return true }
         guard let preambleEnd = text.range(of: "\r\n\r\n") ?? text.range(of: "\n\n") else {
             return false
@@ -425,7 +425,7 @@ final class HyperDeckService: ObservableObject {
     /// Multi-line responses are terminated by a blank line once every
     /// parameter line has arrived; single-line acks never get one, so only
     /// wait for it when we know to expect it.
-    private static func isCompleteResponse(_ text: String, multilineResponse: Bool) -> Bool {
+    private nonisolated static func isCompleteResponse(_ text: String, multilineResponse: Bool) -> Bool {
         let hasBlankLineTerminator = text.contains("\r\n\r\n") || text.contains("\n\n")
         return (!multilineResponse && !text.isEmpty) || hasBlankLineTerminator
     }

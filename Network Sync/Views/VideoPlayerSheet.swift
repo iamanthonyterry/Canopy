@@ -40,6 +40,13 @@ struct VideoPlayerSheet: View {
     @State private var exportProgress: Double = 0
     @State private var exportError: String?
 
+    // Custom transport state — AVPlayerView's native chrome is disabled
+    // (see PlayerContainerView) so this view drives play/pause and
+    // scrubbing itself.
+    @State private var isPlaying = false
+    @State private var isScrubbing = false
+    @State private var wasPlayingBeforeScrub = false
+
     var body: some View {
         VStack(spacing: 0) {
             // MARK: Header
@@ -71,17 +78,17 @@ struct VideoPlayerSheet: View {
             // it sidesteps the bug entirely. It's still mounted
             // unconditionally, same as VideoPlayer(player:) was, so no
             // swap-in-mid-transition crash either.
-            ZStack {
+            ZStack(alignment: .bottom) {
+                Color.black
+
                 PlayerContainerView(player: player)
+                    .onTapGesture { togglePlayback() }
+
                 if player == nil {
                     statusOverlay
+                } else {
+                    playerControls
                 }
-            }
-
-            if player != nil {
-                Divider()
-                trimControls
-                    .padding()
             }
         }
         .frame(minWidth: 680, minHeight: 460)
@@ -119,69 +126,142 @@ struct VideoPlayerSheet: View {
         }
     }
 
-    // MARK: - Trim / Export Controls
+    // MARK: - Player Controls
 
+    /// One unified control surface overlaid on the video itself — a single
+    /// scrub bar that doubles as the in/out range selector, transport, and
+    /// export, all in the same translucent panel. Deliberately not a
+    /// separate SwiftUI section bolted on below the native player chrome
+    /// (see PlayerContainerView): the goal is one cohesive player, not a
+    /// native control strip with add-ons underneath it.
     @ViewBuilder
-    private var trimControls: some View {
+    private var playerControls: some View {
         VStack(spacing: 10) {
             if duration > 0 {
-                TrimBarView(
-                    duration: duration,
-                    currentTime: currentTime,
-                    inPoint: $inPoint,
-                    outPoint: $outPoint
-                )
-                .frame(height: 28)
+                HStack(spacing: 10) {
+                    Text(timeString(currentTime))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: 52, alignment: .leading)
+
+                    PlaybackTimelineView(
+                        duration: duration,
+                        currentTime: $currentTime,
+                        inPoint: $inPoint,
+                        outPoint: $outPoint,
+                        onScrubBegan: beginScrub,
+                        onScrubChanged: scrub,
+                        onScrubEnded: endScrub
+                    )
+                    .frame(height: 24)
+
+                    Text(timeString(duration))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: 52, alignment: .trailing)
+                }
             }
 
-            HStack(spacing: 16) {
-                Button {
+            HStack(spacing: 20) {
+                playerIconButton("arrow.right.to.line", help: "Set In Point to current playhead") {
                     inPoint = min(currentTime, max(0, outPoint - 0.05))
-                } label: {
-                    Label(timeString(inPoint), systemImage: "arrow.right.to.line")
                 }
-                .buttonStyle(.bordered).controlSize(.small)
-                .help("Set In Point to current playhead")
 
                 Spacer()
 
-                Text("Clip: \(timeString(max(0, outPoint - inPoint)))")
-                    .font(.caption).foregroundStyle(.secondary)
+                playerIconButton(isPlaying ? "pause.fill" : "play.fill", size: 20, help: isPlaying ? "Pause" : "Play") {
+                    togglePlayback()
+                }
 
                 Spacer()
 
-                Button {
+                playerIconButton("arrow.left.to.line", help: "Set Out Point to current playhead") {
                     outPoint = max(currentTime, min(duration, inPoint + 0.05))
-                } label: {
-                    Label(timeString(outPoint), systemImage: "arrow.left.to.line")
                 }
-                .buttonStyle(.bordered).controlSize(.small)
-                .help("Set Out Point to current playhead")
-            }
 
-            if isExporting {
-                VStack(spacing: 4) {
-                    ProgressView(value: exportProgress)
-                    Text("Exporting clip… \(Int(exportProgress * 100))%")
-                        .font(.caption).foregroundStyle(.secondary)
+                if duration > 0 {
+                    Text("Clip \(timeString(max(0, outPoint - inPoint)))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.85))
                 }
-            } else {
-                HStack {
-                    if let exportError {
-                        Text(exportError)
-                            .font(.caption).foregroundStyle(.red)
-                            .lineLimit(2)
-                    }
-                    Spacer()
+
+                if isExporting {
+                    ProgressView(value: exportProgress)
+                        .frame(width: 90)
+                } else {
                     Button {
                         exportClip()
                     } label: {
-                        Label("Export Clip…", systemImage: "square.and.arrow.up")
+                        Text("Export Clip…")
+                            .font(.callout.weight(.medium))
+                            .padding(.horizontal, 12).padding(.vertical, 6)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.plain)
+                    .background(Color.white, in: Capsule())
+                    .foregroundStyle(.black)
                     .disabled(sourceURL == nil || outPoint <= inPoint)
+                    .opacity(sourceURL == nil || outPoint <= inPoint ? 0.5 : 1)
                 }
             }
+
+            if let exportError {
+                Text(exportError)
+                    .font(.caption).foregroundStyle(.red)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 24)
+        .padding(.bottom, 14)
+        .background(
+            LinearGradient(
+                colors: [.black.opacity(0), .black.opacity(0.55), .black.opacity(0.8)],
+                startPoint: .top, endPoint: .bottom
+            )
+        )
+    }
+
+    private func playerIconButton(_ systemImage: String, size: CGFloat = 15, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    // MARK: - Transport
+
+    private func togglePlayback() {
+        guard let player else { return }
+        if isPlaying {
+            player.pause()
+        } else {
+            player.play()
+        }
+        isPlaying.toggle()
+    }
+
+    private func beginScrub() {
+        wasPlayingBeforeScrub = isPlaying
+        player?.pause()
+        isScrubbing = true
+    }
+
+    private func scrub(to time: Double) {
+        currentTime = time
+        player?.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    private func endScrub() {
+        isScrubbing = false
+        if wasPlayingBeforeScrub {
+            player?.play()
+            isPlaying = true
         }
     }
 
@@ -289,10 +369,14 @@ struct VideoPlayerSheet: View {
 
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
         timeObserverToken = newPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
-            Task { @MainActor in currentTime = time.seconds }
+            Task { @MainActor in
+                guard !isScrubbing else { return }
+                currentTime = time.seconds
+            }
         }
 
         newPlayer.play()
+        isPlaying = true
     }
 
     private func loadDuration(for item: AVPlayerItem) async {
@@ -361,13 +445,16 @@ struct VideoPlayerSheet: View {
 
 /// Wraps AVKit's AppKit `AVPlayerView` directly rather than using SwiftUI's
 /// `VideoPlayer` — see the comment above its call site in `VideoPlayerSheet`
-/// for why.
+/// for why. `controlsStyle = .none` strips all of AVPlayerView's own
+/// transport chrome so the only controls on screen are the custom ones in
+/// `playerControls` — one unified player instead of native controls with a
+/// trim bar bolted on underneath.
 private struct PlayerContainerView: NSViewRepresentable {
     let player: AVPlayer?
 
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
-        view.controlsStyle = .inline
+        view.controlsStyle = .none
         view.player = player
         return view
     }
@@ -379,15 +466,20 @@ private struct PlayerContainerView: NSViewRepresentable {
     }
 }
 
-// MARK: - Trim Bar
+// MARK: - Playback Timeline
 
-/// A compact timeline with two draggable handles for picking an in/out
-/// range, plus a playhead showing the current position.
-private struct TrimBarView: View {
+/// The single scrub bar: dragging anywhere on the track seeks playback, and
+/// two handles mark the in/out range that will be exported. One control
+/// does both jobs instead of a separate native scrubber plus a bolted-on
+/// trim bar.
+private struct PlaybackTimelineView: View {
     let duration: Double
-    let currentTime: Double
+    @Binding var currentTime: Double
     @Binding var inPoint: Double
     @Binding var outPoint: Double
+    let onScrubBegan: () -> Void
+    let onScrubChanged: (Double) -> Void
+    let onScrubEnded: () -> Void
 
     private let handleWidth: CGFloat = 10
 
@@ -400,18 +492,26 @@ private struct TrimBarView: View {
 
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color.primary.opacity(0.08))
-                    .frame(height: 6)
+                    .fill(Color.white.opacity(0.25))
+                    .frame(height: 4)
 
                 Capsule()
-                    .fill(Color.accentColor.opacity(0.35))
-                    .frame(width: max(0, outX - inX), height: 6)
+                    .fill(Color.white.opacity(0.85))
+                    .frame(width: max(0, outX - inX), height: 4)
                     .offset(x: inX)
 
                 Rectangle()
-                    .fill(Color.primary)
-                    .frame(width: 2, height: geo.size.height)
-                    .offset(x: playX - 1)
+                    .fill(Color.clear)
+                    .contentShape(Rectangle())
+                    .frame(height: geo.size.height)
+                    .gesture(scrubGesture(width: width))
+
+                Circle()
+                    .fill(Color.white)
+                    .shadow(radius: 1)
+                    .frame(width: 12, height: 12)
+                    .offset(x: playX - 6)
+                    .allowsHitTesting(false)
 
                 trimHandle
                     .offset(x: inX - handleWidth / 2)
@@ -435,9 +535,27 @@ private struct TrimBarView: View {
         }
     }
 
+    private func scrubGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if !isDragging {
+                    isDragging = true
+                    onScrubBegan()
+                }
+                onScrubChanged(time(for: value.location.x, width: width))
+            }
+            .onEnded { value in
+                onScrubChanged(time(for: value.location.x, width: width))
+                onScrubEnded()
+                isDragging = false
+            }
+    }
+
+    @State private var isDragging = false
+
     private var trimHandle: some View {
         RoundedRectangle(cornerRadius: 3)
-            .fill(Color.accentColor)
+            .fill(Color.yellow)
             .frame(width: handleWidth, height: 24)
     }
 
