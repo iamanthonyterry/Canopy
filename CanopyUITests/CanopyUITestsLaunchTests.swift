@@ -1,13 +1,13 @@
 //
-//  Newtowk_SyncUITestsLaunchTests.swift
-//  Newtowk SyncUITests
+//  CanopyUITestsLaunchTests.swift
+//  CanopyUITests
 //
 //  Created by Anthony Terry on 6/7/26.
 //
 
 import XCTest
 
-final class Newtowk_SyncUITestsLaunchTests: XCTestCase {
+final class CanopyUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

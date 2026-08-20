@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "648E39BF2FD6334E00EE3177"
-               BuildableName = "Network Sync.app"
-               BlueprintName = "Network Sync"
-               ReferencedContainer = "container:Network Sync.xcodeproj">
+               BuildableName = "Canopy.app"
+               BlueprintName = "Canopy"
+               ReferencedContainer = "container:Canopy.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -36,9 +36,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "648E39D12FD6335100EE3177"
-               BuildableName = "Network SyncTests.xctest"
-               BlueprintName = "Network SyncTests"
-               ReferencedContainer = "container:Network Sync.xcodeproj">
+               BuildableName = "CanopyTests.xctest"
+               BlueprintName = "CanopyTests"
+               ReferencedContainer = "container:Canopy.xcodeproj">
             </BuildableReference>
          </TestableReference>
          <TestableReference
@@ -47,9 +47,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "648E39DB2FD6335100EE3177"
-               BuildableName = "Network SyncUITests.xctest"
-               BlueprintName = "Network SyncUITests"
-               ReferencedContainer = "container:Network Sync.xcodeproj">
+               BuildableName = "CanopyUITests.xctest"
+               BlueprintName = "CanopyUITests"
+               ReferencedContainer = "container:Canopy.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -70,9 +70,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "648E39BF2FD6334E00EE3177"
-            BuildableName = "Network Sync.app"
-            BlueprintName = "Network Sync"
-            ReferencedContainer = "container:Network Sync.xcodeproj">
+            BuildableName = "Canopy.app"
+            BlueprintName = "Canopy"
+            ReferencedContainer = "container:Canopy.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -87,9 +87,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "648E39BF2FD6334E00EE3177"
-            BuildableName = "Network Sync.app"
-            BlueprintName = "Network Sync"
-            ReferencedContainer = "container:Network Sync.xcodeproj">
+            BuildableName = "Canopy.app"
+            BlueprintName = "Canopy"
+            ReferencedContainer = "container:Canopy.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

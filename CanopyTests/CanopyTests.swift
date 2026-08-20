@@ -1,14 +1,14 @@
 //
-//  Newtowk_SyncTests.swift
-//  Newtowk SyncTests
+//  CanopyTests.swift
+//  CanopyTests
 //
 //  Created by Anthony Terry on 6/7/26.
 //
 
 import Testing
-@testable import Network_Sync
+@testable import Canopy
 
-struct Network_SyncTests {
+struct CanopyTests {
 
     @Test func example() async throws {
         // Write your test here and use APIs like `#expect(...)` to check expected conditions.

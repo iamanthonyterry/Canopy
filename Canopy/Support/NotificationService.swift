@@ -50,7 +50,7 @@ struct NotificationService {
     // Fired when a scheduled run is about to start (one-minute warning)
     static func sendScheduledWarning(at date: Date) {
         let content = UNMutableNotificationContent()
-        content.title  = "Network Sync Starting Soon"
+        content.title  = "Canopy Starting Soon"
         content.body   = "Scheduled sync will begin in 1 minute."
         content.sound  = .default
 

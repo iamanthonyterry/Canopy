@@ -69,7 +69,7 @@ final class MIDIListenerService: ObservableObject {
         refreshSources()
 
         var newClient = MIDIClientRef()
-        let clientStatus = MIDIClientCreateWithBlock("NetworkSyncRemoteControl" as CFString, &newClient) { _ in }
+        let clientStatus = MIDIClientCreateWithBlock("CanopyRemoteControl" as CFString, &newClient) { _ in }
         guard clientStatus == noErr else {
             lastError = "Couldn't create MIDI client (status \(clientStatus))"
             return

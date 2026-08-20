@@ -18,39 +18,39 @@
 			containerPortal = 648E39B82FD6334E00EE3177 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 648E39BF2FD6334E00EE3177;
-			remoteInfo = "Newtowk Sync";
+			remoteInfo = "Canopy";
 		};
 		648E39DD2FD6335100EE3177 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 648E39B82FD6334E00EE3177 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 648E39BF2FD6334E00EE3177;
-			remoteInfo = "Newtowk Sync";
+			remoteInfo = "Canopy";
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		648E39C02FD6334E00EE3177 /* Network Sync.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Network Sync.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		648E39D22FD6335100EE3177 /* Network SyncTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Network SyncTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		648E39DC2FD6335100EE3177 /* Network SyncUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Network SyncUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		648E39C02FD6334E00EE3177 /* Canopy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Canopy.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		648E39D22FD6335100EE3177 /* CanopyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "CanopyTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		648E39DC2FD6335100EE3177 /* CanopyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "CanopyUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		64E3101A2FDB0EEF00BD0F01 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
 		64E3101B2FDB0EEF00BD0F01 /* UserNotificationsUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotificationsUI.framework; path = System/Library/Frameworks/UserNotificationsUI.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		648E39C22FD6334E00EE3177 /* Network Sync */ = {
+		648E39C22FD6334E00EE3177 /* Canopy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "Network Sync";
+			path = "Canopy";
 			sourceTree = "<group>";
 		};
-		648E39D52FD6335100EE3177 /* Network SyncTests */ = {
+		648E39D52FD6335100EE3177 /* CanopyTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "Network SyncTests";
+			path = "CanopyTests";
 			sourceTree = "<group>";
 		};
-		648E39DF2FD6335100EE3177 /* Network SyncUITests */ = {
+		648E39DF2FD6335100EE3177 /* CanopyUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "Network SyncUITests";
+			path = "CanopyUITests";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -86,9 +86,9 @@
 		648E39B72FD6334E00EE3177 = {
 			isa = PBXGroup;
 			children = (
-				648E39C22FD6334E00EE3177 /* Network Sync */,
-				648E39D52FD6335100EE3177 /* Network SyncTests */,
-				648E39DF2FD6335100EE3177 /* Network SyncUITests */,
+				648E39C22FD6334E00EE3177 /* Canopy */,
+				648E39D52FD6335100EE3177 /* CanopyTests */,
+				648E39DF2FD6335100EE3177 /* CanopyUITests */,
 				64E310192FDB0EEF00BD0F01 /* Frameworks */,
 				648E39C12FD6334E00EE3177 /* Products */,
 			);
@@ -97,9 +97,9 @@
 		648E39C12FD6334E00EE3177 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				648E39C02FD6334E00EE3177 /* Network Sync.app */,
-				648E39D22FD6335100EE3177 /* Network SyncTests.xctest */,
-				648E39DC2FD6335100EE3177 /* Network SyncUITests.xctest */,
+				648E39C02FD6334E00EE3177 /* Canopy.app */,
+				648E39D22FD6335100EE3177 /* CanopyTests.xctest */,
+				648E39DC2FD6335100EE3177 /* CanopyUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -116,9 +116,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		648E39BF2FD6334E00EE3177 /* Network Sync */ = {
+		648E39BF2FD6334E00EE3177 /* Canopy */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 648E39E62FD6335100EE3177 /* Build configuration list for PBXNativeTarget "Network Sync" */;
+			buildConfigurationList = 648E39E62FD6335100EE3177 /* Build configuration list for PBXNativeTarget "Canopy" */;
 			buildPhases = (
 				648E39BC2FD6334E00EE3177 /* Sources */,
 				648E39BD2FD6334E00EE3177 /* Frameworks */,
@@ -129,19 +129,19 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				648E39C22FD6334E00EE3177 /* Network Sync */,
+				648E39C22FD6334E00EE3177 /* Canopy */,
 			);
-			name = "Network Sync";
+			name = "Canopy";
 			packageProductDependencies = (
 				644D5A5F2FFC42C900204FD5 /* Sparkle */,
 			);
-			productName = "Newtowk Sync";
-			productReference = 648E39C02FD6334E00EE3177 /* Network Sync.app */;
+			productName = "Canopy";
+			productReference = 648E39C02FD6334E00EE3177 /* Canopy.app */;
 			productType = "com.apple.product-type.application";
 		};
-		648E39D12FD6335100EE3177 /* Network SyncTests */ = {
+		648E39D12FD6335100EE3177 /* CanopyTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 648E39E92FD6335100EE3177 /* Build configuration list for PBXNativeTarget "Network SyncTests" */;
+			buildConfigurationList = 648E39E92FD6335100EE3177 /* Build configuration list for PBXNativeTarget "CanopyTests" */;
 			buildPhases = (
 				648E39CE2FD6335100EE3177 /* Sources */,
 				648E39CF2FD6335100EE3177 /* Frameworks */,
@@ -153,18 +153,18 @@
 				648E39D42FD6335100EE3177 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				648E39D52FD6335100EE3177 /* Network SyncTests */,
+				648E39D52FD6335100EE3177 /* CanopyTests */,
 			);
-			name = "Network SyncTests";
+			name = "CanopyTests";
 			packageProductDependencies = (
 			);
-			productName = "Newtowk SyncTests";
-			productReference = 648E39D22FD6335100EE3177 /* Network SyncTests.xctest */;
+			productName = "CanopyTests";
+			productReference = 648E39D22FD6335100EE3177 /* CanopyTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		648E39DB2FD6335100EE3177 /* Network SyncUITests */ = {
+		648E39DB2FD6335100EE3177 /* CanopyUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 648E39EC2FD6335100EE3177 /* Build configuration list for PBXNativeTarget "Network SyncUITests" */;
+			buildConfigurationList = 648E39EC2FD6335100EE3177 /* Build configuration list for PBXNativeTarget "CanopyUITests" */;
 			buildPhases = (
 				648E39D82FD6335100EE3177 /* Sources */,
 				648E39D92FD6335100EE3177 /* Frameworks */,
@@ -176,13 +176,13 @@
 				648E39DE2FD6335100EE3177 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				648E39DF2FD6335100EE3177 /* Network SyncUITests */,
+				648E39DF2FD6335100EE3177 /* CanopyUITests */,
 			);
-			name = "Network SyncUITests";
+			name = "CanopyUITests";
 			packageProductDependencies = (
 			);
-			productName = "Newtowk SyncUITests";
-			productReference = 648E39DC2FD6335100EE3177 /* Network SyncUITests.xctest */;
+			productName = "CanopyUITests";
+			productReference = 648E39DC2FD6335100EE3177 /* CanopyUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -208,7 +208,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 648E39BB2FD6334E00EE3177 /* Build configuration list for PBXProject "Network Sync" */;
+			buildConfigurationList = 648E39BB2FD6334E00EE3177 /* Build configuration list for PBXProject "Canopy" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -225,9 +225,9 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				648E39BF2FD6334E00EE3177 /* Network Sync */,
-				648E39D12FD6335100EE3177 /* Network SyncTests */,
-				648E39DB2FD6335100EE3177 /* Network SyncUITests */,
+				648E39BF2FD6334E00EE3177 /* Canopy */,
+				648E39D12FD6335100EE3177 /* CanopyTests */,
+				648E39DB2FD6335100EE3177 /* CanopyUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -283,12 +283,12 @@
 /* Begin PBXTargetDependency section */
 		648E39D42FD6335100EE3177 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 648E39BF2FD6334E00EE3177 /* Network Sync */;
+			target = 648E39BF2FD6334E00EE3177 /* Canopy */;
 			targetProxy = 648E39D32FD6335100EE3177 /* PBXContainerItemProxy */;
 		};
 		648E39DE2FD6335100EE3177 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 648E39BF2FD6334E00EE3177 /* Network Sync */;
+			target = 648E39BF2FD6334E00EE3177 /* Canopy */;
 			targetProxy = 648E39DD2FD6335100EE3177 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -425,7 +425,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
-				CODE_SIGN_ENTITLEMENTS = "Network Sync/Network_Sync.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "Canopy/Canopy.entitlements";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -436,18 +436,18 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Newtowk-Sync-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Network Sync";
+				INFOPLIST_FILE = "Canopy-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Canopy";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Network Sync discovers HyperDecks, ATEM switchers, and cloud storage on your local network so it can control and sync with them.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Canopy discovers HyperDecks, ATEM switchers, and cloud storage on your local network so it can control and sync with them.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.0.25-alpha;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.Newtowk-Sync";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.Canopy";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -464,7 +464,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
-				CODE_SIGN_ENTITLEMENTS = "Network Sync/Network_Sync.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "Canopy/Canopy.entitlements";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -475,18 +475,18 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Newtowk-Sync-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Network Sync";
+				INFOPLIST_FILE = "Canopy-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Canopy";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Network Sync discovers HyperDecks, ATEM switchers, and cloud storage on your local network so it can control and sync with them.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Canopy discovers HyperDecks, ATEM switchers, and cloud storage on your local network so it can control and sync with them.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.0.25-alpha;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.Newtowk-Sync";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.Canopy";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -508,14 +508,14 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
 				MARKETING_VERSION = 0.0.25-alpha;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.Newtowk-SyncTests";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.CanopyTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Network Sync.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Network Sync";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Canopy.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Canopy";
 			};
 			name = Debug;
 		};
@@ -530,14 +530,14 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
 				MARKETING_VERSION = 0.0.25-alpha;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.Newtowk-SyncTests";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.CanopyTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Network Sync.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Network Sync";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Canopy.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Canopy";
 			};
 			name = Release;
 		};
@@ -550,14 +550,14 @@
 				DEVELOPMENT_TEAM = GAYT638PXY;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 0.0.25-alpha;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.Newtowk-SyncUITests";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.CanopyUITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = "Newtowk Sync";
+				TEST_TARGET_NAME = "Canopy";
 			};
 			name = Debug;
 		};
@@ -570,21 +570,21 @@
 				DEVELOPMENT_TEAM = GAYT638PXY;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 0.0.25-alpha;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.Newtowk-SyncUITests";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.CanopyUITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = "Newtowk Sync";
+				TEST_TARGET_NAME = "Canopy";
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		648E39BB2FD6334E00EE3177 /* Build configuration list for PBXProject "Network Sync" */ = {
+		648E39BB2FD6334E00EE3177 /* Build configuration list for PBXProject "Canopy" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				648E39E42FD6335100EE3177 /* Debug */,
@@ -593,7 +593,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		648E39E62FD6335100EE3177 /* Build configuration list for PBXNativeTarget "Network Sync" */ = {
+		648E39E62FD6335100EE3177 /* Build configuration list for PBXNativeTarget "Canopy" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				648E39E72FD6335100EE3177 /* Debug */,
@@ -602,7 +602,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		648E39E92FD6335100EE3177 /* Build configuration list for PBXNativeTarget "Network SyncTests" */ = {
+		648E39E92FD6335100EE3177 /* Build configuration list for PBXNativeTarget "CanopyTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				648E39EA2FD6335100EE3177 /* Debug */,
@@ -611,7 +611,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		648E39EC2FD6335100EE3177 /* Build configuration list for PBXNativeTarget "Network SyncUITests" */ = {
+		648E39EC2FD6335100EE3177 /* Build configuration list for PBXNativeTarget "CanopyUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				648E39ED2FD6335100EE3177 /* Debug */,

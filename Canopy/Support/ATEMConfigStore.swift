@@ -8,7 +8,7 @@ import Foundation
 enum ATEMConfigStore {
     private static func directory(for switcherID: UUID) -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("Network Sync/ATEMConfigs/\(switcherID.uuidString)", isDirectory: true)
+        return base.appendingPathComponent("Canopy/ATEMConfigs/\(switcherID.uuidString)", isDirectory: true)
     }
 
     private static func fileURL(for config: ATEMSwitcherState, switcherID: UUID) -> URL {

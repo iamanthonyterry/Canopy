@@ -300,7 +300,7 @@ struct VideoPlayerSheet: View {
 
     private func downloadAndPlay(fileName: String, deck: HyperDeck) async {
         let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("NetworkSyncPreview", isDirectory: true)
+            .appendingPathComponent("CanopyPreview", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         let destination = tempDir.appendingPathComponent("\(deck.id.uuidString)-\(fileName)")
         try? FileManager.default.removeItem(at: destination)

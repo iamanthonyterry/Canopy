@@ -178,14 +178,14 @@ struct RunDetailView: View {
 
         let panel = NSSavePanel()
         panel.title = "Export Run Log"
-        panel.nameFieldStringValue = "NetworkSync-Run-\(stamp).log"
+        panel.nameFieldStringValue = "Canopy-Run-\(stamp).log"
         panel.allowedContentTypes = [.plainText]
         panel.canCreateDirectories = true
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         let header = """
-        Network Sync Run Log
+        Canopy Run Log
         Workflow: \(run.workflowName)
         Started:  \(run.startedAt.formatted(date: .abbreviated, time: .standard))
         Finished: \(run.finishedAt.formatted(date: .abbreviated, time: .standard))

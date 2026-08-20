@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-# Network Sync release script
+# Canopy release script
 # Usage: ./release.sh 0.0.25-alpha
-# Github Release push: 
-#  gh release create v0.0.25-alpha build/NetworkSync-0.0.25-alpha.zip build/appcast.xml --title "0.0.25-alpha" --notes "Twenty-fifth alpha release"
+# Github Release push:
+#  gh release create v0.0.25-alpha build/Canopy-0.0.25-alpha.zip build/appcast.xml --title "0.0.25-alpha" --notes "Twenty-fifth alpha release"
 # Bumps MARKETING_VERSION, archives, exports, notarizes, staples, zips,
 # and generates the Sparkle appcast — ready to upload to a GitHub Release.
 
@@ -19,13 +19,13 @@ fi
 
 VERSION="$1"
 BUILD_NUMBER="$(date +%Y%m%d%H%M)"
-SCHEME="Network Sync"
-PBXPROJ="Network Sync.xcodeproj/project.pbxproj"
+SCHEME="Canopy"
+PBXPROJ="Canopy.xcodeproj/project.pbxproj"
 BUILD_DIR="build"
-ARCHIVE_PATH="$BUILD_DIR/NetworkSync.xcarchive"
+ARCHIVE_PATH="$BUILD_DIR/Canopy.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
-APP_PATH="$EXPORT_PATH/Network Sync.app"
-ZIP_PATH="$BUILD_DIR/NetworkSync-$VERSION.zip"
+APP_PATH="$EXPORT_PATH/Canopy.app"
+ZIP_PATH="$BUILD_DIR/Canopy-$VERSION.zip"
 KEYCHAIN_PROFILE="AC_PASSWORD"
 SPARKLE_BIN="$(find ~/Library/Developer/Xcode/DerivedData -path '*artifacts/sparkle/Sparkle/bin' -maxdepth 6 2>/dev/null | head -n 1)"
 
@@ -61,14 +61,14 @@ xcodebuild -exportArchive \
   -allowProvisioningUpdates
 
 echo "==> Notarizing"
-ditto -c -k --keepParent "$APP_PATH" "$BUILD_DIR/NetworkSync-notarize.zip"
-xcrun notarytool submit "$BUILD_DIR/NetworkSync-notarize.zip" --keychain-profile "$KEYCHAIN_PROFILE" --wait
+ditto -c -k --keepParent "$APP_PATH" "$BUILD_DIR/Canopy-notarize.zip"
+xcrun notarytool submit "$BUILD_DIR/Canopy-notarize.zip" --keychain-profile "$KEYCHAIN_PROFILE" --wait
 
 echo "==> Stapling notarization ticket"
 xcrun stapler staple "$APP_PATH"
 
 echo "==> Zipping stapled app for distribution"
-rm -f "$BUILD_DIR/NetworkSync-notarize.zip"
+rm -f "$BUILD_DIR/Canopy-notarize.zip"
 ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
 
 echo "==> Generating signed Sparkle appcast"

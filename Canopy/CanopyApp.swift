@@ -1,12 +1,12 @@
 import SwiftUI
 
 @main
-struct Network_SyncApp: App {
+struct CanopyApp: App {
     @StateObject private var appState  = AppState.shared
     @StateObject private var scheduler = SchedulerService.shared
 
     var body: some Scene {
-        Window("Network Sync", id: "main") {
+        Window("Canopy", id: "main") {
             ContentView()
                 .environmentObject(appState)
                 .onAppear {
@@ -54,7 +54,7 @@ struct Network_SyncApp: App {
             }
         }
 
-        MenuBarExtra("Network Sync", systemImage: menuBarIcon) {
+        MenuBarExtra("Canopy", systemImage: menuBarIcon) {
             MenuBarView()
                 .environmentObject(appState)
         }
