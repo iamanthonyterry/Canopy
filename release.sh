@@ -10,7 +10,7 @@ set -euo pipefail
 
 # One-time setup before first use:
 #   xcrun notarytool store-credentials AC_PASSWORD \
-#     --apple-id you@example.com --team-id BPZ4H86MC6 --password <app-specific-password>
+#     --apple-id you@example.com --team-id GAYT638PXY --password <app-specific-password>
 
 if [ $# -ne 1 ]; then
   echo "Usage: ./release.sh <marketing-version, e.g. 1.2>"
