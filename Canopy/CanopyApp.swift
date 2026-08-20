@@ -6,7 +6,7 @@ struct CanopyApp: App {
     @StateObject private var scheduler = SchedulerService.shared
 
     var body: some Scene {
-        Window("Canopy", id: "main") {
+        Window("Canopy by Roses as Humans", id: "main") {
             ContentView()
                 .environmentObject(appState)
                 .onAppear {

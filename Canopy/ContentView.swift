@@ -30,7 +30,7 @@ struct ContentView: View {
                 Label(item.rawValue, systemImage: item.icon)
             }
             .listStyle(.sidebar)
-            .navigationTitle("Church Sync")
+            .navigationTitle("Canopy")
 
             // Schedule status badge at bottom of sidebar
             if appState.isAdmin && !scheduledWorkflows.isEmpty {
