@@ -45,7 +45,7 @@ struct FolderPickerSheet: View {
     private var header: some View {
         HStack {
             Image(systemName: "externaldrive.badge.wifi")
-                .foregroundStyle(.purple)
+                .foregroundStyle(Color("CanopySage"))
             Text("Choose Folder — \(store.name)")
                 .font(.title3).bold()
             Spacer()

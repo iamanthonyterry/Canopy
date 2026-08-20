@@ -365,7 +365,7 @@ struct DashboardView: View {
                     .buttonStyle(.bordered).tint(.red).controlSize(.small)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(Color.primary.opacity(0.04))
+                .background(Color("CanopySageTint"))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }

@@ -38,7 +38,7 @@ struct ContentView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "clock.fill")
                         .font(.caption)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(.tint)
                     Text(scheduleBadgeText)
                         .font(.caption)
                         .foregroundStyle(.secondary)

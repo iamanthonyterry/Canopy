@@ -49,7 +49,7 @@ struct DeckPathPickerSheet: View {
     private var header: some View {
         HStack {
             Image(systemName: "server.rack")
-                .foregroundStyle(.blue)
+                .foregroundStyle(.tint)
             Text("Choose Remote Path")
                 .font(.title3).bold()
             Spacer()

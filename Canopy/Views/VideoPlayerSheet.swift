@@ -51,7 +51,7 @@ struct VideoPlayerSheet: View {
         VStack(spacing: 0) {
             // MARK: Header
             HStack {
-                Image(systemName: "film.fill").foregroundStyle(.purple)
+                Image(systemName: "film.fill").foregroundStyle(.tint)
                 Text(node.name)
                     .font(.title3).bold()
                     .lineLimit(1).truncationMode(.middle)

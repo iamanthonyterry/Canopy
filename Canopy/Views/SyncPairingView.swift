@@ -34,7 +34,7 @@ private struct DriveListPanel: View {
                 title: "Record Drives",
                 icon: "externaldrive.fill",
                 count: appState.hyperDecks.count,
-                tint: .blue
+                tint: .accentColor
             )
             Divider()
 
@@ -65,7 +65,7 @@ private struct CloudStorePanel: View {
                 title: "Cloud Store",
                 icon: "server.rack",
                 count: appState.cloudStores.count,
-                tint: .purple
+                tint: Color("CanopySage")
             )
             Divider()
 
@@ -136,11 +136,11 @@ private struct DriveRow: View {
     private var driveIcon: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color.blue.opacity(0.12))
+                .fill(Color.accentColor.opacity(0.12))
                 .frame(width: 42, height: 42)
             Image(systemName: "externaldrive.fill")
                 .font(.system(size: 18))
-                .foregroundStyle(.blue)
+                .foregroundStyle(.tint)
         }
     }
 
@@ -320,7 +320,7 @@ private struct FolderTreeRow: View {
 
                 Image(systemName: node.isExpanded ? "folder.fill" : "folder")
                     .font(.caption)
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(Color("CanopySage"))
 
                 Text(node.name)
                     .font(.caption)
@@ -393,7 +393,7 @@ private struct SelectableFolderTreeRow: View {
 
                 Image(systemName: node.isExpanded ? "folder.fill" : "folder")
                     .font(.caption)
-                    .foregroundStyle(isSelected ? .white : .blue)
+                    .foregroundStyle(isSelected ? .white : Color("CanopySage"))
 
                 Text(node.name)
                     .font(.caption)
@@ -491,11 +491,11 @@ private struct CloudStorePairingRow: View {
     private var storeIcon: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color.purple.opacity(0.12))
+                .fill(Color("CanopySage").opacity(0.12))
                 .frame(width: 42, height: 42)
             Image(systemName: "server.rack")
                 .font(.system(size: 18))
-                .foregroundStyle(.purple)
+                .foregroundStyle(Color("CanopySage"))
         }
     }
 

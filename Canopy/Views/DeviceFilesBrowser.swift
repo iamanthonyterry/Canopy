@@ -473,7 +473,7 @@ struct FileNodeView: View {
                         Image(systemName: "play.circle.fill")
                     }
                     .buttonStyle(.borderless)
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(.tint)
                     .help("Play")
                 }
                 if !node.sizeFormatted.isEmpty {

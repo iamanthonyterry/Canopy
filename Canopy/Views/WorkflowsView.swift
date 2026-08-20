@@ -131,8 +131,8 @@ struct WorkflowsView: View {
                     Label(scheduleLabel, systemImage: "clock.fill")
                         .font(.system(size: 10, weight: .semibold))
                         .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Color.blue.opacity(0.15))
-                        .foregroundStyle(.blue)
+                        .background(Color("CanopySage").opacity(0.18))
+                        .foregroundStyle(Color("CanopySage"))
                         .clipShape(Capsule())
                 }
             }
