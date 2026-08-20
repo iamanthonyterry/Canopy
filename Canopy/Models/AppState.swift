@@ -5,7 +5,7 @@ import SwiftUI
 // MARK: - User Role
 // Admin has full access. Content Manager is a restricted mode for operators
 // who should only be able to view and trim/export video — no device setup,
-// workflow automation, ATEM control, or other settings.
+// workflow automation, or other settings.
 enum UserRole: String, Codable, CaseIterable, Hashable {
     case admin = "Admin"
     case contentManager = "Content Manager"
@@ -28,9 +28,6 @@ class AppState: ObservableObject {
     }
     @Published var hyperDecks: [HyperDeck] = [] {
         didSet { save(hyperDecks, key: "hyperDecks") }
-    }
-    @Published var switchers: [BlackmagicSwitcher] = [] {
-        didSet { save(switchers, key: "switchers") }
     }
     @Published var cloudStores: [CloudStore] = [] {
         didSet { save(cloudStores, key: "cloudStores") }
@@ -109,7 +106,6 @@ class AppState: ObservableObject {
     init() {
         userRole           = load(UserRole.self,             key: "userRole")           ?? .admin
         hyperDecks         = load([HyperDeck].self,          key: "hyperDecks")         ?? []
-        switchers          = load([BlackmagicSwitcher].self, key: "switchers")          ?? []
         cloudStores        = load([CloudStore].self,         key: "cloudStores")        ?? []
         syncLocation       = load(SyncLocation.self,         key: "syncLocation")       ?? SyncLocation()
         workflows                  = load([Workflow].self,                  key: "workflows")                  ?? []
@@ -133,21 +129,6 @@ class AppState: ObservableObject {
     func moveDeck(from: IndexSet, to: Int) {
         hyperDecks.move(fromOffsets: from, toOffset: to)
         for i in hyperDecks.indices { hyperDecks[i].sortOrder = i }
-    }
-
-    // MARK: - Switcher CRUD
-    func addSwitcher(_ switcher: BlackmagicSwitcher) {
-        var s = switcher; s.sortOrder = switchers.count
-        switchers.append(s)
-    }
-    func updateSwitcher(_ switcher: BlackmagicSwitcher) {
-        guard let i = switchers.firstIndex(where: { $0.id == switcher.id }) else { return }
-        switchers[i] = switcher
-    }
-    func deleteSwitcher(id: UUID) { switchers.removeAll { $0.id == id } }
-    func moveSwitcher(from: IndexSet, to: Int) {
-        switchers.move(fromOffsets: from, toOffset: to)
-        for i in switchers.indices { switchers[i].sortOrder = i }
     }
 
     // MARK: - Cloud Store CRUD

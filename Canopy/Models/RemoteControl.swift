@@ -12,44 +12,14 @@ struct RemoteControlSettings: Codable, Equatable {
     var midiSourceNames: Set<String> = []
 }
 
-// MARK: - Target Device Kind
-// Which family of device a mapping controls. Kept separate from the
-// per-device-kind action enums below so the settings UI can offer a single
-// "Device Type" picker before narrowing down to a specific device + action.
-
-enum RemoteTargetKind: String, Codable, CaseIterable, Identifiable, Hashable {
-    case hyperDeck, switcher
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .hyperDeck: "HyperDeck"
-        case .switcher:  "ATEM Switcher"
-        }
-    }
-}
-
 // MARK: - Target Device
-// Which specific device a mapping controls.
+// Which specific device a mapping controls. Kept as a single-case enum
+// (rather than a plain UUID) so the persisted JSON shape
+// (`{"hyperDeck": {...}}`) is unchanged from before switcher targets were
+// removed — existing saved HyperDeck mappings keep decoding correctly.
 
 enum RemoteTarget: Codable, Hashable {
     case hyperDeck(UUID)
-    case switcher(UUID)
-
-    var kind: RemoteTargetKind {
-        switch self {
-        case .hyperDeck: .hyperDeck
-        case .switcher:  .switcher
-        }
-    }
-
-    var deviceID: UUID {
-        switch self {
-        case .hyperDeck(let id): id
-        case .switcher(let id):  id
-        }
-    }
 }
 
 // MARK: - HyperDeck Action
@@ -79,87 +49,24 @@ enum HyperDeckRemoteAction: String, Codable, CaseIterable, Identifiable, Hashabl
     }
 }
 
-// MARK: - ATEM Switcher Action Kind
-// The catalog of switcher actions a trigger can fire, used to drive the
-// "Action" picker in the mapping editor before any action-specific
-// argument (like the input number) is filled in. Mirrors the
-// StepKind/StepAction split in Workflow.swift.
-enum SwitcherActionKind: String, Codable, CaseIterable, Identifiable, Hashable {
-    case cut, auto, programInput
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .cut:          "Cut"
-        case .auto:         "Auto Transition"
-        case .programInput: "Program Input"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .cut:          "scissors"
-        case .auto:         "arrow.triangle.2.circlepath"
-        case .programInput: "rectangle.stack"
-        }
-    }
-}
-
-// MARK: - ATEM Switcher Action
-// The instant transition commands a trigger can fire on an ATEM switcher's
-// main (M/E 1) bus. `programInput` carries the 1-based input number to cut
-// (or auto-transition) program to.
-enum SwitcherRemoteAction: Codable, Hashable {
-    case cut
-    case auto
-    case programInput(Int)
-
-    var kind: SwitcherActionKind {
-        switch self {
-        case .cut:          .cut
-        case .auto:         .auto
-        case .programInput: .programInput
-        }
-    }
-
-    /// Default argument values when the user switches the picker to a new kind.
-    static func defaultAction(for kind: SwitcherActionKind) -> SwitcherRemoteAction {
-        switch kind {
-        case .cut:          .cut
-        case .auto:         .auto
-        case .programInput: .programInput(1)
-        }
-    }
-
-    var title: String {
-        if case .programInput(let input) = self { return "Program Input \(input)" }
-        return kind.title
-    }
-
-    var icon: String { kind.icon }
-}
-
 // MARK: - Remote Action
-// The action side of a mapping — paired with a RemoteTarget of the matching
-// kind (enforced by the editor UI, not the type system, to keep this a
-// simple flat enum like RemoteTrigger below).
+// The action side of a mapping. Kept as a single-case enum (rather than a
+// plain HyperDeckRemoteAction) so the persisted JSON shape
+// (`{"hyperDeck": {...}}`) is unchanged from before switcher actions were
+// removed — existing saved mappings keep decoding correctly.
 
 enum RemoteAction: Codable, Hashable {
     case hyperDeck(HyperDeckRemoteAction)
-    case switcher(SwitcherRemoteAction)
 
     var title: String {
         switch self {
         case .hyperDeck(let action): action.title
-        case .switcher(let action):  action.title
         }
     }
 
     var icon: String {
         switch self {
         case .hyperDeck(let action): action.icon
-        case .switcher(let action):  action.icon
         }
     }
 }

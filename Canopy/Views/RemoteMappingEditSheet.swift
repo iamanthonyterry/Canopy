@@ -15,11 +15,8 @@ struct RemoteMappingEditSheet: View {
     @State private var midiKind: MIDIMessage.Kind
     @State private var midiChannel: Int
     @State private var midiNumber: Int
-    @State private var targetKind: RemoteTargetKind
     @State private var hyperDeckID: UUID?
-    @State private var switcherID: UUID?
     @State private var hyperDeckAction: HyperDeckRemoteAction
-    @State private var switcherAction: SwitcherRemoteAction
 
     @State private var isListeningOSC = false
     @State private var isListeningMIDI = false
@@ -58,39 +55,23 @@ struct RemoteMappingEditSheet: View {
 
         switch mapping?.target {
         case .hyperDeck(let id):
-            _targetKind  = State(initialValue: .hyperDeck)
             _hyperDeckID = State(initialValue: id)
-            _switcherID  = State(initialValue: nil)
-        case .switcher(let id):
-            _targetKind  = State(initialValue: .switcher)
-            _hyperDeckID = State(initialValue: nil)
-            _switcherID  = State(initialValue: id)
         case nil:
-            _targetKind  = State(initialValue: .hyperDeck)
             _hyperDeckID = State(initialValue: nil)
-            _switcherID  = State(initialValue: nil)
         }
 
         switch mapping?.action {
         case .hyperDeck(let action):
             _hyperDeckAction = State(initialValue: action)
-            _switcherAction  = State(initialValue: .cut)
-        case .switcher(let action):
-            _hyperDeckAction = State(initialValue: .record)
-            _switcherAction  = State(initialValue: action)
         case nil:
             _hyperDeckAction = State(initialValue: .record)
-            _switcherAction  = State(initialValue: .cut)
         }
     }
 
     var canSave: Bool {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         if triggerKind == .osc && !oscAddress.hasPrefix("/") { return false }
-        switch targetKind {
-        case .hyperDeck: return hyperDeckID != nil
-        case .switcher:  return switcherID != nil
-        }
+        return hyperDeckID != nil
     }
 
     var body: some View {
@@ -134,14 +115,8 @@ struct RemoteMappingEditSheet: View {
     }
 
     private func selectDefaultTargetIfNeeded() {
-        guard hyperDeckID == nil, switcherID == nil else { return }
-        if !appState.hyperDecks.isEmpty {
-            targetKind = .hyperDeck
-            hyperDeckID = appState.hyperDecks.first?.id
-        } else if !appState.switchers.isEmpty {
-            targetKind = .switcher
-            switcherID = appState.switchers.first?.id
-        }
+        guard hyperDeckID == nil else { return }
+        hyperDeckID = appState.hyperDecks.first?.id
     }
 
     private func save() {
@@ -149,18 +124,9 @@ struct RemoteMappingEditSheet: View {
             ? .osc(address: oscAddress)
             : .midi(kind: midiKind, channel: midiChannel, number: midiNumber)
 
-        let target: RemoteTarget
-        let action: RemoteAction
-        switch targetKind {
-        case .hyperDeck:
-            guard let id = hyperDeckID else { return }
-            target = .hyperDeck(id)
-            action = .hyperDeck(hyperDeckAction)
-        case .switcher:
-            guard let id = switcherID else { return }
-            target = .switcher(id)
-            action = .switcher(switcherAction)
-        }
+        guard let id = hyperDeckID else { return }
+        let target: RemoteTarget = .hyperDeck(id)
+        let action: RemoteAction = .hyperDeck(hyperDeckAction)
 
         var mapping = existingMapping ?? RemoteMapping(name: name, trigger: trigger, target: target, action: action)
         mapping.name = name
@@ -240,71 +206,21 @@ private extension RemoteMappingEditSheet {
 private extension RemoteMappingEditSheet {
     var deviceSection: some View {
         Section("Device & Action") {
-            if !appState.hyperDecks.isEmpty && !appState.switchers.isEmpty {
-                Picker("Device Type", selection: $targetKind) {
-                    ForEach(RemoteTargetKind.allCases) { Text($0.title).tag($0) }
-                }
-            }
-
-            switch targetKind {
-            case .hyperDeck:
-                if appState.hyperDecks.isEmpty {
-                    Text("No HyperDecks configured.").font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Picker("Device", selection: $hyperDeckID) {
-                        Text("Choose…").tag(UUID?.none)
-                        ForEach(appState.hyperDecks) { deck in
-                            Text(deck.name).tag(Optional(deck.id))
-                        }
-                    }
-                    Picker("Action", selection: $hyperDeckAction) {
-                        ForEach(HyperDeckRemoteAction.allCases) { action in
-                            Label(action.title, systemImage: action.icon).tag(action)
-                        }
+            if appState.hyperDecks.isEmpty {
+                Text("No HyperDecks configured.").font(.caption).foregroundStyle(.secondary)
+            } else {
+                Picker("Device", selection: $hyperDeckID) {
+                    Text("Choose…").tag(UUID?.none)
+                    ForEach(appState.hyperDecks) { deck in
+                        Text(deck.name).tag(Optional(deck.id))
                     }
                 }
-            case .switcher:
-                if appState.switchers.isEmpty {
-                    Text("No ATEM switchers configured.").font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Picker("Device", selection: $switcherID) {
-                        Text("Choose…").tag(UUID?.none)
-                        ForEach(appState.switchers) { switcher in
-                            Text(switcher.name).tag(Optional(switcher.id))
-                        }
-                    }
-                    Picker("Action", selection: switcherActionKind) {
-                        ForEach(SwitcherActionKind.allCases) { kind in
-                            Label(kind.title, systemImage: kind.icon).tag(kind)
-                        }
-                    }
-                    if case .programInput(let input) = switcherAction {
-                        Stepper("Input \(input)", value: programInputNumber, in: 1...40)
+                Picker("Action", selection: $hyperDeckAction) {
+                    ForEach(HyperDeckRemoteAction.allCases) { action in
+                        Label(action.title, systemImage: action.icon).tag(action)
                     }
                 }
             }
         }
-    }
-
-    /// Bridges the picker (which only ever shows/sets the kind) onto the
-    /// underlying `switcherAction`, filling in a default argument whenever
-    /// the kind changes.
-    var switcherActionKind: Binding<SwitcherActionKind> {
-        Binding(
-            get: { switcherAction.kind },
-            set: { switcherAction = .defaultAction(for: $0) }
-        )
-    }
-
-    /// Only meaningful while `switcherAction` is `.programInput` — the
-    /// Stepper that uses this is itself only shown in that case.
-    var programInputNumber: Binding<Int> {
-        Binding(
-            get: {
-                if case .programInput(let input) = switcherAction { return input }
-                return 1
-            },
-            set: { switcherAction = .programInput($0) }
-        )
     }
 }

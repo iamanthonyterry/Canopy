@@ -28,13 +28,10 @@ struct ShowModeView: View {
                     if !appState.hyperDecks.isEmpty {
                         deviceSection(title: "HyperDecks", ipAddresses: appState.hyperDecks.map { ($0.id, $0.name, $0.ipAddress, true) })
                     }
-                    if !appState.switchers.isEmpty {
-                        deviceSection(title: "ATEM Switchers", ipAddresses: appState.switchers.map { ($0.id, $0.name, $0.ipAddress, false) })
-                    }
                     if !appState.cloudStores.isEmpty {
                         deviceSection(title: "Cloud Stores", ipAddresses: appState.cloudStores.map { ($0.id, $0.name, $0.ipAddress, false) })
                     }
-                    if appState.hyperDecks.isEmpty && appState.switchers.isEmpty && appState.cloudStores.isEmpty {
+                    if appState.hyperDecks.isEmpty && appState.cloudStores.isEmpty {
                         emptyState
                     }
                 }
@@ -88,8 +85,8 @@ struct ShowModeView: View {
     // MARK: - Device section
 
     // `canRecord` distinguishes HyperDecks (which get a REC badge when
-    // ConnectionMonitor reports them recording) from switchers and cloud
-    // stores, which have no recording concept of their own.
+    // ConnectionMonitor reports them recording) from cloud stores, which
+    // have no recording concept of their own.
     @ViewBuilder
     private func deviceSection(title: String, ipAddresses: [(UUID, String, String, Bool)]) -> some View {
         VStack(alignment: .leading, spacing: 14) {

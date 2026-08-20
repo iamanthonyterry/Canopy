@@ -66,51 +66,6 @@ struct DeckListRow: View {
     }
 }
 
-// MARK: - ATEM Switcher Row
-
-struct SwitcherListRow: View {
-    let switcher: BlackmagicSwitcher
-    @EnvironmentObject var appState: AppState
-    @ObservedObject private var monitor = ConnectionMonitor.shared
-    @State private var showingSettings = false
-
-    private var status: DeckStatus { monitor.status(for: switcher.ipAddress) }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            StatusDot(status: status)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(switcher.name).font(.body)
-                Text(switcher.ipAddress).font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button {
-                showingSettings = true
-            } label: {
-                Image(systemName: "gearshape")
-            }
-            .buttonStyle(.borderless)
-            .help("Device Settings")
-        }
-        .padding(.vertical, 2)
-        .contextMenu {
-            Button {
-                Task { await monitor.pingNow(switcher: switcher) }
-            } label: {
-                Label("Refresh Status", systemImage: "arrow.clockwise")
-            }
-            Button(role: .destructive) {
-                appState.deleteSwitcher(id: switcher.id)
-            } label: {
-                Label("Delete Device", systemImage: "trash")
-            }
-        }
-        .sheet(isPresented: $showingSettings) {
-            SwitcherEditSheet(switcher: switcher)
-        }
-    }
-}
-
 // MARK: - Cloud Store Row
 
 struct CloudStoreListRow: View {

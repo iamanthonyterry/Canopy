@@ -27,20 +27,6 @@ struct HyperDeck: Identifiable, Codable, Hashable {
     var capacityGB: Double? = nil
 }
 
-// MARK: - Blackmagic Switcher (ATEM)
-struct BlackmagicSwitcher: Identifiable, Codable, Hashable {
-    var id = UUID()
-    var name: String
-    var ipAddress: String
-    var model: String = ""
-    var sortOrder: Int = 0
-
-    // nonisolated: this is a plain constant read from background networking
-    // code (ATEMProbe), so it must not be pinned to the main actor by the
-    // module's default isolation.
-    nonisolated static let controlPort: UInt16 = 9910
-}
-
 // MARK: - Blackmagic Cloud Store
 struct CloudStore: Identifiable, Codable, Hashable {
     var id = UUID()

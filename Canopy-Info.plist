@@ -20,7 +20,6 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_ftp._tcp</string>
-		<string>_blackmagic._tcp</string>
 		<string>_smb._tcp</string>
 	</array>
 	<key>NSServices</key>

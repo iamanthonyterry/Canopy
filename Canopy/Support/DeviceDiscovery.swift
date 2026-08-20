@@ -5,7 +5,6 @@ import Combine
 @MainActor
 class DeviceDiscovery: ObservableObject {
     @Published var discoveredDecks: [HyperDeck] = []
-    @Published var discoveredSwitchers: [BlackmagicSwitcher] = []
     @Published var discoveredCloudStores: [CloudStore] = []
     @Published var isScanning = false
 
@@ -17,13 +16,11 @@ class DeviceDiscovery: ObservableObject {
     func startScanning() {
         stopScanning()
         discoveredDecks.removeAll()
-        discoveredSwitchers.removeAll()
         discoveredCloudStores.removeAll()
         isScanning = true
 
-        startBrowser(type: "_ftp._tcp",        handler: handleFTPResult)
-        startBrowser(type: "_blackmagic._tcp",  handler: handleBlackmagicResult)
-        startBrowser(type: "_smb._tcp",         handler: handleSMBResult)
+        startBrowser(type: "_ftp._tcp", handler: handleFTPResult)
+        startBrowser(type: "_smb._tcp", handler: handleSMBResult)
     }
 
     func stopScanning() {
@@ -69,16 +66,6 @@ class DeviceDiscovery: ObservableObject {
         guard !discoveredDecks.contains(where: { $0.ipAddress == ip }) else { return }
 
         discoveredDecks.append(HyperDeck(name: name, ipAddress: ip, remotePath: "usb/Extreme Pro"))
-    }
-
-    private func handleBlackmagicResult(_ result: NWBrowser.Result) async {
-        let name = result.endpoint.serviceName ?? "ATEM Switcher"
-
-        guard let ip = await resolveIP(for: result.endpoint), !ip.isEmpty else { return }
-        guard !discoveredSwitchers.contains(where: { $0.ipAddress == ip }) else { return }
-
-        let model = name.contains("ATEM") ? name : "ATEM Switcher"
-        discoveredSwitchers.append(BlackmagicSwitcher(name: name, ipAddress: ip, model: model))
     }
 
     private func handleSMBResult(_ result: NWBrowser.Result) async {

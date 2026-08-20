@@ -6,20 +6,17 @@ import SwiftUI
 enum DeviceSource: Identifiable, Hashable, Equatable {
     case hyperDeck(HyperDeck)
     case cloudStore(CloudStore)
-    case switcher(BlackmagicSwitcher)
 
     var id: String {
         switch self {
         case .hyperDeck(let d):  return "deck-\(d.id)"
         case .cloudStore(let s): return "store-\(s.id)"
-        case .switcher(let s):   return "switch-\(s.id)"
         }
     }
 
     var supportsFileBrowsing: Bool {
         switch self {
         case .hyperDeck, .cloudStore: return true
-        case .switcher:                return false
         }
     }
 
@@ -296,8 +293,6 @@ struct DeviceFilesBrowser: View {
                 password: store.password
             )
             return try fetchLocalNodes(at: URL(fileURLWithPath: mountPath))
-        case .switcher:
-            return []
         }
     }
 
@@ -406,8 +401,6 @@ struct DeviceFilesBrowser: View {
         case .cloudStore:
             guard let url = node.url else { return [] }
             return (try? fetchLocalNodes(at: url)) ?? []
-        case .switcher:
-            return []
         }
     }
 
@@ -439,7 +432,6 @@ struct DeviceFilesBrowser: View {
         switch device {
         case .hyperDeck(let deck):  return await StorageCapacityService.capacity(for: deck)
         case .cloudStore(let store): return try? await StorageCapacityService.capacity(for: store)
-        case .switcher:              return nil
         }
     }
 }

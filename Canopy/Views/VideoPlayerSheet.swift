@@ -292,9 +292,6 @@ struct VideoPlayerSheet: View {
                 return
             }
             await downloadAndPlay(fileName: fileName, deck: deck)
-
-        case .switcher:
-            errorMessage = "This device doesn't expose a file system."
         }
     }
 

@@ -22,11 +22,10 @@ final class ConnectionMonitor: ObservableObject {
     private var monitorTask: Task<Void, Never>?
     private let pollInterval: Duration = .seconds(5)
 
-    /// Consecutive failed polls per host. A single dropped packet (common
-    /// with the UDP-based ATEM probe, but possible on any flaky network)
-    /// shouldn't flash a badge to "Offline" and back — we only commit to
-    /// offline once a device fails this many polls in a row. Recovery to
-    /// online is always immediate, since a real response is unambiguous.
+    /// Consecutive failed polls per host. A single dropped packet shouldn't
+    /// flash a badge to "Offline" and back — we only commit to offline once
+    /// a device fails this many polls in a row. Recovery to online is
+    /// always immediate, since a real response is unambiguous.
     private var consecutiveFailures: [String: Int] = [:]
     private let offlineThreshold = 2
 
@@ -71,10 +70,6 @@ final class ConnectionMonitor: ObservableObject {
         apply(await Self.checkCloudStore(store), for: store.ipAddress)
     }
 
-    func pingNow(switcher: BlackmagicSwitcher) async {
-        apply(await ATEMProbe.ping(host: switcher.ipAddress), for: switcher.ipAddress)
-    }
-
     /// Commits a poll result for a host, debouncing transient offline blips.
     private func apply(_ result: DeckStatus, for host: String) {
         guard result == .offline else {
@@ -94,10 +89,9 @@ final class ConnectionMonitor: ObservableObject {
     private func pollAllDevices() async {
         let appState = AppState.shared
         let decks     = appState.hyperDecks
-        let switchers = appState.switchers
         let stores    = appState.cloudStores
 
-        guard !(decks.isEmpty && switchers.isEmpty && stores.isEmpty) else {
+        guard !(decks.isEmpty && stores.isEmpty) else {
             if !statuses.isEmpty { statuses.removeAll() }
             if !consecutiveFailures.isEmpty { consecutiveFailures.removeAll() }
             if !recordingHosts.isEmpty { recordingHosts.removeAll() }
@@ -106,8 +100,8 @@ final class ConnectionMonitor: ObservableObject {
 
         // HyperDecks report recording state alongside reachability (both
         // come from the same "transport info" round trip), so they're
-        // gathered separately from switchers/stores rather than folded into
-        // one shared (host, DeckStatus) task group.
+        // gathered separately from stores rather than folded into one
+        // shared (host, DeckStatus) task group.
         async let deckResults: [(host: String, status: DeckStatus, isRecording: Bool)] =
             withTaskGroup(of: (String, DeckStatus, Bool).self) { group in
                 for deck in decks {
@@ -122,9 +116,6 @@ final class ConnectionMonitor: ObservableObject {
             }
 
         await withTaskGroup(of: (String, DeckStatus).self) { group in
-            for switcher in switchers {
-                group.addTask { (switcher.ipAddress, await ATEMProbe.ping(host: switcher.ipAddress)) }
-            }
             for store in stores {
                 group.addTask { (store.ipAddress, await Self.checkCloudStore(store)) }
             }
@@ -144,7 +135,7 @@ final class ConnectionMonitor: ObservableObject {
         // Only touches the dictionaries when there's actually something
         // stale, so an unchanged device list never triggers a redundant
         // @Published update (and the redraw that comes with it).
-        let liveHosts = Set(decks.map(\.ipAddress) + switchers.map(\.ipAddress) + stores.map(\.ipAddress))
+        let liveHosts = Set(decks.map(\.ipAddress) + stores.map(\.ipAddress))
         let staleHosts = Set(statuses.keys).subtracting(liveHosts)
         if !staleHosts.isEmpty {
             for host in staleHosts {

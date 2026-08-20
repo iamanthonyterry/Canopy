@@ -77,13 +77,6 @@ final class RemoteControlEngine: ObservableObject {
         switch (mapping.target, mapping.action) {
         case (.hyperDeck(let deckID), .hyperDeck(let action)):
             executeHyperDeck(deckID: deckID, action: action, mapping: mapping)
-        case (.switcher(let switcherID), .switcher(let action)):
-            executeSwitcher(switcherID: switcherID, action: action, mapping: mapping)
-        default:
-            // Target/action kind mismatch — shouldn't happen since the
-            // editor UI always pairs them, but guard against stale/corrupt
-            // persisted data rather than silently doing nothing.
-            appState.log("⚠️ Remote control \"\(mapping.name)\" has a mismatched device/action pairing")
         }
     }
 
@@ -134,36 +127,10 @@ final class RemoteControlEngine: ObservableObject {
         }
     }
 
-    private func executeSwitcher(switcherID: UUID, action: SwitcherRemoteAction, mapping: RemoteMapping) {
-        guard let switcher = appState.switchers.first(where: { $0.id == switcherID }) else {
-            appState.log("⚠️ Remote control \"\(mapping.name)\" targets a device that no longer exists")
-            return
-        }
-        appState.log("🎛 Remote control: \"\(mapping.name)\" → \(action.title) on \(switcher.name)")
-        Task { await runSwitcherAction(action, on: switcher, source: "Remote control \"\(mapping.name)\"") }
-    }
-
-    /// Shared by both the mapping-based path above and the built-in
-    /// zero-setup OSC namespace below, so the actual device command lives
-    /// in exactly one place.
-    private func runSwitcherAction(_ action: SwitcherRemoteAction, on switcher: BlackmagicSwitcher, source: String) async {
-        do {
-            let command: ATEMControlService.Command
-            switch action {
-            case .cut:                        command = .cut
-            case .auto:                       command = .auto
-            case .programInput(let input):    command = .programInput(source: UInt16(input))
-            }
-            try await ATEMControlService.send(command, to: switcher.ipAddress)
-        } catch {
-            appState.log("❌ \(source) \(action.title) failed on \(switcher.name): \(error.localizedDescription)")
-        }
-    }
-
-    /// Handles the built-in `/hyperdeck/{name}/{action}` and
-    /// `/switcher/{name}/{action}` scheme (see RemoteOSCCommand) — resolves
-    /// the device by name rather than a pre-selected mapping, so every
-    /// configured device and action is addressable with zero setup.
+    /// Handles the built-in `/hyperdeck/{name}/{action}` scheme (see
+    /// RemoteOSCCommand) — resolves the device by name rather than a
+    /// pre-selected mapping, so every configured device and action is
+    /// addressable with zero setup.
     private func executeBuiltIn(_ command: RemoteOSCCommand) {
         switch command {
         case .hyperDeck(let deviceName, let action):
@@ -173,14 +140,6 @@ final class RemoteControlEngine: ObservableObject {
             }
             appState.log("🎛 OSC: \(action.title) on \(deck.name)")
             Task { await runHyperDeckAction(action, on: deck, source: "OSC") }
-
-        case .switcher(let deviceName, let action):
-            guard let switcher = appState.switchers.first(where: { HyperDeckOSCAddress.namesMatch($0.name, deviceName) }) else {
-                appState.log("⚠️ OSC command referenced unknown switcher \"\(deviceName)\"")
-                return
-            }
-            appState.log("🎛 OSC: \(action.title) on \(switcher.name)")
-            Task { await runSwitcherAction(action, on: switcher, source: "OSC") }
         }
     }
 }

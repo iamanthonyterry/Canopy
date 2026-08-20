@@ -37,45 +37,6 @@ struct StatusBadge: View {
     }
 }
 
-// MARK: - ATEM Switcher Content Pane
-// The right-hand content for a selected switcher: live status/refresh in
-// the header, and a live switcher control panel below (program/preview bus,
-// Cut/Auto) instead of a file browser — switchers don't expose a file
-// system. Device settings live in the gear-button sheet on the device row.
-
-struct SwitcherContentPane: View {
-    let switcher: BlackmagicSwitcher
-    @ObservedObject private var monitor = ConnectionMonitor.shared
-
-    private var liveStatus: DeckStatus { monitor.status(for: switcher.ipAddress) }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            SwitcherControlPanel(switcher: switcher)
-        }
-    }
-
-    private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(switcher.name).font(.title3).bold()
-                Text(switcher.ipAddress).font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            StatusBadge(status: liveStatus)
-            Button {
-                Task { await monitor.pingNow(switcher: switcher) }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .buttonStyle(.borderless)
-        }
-        .padding()
-    }
-}
-
 // MARK: - Cloud Store Content Pane
 // The right-hand content for a selected cloud store: live status and its
 // file browser. Device settings (name, IP, volume, credentials) live in

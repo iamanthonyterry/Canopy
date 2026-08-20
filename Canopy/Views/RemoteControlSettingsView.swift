@@ -166,11 +166,11 @@ private extension RemoteControlSettingsView {
                 } label: {
                     Label("Add Mapping", systemImage: "plus")
                 }
-                .disabled(appState.hyperDecks.isEmpty && appState.switchers.isEmpty)
+                .disabled(appState.hyperDecks.isEmpty)
             }
 
-            if appState.hyperDecks.isEmpty && appState.switchers.isEmpty {
-                Text("Add a HyperDeck or ATEM switcher first to create a remote-control mapping.")
+            if appState.hyperDecks.isEmpty {
+                Text("Add a HyperDeck first to create a remote-control mapping.")
                     .font(.caption).foregroundStyle(.secondary)
             } else if appState.remoteMappings.isEmpty {
                 Text("No mappings yet — add one to let an OSC or MIDI trigger control a device.")
@@ -188,8 +188,6 @@ private extension RemoteControlSettingsView {
         switch mapping.target {
         case .hyperDeck(let id):
             deviceName = appState.hyperDecks.first { $0.id == id }?.name ?? "Unknown Device"
-        case .switcher(let id):
-            deviceName = appState.switchers.first { $0.id == id }?.name ?? "Unknown Device"
         }
 
         return HStack {

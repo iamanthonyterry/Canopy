@@ -5,13 +5,12 @@ import SwiftUI
 // so the right-hand pane knows which settings to show.
 enum DashboardSelection: Hashable {
     case deck(UUID)
-    case switcher(UUID)
     case cloudStore(UUID)
 }
 
 // MARK: - DashboardView
-// Home base: shows every configured device (HyperDecks, ATEM Switchers,
-// Cloud Stores) plus anything found on the network, all in one place.
+// Home base: shows every configured device (HyperDecks, Cloud Stores) plus
+// anything found on the network, all in one place.
 // Two columns: the left lists every device with a settings gear button,
 // and the right shows the content and controls for whichever device is
 // selected — transport controls, sync progress, and its file browser.
@@ -23,7 +22,6 @@ struct DashboardView: View {
     @ObservedObject private var monitor = ConnectionMonitor.shared
 
     @State private var showingAddDeck = false
-    @State private var showingAddSwitcher = false
     @State private var showingAddCloudStore = false
     @State private var selection: DashboardSelection?
     @State private var showMode = false
@@ -36,11 +34,10 @@ struct DashboardView: View {
     var errorCount: Int   { inProgress.flatMap(\.tasks).filter { $0.phase == .error }.count }
 
 
-    var totalDevices: Int  { appState.hyperDecks.count + appState.switchers.count + appState.cloudStores.count }
+    var totalDevices: Int  { appState.hyperDecks.count + appState.cloudStores.count }
 
     private var hasDiscovered: Bool {
-        !discovery.discoveredDecks.isEmpty || !discovery.discoveredSwitchers.isEmpty
-            || !discovery.discoveredCloudStores.isEmpty
+        !discovery.discoveredDecks.isEmpty || !discovery.discoveredCloudStores.isEmpty
     }
 
     var body: some View {
@@ -79,7 +76,6 @@ struct DashboardView: View {
             actionBar
         }
         .sheet(isPresented: $showingAddDeck) { DeckEditSheet(deck: nil) }
-        .sheet(isPresented: $showingAddSwitcher) { SwitcherEditSheet(switcher: nil) }
         .sheet(isPresented: $showingAddCloudStore) { CloudStoreEditSheet(store: nil) }
         .onAppear { monitor.start() }
     }
@@ -121,7 +117,7 @@ struct DashboardView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Dashboard").font(.title2).bold()
-                    Text("\(appState.hyperDecks.count) decks · \(appState.switchers.count) switchers · \(appState.cloudStores.count) cloud stores")
+                    Text("\(appState.hyperDecks.count) decks · \(appState.cloudStores.count) cloud stores")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -152,7 +148,6 @@ struct DashboardView: View {
 
                     Menu {
                         Button("HyperDeck") { showingAddDeck = true }
-                        Button("ATEM Switcher") { showingAddSwitcher = true }
                         Button("Cloud Store") { showingAddCloudStore = true }
                     } label: {
                         Label("Add Device", systemImage: "plus")
@@ -194,15 +189,6 @@ struct DashboardView: View {
                 }
             }
 
-            if appState.isAdmin && !appState.switchers.isEmpty {
-                Section("ATEM Switchers") {
-                    ForEach(appState.switchers) { switcher in
-                        SwitcherListRow(switcher: switcher)
-                            .tag(DashboardSelection.switcher(switcher.id))
-                    }
-                }
-            }
-
             if !appState.cloudStores.isEmpty {
                 Section("Cloud Stores") {
                     ForEach(appState.cloudStores) { store in
@@ -229,15 +215,6 @@ struct DashboardView: View {
             } else {
                 emptyDetailState
             }
-        case .switcher(let id):
-            if !appState.isAdmin {
-                restrictedDetailState
-            } else if let switcher = appState.switchers.first(where: { $0.id == id }) {
-                SwitcherContentPane(switcher: switcher)
-                    .id(switcher.id)
-            } else {
-                emptyDetailState
-            }
         case .cloudStore(let id):
             if let store = appState.cloudStores.first(where: { $0.id == id }) {
                 CloudStoreContentPane(store: store)
@@ -248,22 +225,6 @@ struct DashboardView: View {
         case .none:
             emptyDetailState
         }
-    }
-
-    private var restrictedDetailState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 36))
-                .foregroundStyle(.secondary)
-            Text("Admin Access Required")
-                .font(.headline)
-            Text("Switch to Admin mode to control this device.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
     }
 
     private var emptyDetailState: some View {
@@ -287,23 +248,15 @@ struct DashboardView: View {
         let newDecks = discovery.discoveredDecks.filter { d in
             !appState.hyperDecks.contains(where: { $0.ipAddress == d.ipAddress })
         }
-        let newSwitchers = discovery.discoveredSwitchers.filter { s in
-            !appState.switchers.contains(where: { $0.ipAddress == s.ipAddress })
-        }
         let newStores = discovery.discoveredCloudStores.filter { s in
             !appState.cloudStores.contains(where: { $0.ipAddress == s.ipAddress })
         }
 
-        if !newDecks.isEmpty || !newSwitchers.isEmpty || !newStores.isEmpty {
+        if !newDecks.isEmpty || !newStores.isEmpty {
             Section("Discovered on Network") {
                 ForEach(newDecks) { deck in
                     DiscoveredDeviceRow(name: deck.name, ip: deck.ipAddress, icon: "server.rack") {
                         appState.addDeck(deck)
-                    }
-                }
-                ForEach(newSwitchers) { s in
-                    DiscoveredDeviceRow(name: s.name, ip: s.ipAddress, icon: "switch.2") {
-                        appState.addSwitcher(s)
                     }
                 }
                 ForEach(newStores) { s in
@@ -321,7 +274,7 @@ struct DashboardView: View {
             Spacer()
             Image(systemName: "network").font(.system(size: 48)).foregroundStyle(.secondary)
             Text("No Devices Added").font(.title3).bold()
-            Text("Scan the network or add a HyperDeck, ATEM Switcher, or Cloud Store.")
+            Text("Scan the network or add a HyperDeck or Cloud Store.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Button("Scan Network") { discovery.startScanning() }
