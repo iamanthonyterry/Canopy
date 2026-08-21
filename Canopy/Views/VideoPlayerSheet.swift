@@ -190,6 +190,19 @@ struct VideoPlayerSheet: View {
                         .frame(width: 90)
                 } else {
                     Button {
+                        addToQueue()
+                    } label: {
+                        Text("Add to Queue")
+                            .font(.callout.weight(.medium))
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.white.opacity(0.15), in: Capsule())
+                    .foregroundStyle(.white)
+                    .disabled(sourceURL == nil || outPoint <= inPoint)
+                    .opacity(sourceURL == nil || outPoint <= inPoint ? 0.5 : 1)
+
+                    Button {
                         exportClip()
                     } label: {
                         Text("Export Clip…")
@@ -278,7 +291,7 @@ struct VideoPlayerSheet: View {
 
     private func load() async {
         switch device {
-        case .cloudStore:
+        case .cloudStore, .localFolder:
             guard let url = node.url else {
                 errorMessage = "Couldn't locate this file on the volume."
                 return
@@ -383,6 +396,20 @@ struct VideoPlayerSheet: View {
     }
 
     // MARK: - Export
+
+    /// Queues this clip for the batch export panel instead of exporting it
+    /// immediately — the in/out points are only carried along as a trim
+    /// range if they've actually been narrowed from the full clip.
+    private func addToQueue() {
+        guard outPoint > inPoint else { return }
+        let isFullRange = inPoint <= 0.05 && outPoint >= duration - 0.05
+        let range: CMTimeRange? = isFullRange ? nil : CMTimeRange(
+            start: CMTime(seconds: inPoint, preferredTimescale: 600),
+            end: CMTime(seconds: outPoint, preferredTimescale: 600)
+        )
+        ExportQueueManager.shared.add(node: node, device: device, trimRange: range)
+        dismiss()
+    }
 
     private func exportClip() {
         guard let sourceURL, outPoint > inPoint else { return }

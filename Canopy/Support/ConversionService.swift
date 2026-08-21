@@ -70,19 +70,19 @@ struct ConversionService {
 
     // MARK: - Trim / Export Clip
 
-    /// Exports a sub-range of `input` to `output`, preserving the original
-    /// codec (no re-encode) so trimming is fast and lossless. Used by the
-    /// video preview's in/out point export feature.
+    /// Exports `input` to `output`, preserving the original codec (no
+    /// re-encode) so it's fast and lossless. Used by the video preview's
+    /// in/out point export feature and by the batch export queue.
     /// - Parameters:
     ///   - input: Source video URL (local file — already downloaded for HyperDeck clips)
-    ///   - output: Destination URL for the trimmed clip
-    ///   - timeRange: The in/out range to keep
+    ///   - output: Destination URL for the exported clip
+    ///   - timeRange: The in/out range to keep, or nil to export the whole asset
     ///   - progress: Called on main actor with 0.0–1.0 as the export proceeds
     /// - Returns: `true` on success
     static func exportClip(
         input: URL,
         output: URL,
-        timeRange: CMTimeRange,
+        timeRange: CMTimeRange? = nil,
         progress: @escaping @Sendable (Double) -> Void
     ) async -> Bool {
         try? FileManager.default.createDirectory(
@@ -97,7 +97,7 @@ struct ConversionService {
         guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
             return false
         }
-        session.timeRange = timeRange
+        if let timeRange { session.timeRange = timeRange }
 
         let outputType: AVFileType = output.pathExtension.lowercased() == "mp4" ? .mp4 : .mov
 

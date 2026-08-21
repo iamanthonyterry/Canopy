@@ -6,17 +6,19 @@ import SwiftUI
 enum DeviceSource: Identifiable, Hashable, Equatable {
     case hyperDeck(HyperDeck)
     case cloudStore(CloudStore)
+    case localFolder(LocalFolder)
 
     var id: String {
         switch self {
-        case .hyperDeck(let d):  return "deck-\(d.id)"
-        case .cloudStore(let s): return "store-\(s.id)"
+        case .hyperDeck(let d):    return "deck-\(d.id)"
+        case .cloudStore(let s):   return "store-\(s.id)"
+        case .localFolder(let f):  return "folder-\(f.id)"
         }
     }
 
     var supportsFileBrowsing: Bool {
         switch self {
-        case .hyperDeck, .cloudStore: return true
+        case .hyperDeck, .cloudStore, .localFolder: return true
         }
     }
 
@@ -101,6 +103,11 @@ struct DeviceFilesBrowser: View {
     @State private var storageInfo: StorageInfo?
     @State private var isLoadingStorage = false
 
+    @StateObject private var exportQueue = ExportQueueManager.shared
+    @State private var isSelecting = false
+    @State private var selectedIDs: Set<String> = []
+    @State private var showExportQueue = false
+
     enum SortOrder: String, CaseIterable {
         case name = "Name", size = "Size", modified = "Modified"
     }
@@ -123,6 +130,9 @@ struct DeviceFilesBrowser: View {
         .sheet(item: $playbackTarget) { target in
             VideoPlayerSheet(node: target.node, device: target.device)
         }
+        .sheet(isPresented: $showExportQueue) {
+            ExportQueueView()
+        }
     }
 
     // MARK: - Toolbar
@@ -135,21 +145,52 @@ struct DeviceFilesBrowser: View {
             }
             Spacer()
             if device.supportsFileBrowsing {
-                HStack(spacing: 0) {
-                    ForEach(SortOrder.allCases, id: \.self) { order in
-                        SortOrderButton(order: order, selected: sortOrder == order) {
-                            sortOrder = order
+                if isSelecting {
+                    Text(selectedIDs.isEmpty ? "Select clips…" : "\(selectedIDs.count) selected")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Add to Queue") { addSelectionToQueue() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(selectedIDs.isEmpty)
+                    Button("Cancel") { isSelecting = false; selectedIDs.removeAll() }
+                        .controlSize(.small)
+                } else {
+                    HStack(spacing: 0) {
+                        ForEach(SortOrder.allCases, id: \.self) { order in
+                            SortOrderButton(order: order, selected: sortOrder == order) {
+                                sortOrder = order
+                            }
+                        }
+                    }
+                    Button("Select") { isSelecting = true }
+                        .buttonStyle(.borderless)
+                    Button {
+                        loadFiles()
+                        refreshStorageInfo()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(isLoadingFiles)
+                }
+
+                Button {
+                    showExportQueue = true
+                } label: {
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: "square.and.arrow.up.on.square")
+                        if exportQueue.activeCount > 0 {
+                            Text("\(exportQueue.activeCount)")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(3)
+                                .background(Color.accentColor, in: Circle())
+                                .offset(x: 8, y: -8)
                         }
                     }
                 }
-                Button {
-                    loadFiles()
-                    refreshStorageInfo()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
                 .buttonStyle(.borderless)
-                .disabled(isLoadingFiles)
+                .help("Export Queue")
             }
         }
         .padding(.horizontal, 14)
@@ -197,7 +238,9 @@ struct DeviceFilesBrowser: View {
                             onToggle: toggleNode,
                             onPlay: { selected in
                                 playbackTarget = PlaybackTarget(node: selected, device: device)
-                            }
+                            },
+                            isSelecting: isSelecting,
+                            selectedIDs: $selectedIDs
                         )
                     }
                 }
@@ -256,6 +299,25 @@ struct DeviceFilesBrowser: View {
         return result
     }
 
+    // MARK: - Export Queue
+
+    private func addSelectionToQueue() {
+        let nodes = flatten(rootNodes).filter { selectedIDs.contains($0.id) }
+        exportQueue.addMultiple(nodes, device: device)
+        isSelecting = false
+        selectedIDs.removeAll()
+        showExportQueue = true
+    }
+
+    private func flatten(_ nodes: [FileNode]) -> [FileNode] {
+        var result: [FileNode] = []
+        for node in nodes {
+            result.append(node)
+            if let children = node.children { result += flatten(children) }
+        }
+        return result
+    }
+
     // MARK: - Load Files
 
     private func loadFiles() {
@@ -293,6 +355,8 @@ struct DeviceFilesBrowser: View {
                 password: store.password
             )
             return try fetchLocalNodes(at: URL(fileURLWithPath: mountPath))
+        case .localFolder(let folder):
+            return try fetchLocalNodes(at: URL(fileURLWithPath: folder.path))
         }
     }
 
@@ -398,7 +462,7 @@ struct DeviceFilesBrowser: View {
         case .hyperDeck(let deck):
             guard let path = node.ftpPath else { return [] }
             return (try? await fetchFTPNodes(deck: deck, path: path)) ?? []
-        case .cloudStore:
+        case .cloudStore, .localFolder:
             guard let url = node.url else { return [] }
             return (try? fetchLocalNodes(at: url)) ?? []
         }
@@ -430,8 +494,9 @@ struct DeviceFilesBrowser: View {
 
     private func fetchStorageInfo() async -> StorageInfo? {
         switch device {
-        case .hyperDeck(let deck):  return await StorageCapacityService.capacity(for: deck)
-        case .cloudStore(let store): return try? await StorageCapacityService.capacity(for: store)
+        case .hyperDeck(let deck):    return await StorageCapacityService.capacity(for: deck)
+        case .cloudStore(let store):  return try? await StorageCapacityService.capacity(for: store)
+        case .localFolder(let folder): return try? StorageCapacityService.capacity(forPath: folder.path)
         }
     }
 }
@@ -444,8 +509,11 @@ struct FileNodeView: View {
     @Binding var selectedFile: FileNode?
     let onToggle: (String) -> Void
     let onPlay: (FileNode) -> Void
+    var isSelecting: Bool = false
+    var selectedIDs: Binding<Set<String>> = .constant([])
 
     private var isSelected: Bool { selectedFile?.id == node.id }
+    private var isCheckedForQueue: Bool { selectedIDs.wrappedValue.contains(node.id) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -453,7 +521,11 @@ struct FileNodeView: View {
                 if depth > 0 {
                     Rectangle().fill(Color.clear).frame(width: CGFloat(depth) * 16)
                 }
-                if node.isDirectory {
+                if isSelecting && node.isVideo {
+                    Image(systemName: isCheckedForQueue ? "checkmark.square.fill" : "square")
+                        .foregroundStyle(isCheckedForQueue ? Color.accentColor : Color.secondary)
+                        .frame(width: 16)
+                } else if node.isDirectory {
                     Image(systemName: node.isExpanded ? "chevron.down" : "chevron.right")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -468,7 +540,7 @@ struct FileNodeView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
-                if node.isVideo {
+                if node.isVideo && !isSelecting {
                     Button { onPlay(node) } label: {
                         Image(systemName: "play.circle.fill")
                     }
@@ -489,6 +561,10 @@ struct FileNodeView: View {
             .onTapGesture {
                 if node.isDirectory {
                     onToggle(node.id)
+                } else if isSelecting {
+                    guard node.isVideo else { return }
+                    if isCheckedForQueue { selectedIDs.wrappedValue.remove(node.id) }
+                    else { selectedIDs.wrappedValue.insert(node.id) }
                 } else {
                     selectedFile = node
                     if node.isVideo { onPlay(node) }
@@ -500,7 +576,8 @@ struct FileNodeView: View {
             ForEach(children) { child in
                 FileNodeView(
                     node: child, depth: depth + 1, selectedFile: $selectedFile,
-                    onToggle: onToggle, onPlay: onPlay
+                    onToggle: onToggle, onPlay: onPlay,
+                    isSelecting: isSelecting, selectedIDs: selectedIDs
                 )
             }
         }

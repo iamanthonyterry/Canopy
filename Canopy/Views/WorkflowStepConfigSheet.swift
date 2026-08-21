@@ -21,9 +21,17 @@ struct WorkflowStepConfigSheet: View {
     @State private var notifyMessage = ""
     @State private var notifyRecipients: [NotificationRecipient] = []
     @State private var notifySendPerDrive = true
-    @State private var notifyIsHTML = false
     @State private var showingAddRecipient = false
     @State private var requiresConfirmation = false
+
+    // Tracks which notify field a variable pill should insert into — the
+    // one that most recently had the cursor, since tapping a pill steals
+    // focus away from the text field before the insert happens.
+    private enum NotifyField: Hashable { case header, message }
+    @FocusState private var notifyFocusedField: NotifyField?
+    @State private var notifyLastFocusedField: NotifyField = .message
+    @State private var notifyHeaderSelection: TextSelection?
+    @State private var notifyMessageSelection: TextSelection?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -240,20 +248,13 @@ struct WorkflowStepConfigSheet: View {
 
             Section {
                 LabeledContent("Header") {
-                    TextField("e.g. Sync Complete", text: $notifyHeader)
+                    TextField("e.g. Sync Complete", text: $notifyHeader, selection: $notifyHeaderSelection)
                         .textFieldStyle(.roundedBorder)
+                        .focused($notifyFocusedField, equals: .header)
                 }
-                Toggle("Send as HTML", isOn: $notifyIsHTML)
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Message").font(.caption).foregroundStyle(.secondary)
-                        Spacer()
-                        if notifyIsHTML {
-                            Text("HTML source").font(.caption2).foregroundStyle(.tertiary)
-                        }
-                    }
-                    TextEditor(text: $notifyMessage)
-                        .font(notifyIsHTML ? .system(.body, design: .monospaced) : .body)
+                    Text("Message").font(.caption).foregroundStyle(.secondary)
+                    TextEditor(text: $notifyMessage, selection: $notifyMessageSelection)
                         .frame(minHeight: 80, maxHeight: 160)
                         .scrollContentBackground(.hidden)
                         .background(Color(nsColor: .textBackgroundColor))
@@ -262,34 +263,35 @@ struct WorkflowStepConfigSheet: View {
                             RoundedRectangle(cornerRadius: 6)
                                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                         )
-                    if notifyIsHTML {
-                        Text("Write raw HTML (e.g. <b>, <a href>, inline styles) — it's sent as the email body.")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
+                        .focused($notifyFocusedField, equals: .message)
+                    Text("HTML tags (e.g. <b>, <a href>) are sent as formatted email; plain text is sent as-is.")
+                        .font(.caption2).foregroundStyle(.secondary)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Available variables").font(.caption).bold()
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Click to insert into \(notifyLastFocusedField == .header ? "header" : "message")")
+                            .font(.caption).bold()
                             .padding(.top, 4)
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack {
-                                Text("{workflow_name}").font(.system(.caption, design: .monospaced))
-                                Text("The name of the current workflow").font(.caption).foregroundStyle(.secondary)
-                            }
-                            HStack {
-                                Text("{time_taken}").font(.system(.caption, design: .monospaced))
-                                Text("Time elapsed since start (e.g. 1m 30s)").font(.caption).foregroundStyle(.secondary)
-                            }
-                            HStack {
-                                Text("{file_names}").font(.system(.caption, design: .monospaced))
-                                Text("Files processed (list in body, comma-separated in header)").font(.caption).foregroundStyle(.secondary)
-                            }
-                            HStack {
-                                Text("{recipient_name}").font(.system(.caption, design: .monospaced))
-                                Text("The recipient's name").font(.caption).foregroundStyle(.secondary)
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 6)], alignment: .leading, spacing: 6) {
+                            ForEach(Self.notifyVariables, id: \.token) { variable in
+                                Button {
+                                    insertNotifyVariable(variable.token)
+                                } label: {
+                                    Text(variable.token)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+                                        .overlay(Capsule().stroke(Color.accentColor.opacity(0.3)))
+                                }
+                                .buttonStyle(.plain)
+                                .help(variable.description)
                             }
                         }
                     }
                 }
+            }
+            .onChange(of: notifyFocusedField) { _, newValue in
+                if let newValue { notifyLastFocusedField = newValue }
             }
 
             Section {
@@ -334,6 +336,42 @@ struct WorkflowStepConfigSheet: View {
         }
     }
 
+    // MARK: - Notify Variables
+
+    private struct NotifyVariable {
+        let token: String
+        let description: String
+    }
+
+    private static let notifyVariables: [NotifyVariable] = [
+        .init(token: "{workflow_name}", description: "The name of the current workflow"),
+        .init(token: "{time_taken}", description: "Time elapsed since start (e.g. 1m 30s)"),
+        .init(token: "{file_names}", description: "Files processed (list in body, comma-separated in header)"),
+        .init(token: "{recipient_name}", description: "The recipient's name"),
+    ]
+
+    private func insertNotifyVariable(_ token: String) {
+        switch notifyLastFocusedField {
+        case .header:
+            insert(token, into: &notifyHeader, selection: &notifyHeaderSelection)
+        case .message:
+            insert(token, into: &notifyMessage, selection: &notifyMessageSelection)
+        }
+        notifyFocusedField = notifyLastFocusedField
+    }
+
+    private func insert(_ token: String, into text: inout String, selection: inout TextSelection?) {
+        guard let current = selection, case .selection(let range) = current.indices else {
+            text += token
+            selection = TextSelection(insertionPoint: text.endIndex)
+            return
+        }
+        let offset = text.distance(from: text.startIndex, to: range.lowerBound)
+        text.replaceSubrange(range, with: token)
+        let newIndex = text.index(text.startIndex, offsetBy: offset + token.count)
+        selection = TextSelection(insertionPoint: newIndex)
+    }
+
     // MARK: - Load / Save
 
     private func load() {
@@ -361,12 +399,11 @@ struct WorkflowStepConfigSheet: View {
             pattern = pat
         case .cleanup(let days):
             retentionDays = days
-        case .notify(let header, let message, let recipients, let sendPerDrive, let isHTML):
+        case .notify(let header, let message, let recipients, let sendPerDrive):
             notifyHeader = header
             notifyMessage = message
             notifyRecipients = recipients
             notifySendPerDrive = sendPerDrive
-            notifyIsHTML = isHTML
         }
     }
 
@@ -390,8 +427,7 @@ struct WorkflowStepConfigSheet: View {
                 header: notifyHeader.isEmpty ? "Workflow update" : notifyHeader,
                 message: notifyMessage,
                 recipients: notifyRecipients,
-                sendPerDrive: notifySendPerDrive,
-                isHTML: notifyIsHTML
+                sendPerDrive: notifySendPerDrive
             )
         }
         dismiss()

@@ -6,6 +6,7 @@ import SwiftUI
 enum DashboardSelection: Hashable {
     case deck(UUID)
     case cloudStore(UUID)
+    case localFolder(UUID)
 }
 
 // MARK: - DashboardView
@@ -23,6 +24,7 @@ struct DashboardView: View {
 
     @State private var showingAddDeck = false
     @State private var showingAddCloudStore = false
+    @State private var showingAddLocalFolder = false
     @State private var selection: DashboardSelection?
     @State private var showMode = false
 
@@ -34,7 +36,7 @@ struct DashboardView: View {
     var errorCount: Int   { inProgress.flatMap(\.tasks).filter { $0.phase == .error }.count }
 
 
-    var totalDevices: Int  { appState.hyperDecks.count + appState.cloudStores.count }
+    var totalDevices: Int  { appState.hyperDecks.count + appState.cloudStores.count + appState.localFolders.count }
 
     private var hasDiscovered: Bool {
         !discovery.discoveredDecks.isEmpty || !discovery.discoveredCloudStores.isEmpty
@@ -77,6 +79,7 @@ struct DashboardView: View {
         }
         .sheet(isPresented: $showingAddDeck) { DeckEditSheet(deck: nil) }
         .sheet(isPresented: $showingAddCloudStore) { CloudStoreEditSheet(store: nil) }
+        .sheet(isPresented: $showingAddLocalFolder) { LocalFolderEditSheet(folder: nil) }
         .onAppear { monitor.start() }
     }
 
@@ -117,7 +120,7 @@ struct DashboardView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Dashboard").font(.title2).bold()
-                    Text("\(appState.hyperDecks.count) decks · \(appState.cloudStores.count) cloud stores")
+                    Text("\(appState.hyperDecks.count) decks · \(appState.cloudStores.count) cloud stores · \(appState.localFolders.count) local folders")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -149,6 +152,7 @@ struct DashboardView: View {
                     Menu {
                         Button("HyperDeck") { showingAddDeck = true }
                         Button("Cloud Store") { showingAddCloudStore = true }
+                        Button("Local Folder") { showingAddLocalFolder = true }
                     } label: {
                         Label("Add Device", systemImage: "plus")
                     }.buttonStyle(.borderedProminent)
@@ -198,6 +202,15 @@ struct DashboardView: View {
                 }
             }
 
+            if !appState.localFolders.isEmpty {
+                Section("Local Folders") {
+                    ForEach(appState.localFolders) { folder in
+                        LocalFolderListRow(folder: folder)
+                            .tag(DashboardSelection.localFolder(folder.id))
+                    }
+                }
+            }
+
             if appState.isAdmin {
                 discoveredSection
             }
@@ -219,6 +232,13 @@ struct DashboardView: View {
             if let store = appState.cloudStores.first(where: { $0.id == id }) {
                 CloudStoreContentPane(store: store)
                     .id(store.id)
+            } else {
+                emptyDetailState
+            }
+        case .localFolder(let id):
+            if let folder = appState.localFolders.first(where: { $0.id == id }) {
+                LocalFolderContentPane(folder: folder)
+                    .id(folder.id)
             } else {
                 emptyDetailState
             }
@@ -274,11 +294,15 @@ struct DashboardView: View {
             Spacer()
             Image(systemName: "network").font(.system(size: 48)).foregroundStyle(.secondary)
             Text("No Devices Added").font(.title3).bold()
-            Text("Scan the network or add a HyperDeck or Cloud Store.")
+            Text("Scan the network, or add a HyperDeck, Cloud Store, or Local Folder.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button("Scan Network") { discovery.startScanning() }
-                .buttonStyle(.borderedProminent)
+            HStack(spacing: 10) {
+                Button("Scan Network") { discovery.startScanning() }
+                    .buttonStyle(.borderedProminent)
+                Button("Add Local Folder") { showingAddLocalFolder = true }
+                    .buttonStyle(.bordered)
+            }
             Spacer()
         }
         .padding()

@@ -38,6 +38,23 @@ struct CloudStore: Identifiable, Codable, Hashable {
     var sortOrder: Int = 0
 }
 
+// MARK: - Local Folder / Drive
+// A folder already reachable on this Mac's filesystem — an internal drive,
+// a directly-attached external drive, or a share already mounted some other
+// way — browsable without any network address or mount step.
+struct LocalFolder: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var name: String
+    var path: String
+    var sortOrder: Int = 0
+
+    var exists: Bool {
+        var isDir: ObjCBool = false
+        let ok = FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
+        return ok && isDir.boolValue
+    }
+}
+
 // MARK: - Sync Destination
 struct SyncLocation: Codable {
     var ipAddress: String = ""

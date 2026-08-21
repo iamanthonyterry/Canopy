@@ -110,3 +110,43 @@ struct CloudStoreListRow: View {
         }
     }
 }
+
+// MARK: - Local Folder Row
+// No network status to poll — a folder is either there or it isn't, checked
+// straight off the filesystem.
+
+struct LocalFolderListRow: View {
+    let folder: LocalFolder
+    @EnvironmentObject var appState: AppState
+    @State private var showingSettings = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle().fill(folder.exists ? Color.green : Color.red).frame(width: 8, height: 8)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(folder.name).font(.body)
+                Text(folder.path).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            Spacer()
+            Button {
+                showingSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .buttonStyle(.borderless)
+            .help("Device Settings")
+        }
+        .padding(.vertical, 2)
+        .contextMenu {
+            Button(role: .destructive) {
+                appState.deleteLocalFolder(id: folder.id)
+            } label: {
+                Label("Delete Device", systemImage: "trash")
+            }
+        }
+        .sheet(isPresented: $showingSettings) {
+            LocalFolderEditSheet(folder: folder)
+        }
+    }
+}

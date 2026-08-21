@@ -40,6 +40,18 @@ enum StorageCapacityService {
         return StorageInfo(usedBytes: max(total - available, 0), totalBytes: total > 0 ? total : nil)
     }
 
+    /// Local Folder: reads the real total/available capacity of whichever
+    /// volume the folder lives on — no mounting needed, it's already on
+    /// this Mac's filesystem.
+    static func capacity(forPath path: String) throws -> StorageInfo {
+        let values = try URL(fileURLWithPath: path).resourceValues(
+            forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey]
+        )
+        let total = Int64(values.volumeTotalCapacity ?? 0)
+        let available = Int64(values.volumeAvailableCapacity ?? 0)
+        return StorageInfo(usedBytes: max(total - available, 0), totalBytes: total > 0 ? total : nil)
+    }
+
     /// HyperDeck: the Ethernet protocol has no command that reports raw disk
     /// capacity — only an estimated recording-time-remaining figure — so
     /// "used" is the real total of every file's size from the deck's FTP

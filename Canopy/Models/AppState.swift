@@ -32,6 +32,9 @@ class AppState: ObservableObject {
     @Published var cloudStores: [CloudStore] = [] {
         didSet { save(cloudStores, key: "cloudStores") }
     }
+    @Published var localFolders: [LocalFolder] = [] {
+        didSet { save(localFolders, key: "localFolders") }
+    }
     @Published var syncLocation: SyncLocation = SyncLocation() {
         didSet { save(syncLocation, key: "syncLocation") }
     }
@@ -107,6 +110,7 @@ class AppState: ObservableObject {
         userRole           = load(UserRole.self,             key: "userRole")           ?? .admin
         hyperDecks         = load([HyperDeck].self,          key: "hyperDecks")         ?? []
         cloudStores        = load([CloudStore].self,         key: "cloudStores")        ?? []
+        localFolders       = load([LocalFolder].self,        key: "localFolders")       ?? []
         syncLocation       = load(SyncLocation.self,         key: "syncLocation")       ?? SyncLocation()
         workflows                  = load([Workflow].self,                  key: "workflows")                  ?? []
         workflowRunHistory         = load([WorkflowRun].self,               key: "workflowRunHistory")         ?? []
@@ -144,6 +148,21 @@ class AppState: ObservableObject {
     func moveCloudStore(from: IndexSet, to: Int) {
         cloudStores.move(fromOffsets: from, toOffset: to)
         for i in cloudStores.indices { cloudStores[i].sortOrder = i }
+    }
+
+    // MARK: - Local Folder CRUD
+    func addLocalFolder(_ folder: LocalFolder) {
+        var f = folder; f.sortOrder = localFolders.count
+        localFolders.append(f)
+    }
+    func updateLocalFolder(_ folder: LocalFolder) {
+        guard let i = localFolders.firstIndex(where: { $0.id == folder.id }) else { return }
+        localFolders[i] = folder
+    }
+    func deleteLocalFolder(id: UUID) { localFolders.removeAll { $0.id == id } }
+    func moveLocalFolder(from: IndexSet, to: Int) {
+        localFolders.move(fromOffsets: from, toOffset: to)
+        for i in localFolders.indices { localFolders[i].sortOrder = i }
     }
 
     // MARK: - Workflow CRUD

@@ -75,6 +75,37 @@ struct CloudStoreContentPane: View {
     }
 }
 
+// MARK: - Local Folder Content Pane
+// Same shape as the Cloud Store pane, minus anything network-related — a
+// local folder is either there or it isn't, no ping/mount step needed.
+
+struct LocalFolderContentPane: View {
+    let folder: LocalFolder
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            DeviceFilesBrowser(device: .localFolder(folder))
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(folder.name).font(.title3).bold()
+                Text(folder.path).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            Spacer()
+            Label(folder.exists ? "Available" : "Not Found", systemImage: folder.exists ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .font(.caption).bold()
+                .foregroundStyle(folder.exists ? .green : .red)
+        }
+        .padding()
+    }
+}
+
 // MARK: - Discovered Device Row
 // Shown in a lightweight list style rather than a card, since these are
 // transient, one-tap-to-add entries rather than configured devices.

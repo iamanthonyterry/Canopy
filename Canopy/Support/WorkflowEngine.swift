@@ -91,7 +91,7 @@ final class WorkflowEngine: ObservableObject {
         // of one finishing its entire step list before the next begins.
         for step in workflow.steps {
             guard !session.isCancelled else { break }
-            if case .notify(_, _, _, let sendPerDrive, _) = step.action, !sendPerDrive {
+            if case .notify(_, _, _, let sendPerDrive) = step.action, !sendPerDrive {
                 continue
             }
 
@@ -126,7 +126,7 @@ final class WorkflowEngine: ObservableObject {
 
         // Send workflow-wide notifications (single email for the entire workflow)
         let workflowWideNotifySteps = workflow.steps.filter {
-            if case .notify(_, _, _, let sendPerDrive, _) = $0.action {
+            if case .notify(_, _, _, let sendPerDrive) = $0.action {
                 return !sendPerDrive
             }
             return false
@@ -140,8 +140,8 @@ final class WorkflowEngine: ObservableObject {
                 session: session
             )
             for step in workflowWideNotifySteps {
-                if case .notify(let header, let message, let recipients, _, let isHTML) = step.action {
-                    await runNotify(context: &workflowContext, header: header, message: message, recipients: recipients, isHTML: isHTML)
+                if case .notify(let header, let message, let recipients, _) = step.action {
+                    await runNotify(context: &workflowContext, header: header, message: message, recipients: recipients)
                 }
             }
         }
@@ -250,8 +250,8 @@ final class WorkflowEngine: ObservableObject {
             await runFormat(context: &context)
         case .cleanup(let retentionDays):
             await runCleanup(context: &context, retentionDays: retentionDays)
-        case .notify(let header, let message, let recipients, _, let isHTML):
-            await runNotify(context: &context, header: header, message: message, recipients: recipients, isHTML: isHTML)
+        case .notify(let header, let message, let recipients, _):
+            await runNotify(context: &context, header: header, message: message, recipients: recipients)
         }
     }
 
@@ -559,8 +559,7 @@ final class WorkflowEngine: ObservableObject {
         context: inout StepContext,
         header: String,
         message: String,
-        recipients: [NotificationRecipient],
-        isHTML: Bool
+        recipients: [NotificationRecipient]
     ) async {
         let session = context.session
         guard !recipients.isEmpty else {
@@ -571,6 +570,8 @@ final class WorkflowEngine: ObservableObject {
             session.log("  ⚠️ Notification: connect a Gmail account in Settings to send email")
             return
         }
+
+        let isHTML = message.range(of: "<[a-zA-Z][^<>]*>", options: .regularExpression) != nil
 
         // Apply template variables
         let duration = Date().timeIntervalSince(session.startedAt)
