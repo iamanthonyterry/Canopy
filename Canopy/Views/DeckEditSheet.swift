@@ -11,10 +11,7 @@ struct DeckEditSheet: View {
     @State private var remotePath      = ""
     @State private var username        = ""
     @State private var password        = ""
-    @State private var cloudStoreID: UUID? = nil   // nil = global destination
-    @State private var cloudStorePath  = ""
     @State private var capacityText    = ""
-    @State private var showFolderPicker = false
     @State private var showPathPicker  = false
     @State private var pingStatus: DeckStatus = .unknown
     @State private var isTesting       = false
@@ -28,17 +25,10 @@ struct DeckEditSheet: View {
         _remotePath     = State(initialValue: deck?.remotePath     ?? "")
         _username       = State(initialValue: deck?.username       ?? "")
         _password       = State(initialValue: deck?.password       ?? "")
-        _cloudStoreID   = State(initialValue: deck?.cloudStoreID)
-        _cloudStorePath = State(initialValue: deck?.cloudStorePath ?? "")
         _capacityText   = State(initialValue: deck?.capacityGB.map { String(format: "%g", $0) } ?? "")
     }
 
     var canSave: Bool { !name.isEmpty && !ipAddress.isEmpty }
-
-    private var selectedStore: CloudStore? {
-        guard let id = cloudStoreID else { return nil }
-        return appState.cloudStores.first { $0.id == id }
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -108,79 +98,6 @@ struct DeckEditSheet: View {
                     }
                 }
 
-                // MARK: Sync Destination
-                Section("Sync Destination") {
-                    LabeledContent("Cloud Store") {
-                        Picker("", selection: $cloudStoreID) {
-                            Text("Global Default").tag(Optional<UUID>.none)
-                            if !appState.cloudStores.isEmpty {
-                                Divider()
-                                ForEach(appState.cloudStores) { store in
-                                    Text(store.name).tag(Optional(store.id))
-                                }
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 200)
-                        .onChange(of: cloudStoreID) {
-                            // Clear the path when the store changes
-                            cloudStorePath = ""
-                        }
-                    }
-
-                    // Folder row — only shown when a specific store is chosen
-                    if let store = selectedStore {
-                        LabeledContent("Folder") {
-                            HStack(spacing: 8) {
-                                // Path display / placeholder
-                                Group {
-                                    if cloudStorePath.isEmpty {
-                                        Text("Volume root")
-                                            .foregroundStyle(.secondary)
-                                    } else {
-                                        Text(cloudStorePath)
-                                            .lineLimit(1)
-                                            .truncationMode(.head)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .font(.callout)
-
-                                // Clear button
-                                if !cloudStorePath.isEmpty {
-                                    Button {
-                                        cloudStorePath = ""
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-
-                                // Browse button
-                                Button {
-                                    showFolderPicker = true
-                                } label: {
-                                    Label("Browse…", systemImage: "folder")
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                        }
-
-                        // Preview label
-                        let folder = cloudStorePath.isEmpty ? "/" : "/\(cloudStorePath)"
-                        Label("→ \(store.name)\(folder)",
-                              systemImage: "externaldrive.connected.to.line.below")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Label("Uses the global sync destination from Settings.",
-                              systemImage: "info.circle")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 // MARK: Test Connection
                 Section {
                     HStack {
@@ -210,14 +127,6 @@ struct DeckEditSheet: View {
                 remotePath = path
             }
         }
-        .sheet(isPresented: $showFolderPicker) {
-            if let store = selectedStore {
-                FolderPickerSheet(store: store) { path in
-                    cloudStorePath = path
-                }
-                .environmentObject(appState)
-            }
-        }
     }
 
     // MARK: - Save
@@ -226,14 +135,12 @@ struct DeckEditSheet: View {
         if var d = existingDeck {
             d.name = name; d.ipAddress = ipAddress
             d.remotePath = remotePath; d.username = username; d.password = password
-            d.cloudStoreID = cloudStoreID; d.cloudStorePath = cloudStorePath
             d.capacityGB = capacity
             appState.updateDeck(d)
         } else {
             appState.addDeck(HyperDeck(
                 name: name, ipAddress: ipAddress, remotePath: remotePath,
                 username: username, password: password,
-                cloudStoreID: cloudStoreID, cloudStorePath: cloudStorePath,
                 capacityGB: capacity
             ))
         }

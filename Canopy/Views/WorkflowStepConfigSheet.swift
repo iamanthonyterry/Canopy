@@ -3,10 +3,23 @@ import SwiftUI
 /// Small focused sheet for configuring a single workflow step.
 /// Only shows fields relevant to that step's kind.
 struct WorkflowStepConfigSheet: View {
+    @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @Binding var step: WorkflowStep
+    /// Other Create Folder steps in this workflow, so the Sync step can
+    /// offer "use the folder that step creates" as a destination option.
+    var availableFolderSteps: [WorkflowStep] = []
 
     // Local editable copies so Cancel doesn't mutate the caller's step.
+    @State private var syncUsesCreatedFolder = false
+    @State private var syncCreatedFolderStepID: UUID? = nil
+    @State private var syncCloudStoreID: UUID? = nil   // nil = global destination
+    @State private var syncCloudStorePath = ""
+    @State private var showFolderPicker = false
+    @State private var createFolderCloudStoreID: UUID? = nil   // nil = global destination
+    @State private var createFolderParentPath = ""
+    @State private var createFolderNameTemplate = ""
+    @State private var showCreateFolderPathPicker = false
     @State private var preset: ConversionSettings.FFmpegPreset = .fast
     @State private var deleteOriginal = true
     @State private var maxParallelJobs = 2
@@ -59,9 +72,11 @@ struct WorkflowStepConfigSheet: View {
                 case .wait:
                     waitFields
 
+                case .createFolder:
+                    createFolderFields
+
                 case .sync:
-                    Text("No configuration needed — downloads any files not already synced.")
-                        .font(.callout).foregroundStyle(.secondary)
+                    syncFields
 
                 case .convert:
                     convertFields
@@ -97,9 +112,232 @@ struct WorkflowStepConfigSheet: View {
                 notifyRecipients.append(NotificationRecipient(name: name, email: email))
             }
         }
+        .sheet(isPresented: $showFolderPicker) {
+            if let store = selectedSyncStore {
+                FolderPickerSheet(store: store) { path in
+                    syncCloudStorePath = path
+                }
+                .environmentObject(appState)
+            }
+        }
+        .sheet(isPresented: $showCreateFolderPathPicker) {
+            if let store = selectedCreateFolderStore {
+                FolderPickerSheet(store: store) { path in
+                    createFolderParentPath = path
+                }
+                .environmentObject(appState)
+            }
+        }
+    }
+
+    private var selectedSyncStore: CloudStore? {
+        guard let id = syncCloudStoreID else { return nil }
+        return appState.cloudStores.first { $0.id == id }
+    }
+
+    private var selectedCreateFolderStore: CloudStore? {
+        guard let id = createFolderCloudStoreID else { return nil }
+        return appState.cloudStores.first { $0.id == id }
+    }
+
+    /// The folder name a Create Folder step will resolve to, for display in
+    /// the Sync step's "use created folder" picker.
+    private func folderStepLabel(_ folderStep: WorkflowStep) -> String {
+        if case .createFolder(_, _, let nameTemplate) = folderStep.action {
+            return FolderNameEngine.resolve(nameTemplate)
+        }
+        return "Folder"
     }
 
     // MARK: - Field groups
+
+    private var syncFields: some View {
+        Group {
+            Text("Downloads any files not already synced.")
+                .font(.callout).foregroundStyle(.secondary)
+
+            if !availableFolderSteps.isEmpty {
+                Picker("Destination", selection: $syncUsesCreatedFolder) {
+                    Text("Cloud Store").tag(false)
+                    Text("Created Folder").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: syncUsesCreatedFolder) {
+                    if syncUsesCreatedFolder && syncCreatedFolderStepID == nil {
+                        syncCreatedFolderStepID = availableFolderSteps.first?.id
+                    }
+                }
+            }
+
+            if syncUsesCreatedFolder && !availableFolderSteps.isEmpty {
+                Section("Sync Destination") {
+                    Picker("Folder", selection: $syncCreatedFolderStepID) {
+                        ForEach(availableFolderSteps) { folderStep in
+                            Text(folderStepLabel(folderStep)).tag(Optional(folderStep.id))
+                        }
+                    }
+                    .labelsHidden()
+                    Text("Uses the folder created earlier in this workflow.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            } else {
+                Section("Sync Destination") {
+                    LabeledContent("Cloud Store") {
+                        Picker("", selection: $syncCloudStoreID) {
+                            Text("Global Default").tag(Optional<UUID>.none)
+                            if !appState.cloudStores.isEmpty {
+                                Divider()
+                                ForEach(appState.cloudStores) { store in
+                                    Text(store.name).tag(Optional(store.id))
+                                }
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 200)
+                        .onChange(of: syncCloudStoreID) {
+                            // Clear the path when the store changes
+                            syncCloudStorePath = ""
+                        }
+                    }
+
+                    // Folder row — only shown when a specific store is chosen
+                    if let store = selectedSyncStore {
+                        LabeledContent("Folder") {
+                            HStack(spacing: 8) {
+                                Group {
+                                    if syncCloudStorePath.isEmpty {
+                                        Text("Volume root")
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        Text(syncCloudStorePath)
+                                            .lineLimit(1)
+                                            .truncationMode(.head)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .font(.callout)
+
+                                if !syncCloudStorePath.isEmpty {
+                                    Button {
+                                        syncCloudStorePath = ""
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+
+                                Button {
+                                    showFolderPicker = true
+                                } label: {
+                                    Label("Browse…", systemImage: "folder")
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+
+                        let folder = syncCloudStorePath.isEmpty ? "/" : "/\(syncCloudStorePath)"
+                        Label("→ \(store.name)\(folder)",
+                              systemImage: "externaldrive.connected.to.line.below")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Label("Uses the global sync destination from Settings.",
+                              systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private var createFolderFields: some View {
+        Group {
+            Section("Folder Name") {
+                LabeledContent("Name") {
+                    HStack(spacing: 8) {
+                        TextField("e.g. Shoot_{date}", text: $createFolderNameTemplate)
+                            .textFieldStyle(.roundedBorder)
+                        Button {
+                            createFolderNameTemplate += FolderNameEngine.dateToken
+                        } label: {
+                            Label("Insert Date", systemImage: "calendar")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                Text("Preview: \(FolderNameEngine.resolve(createFolderNameTemplate))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Location") {
+                LabeledContent("Cloud Store") {
+                    Picker("", selection: $createFolderCloudStoreID) {
+                        Text("Global Default").tag(Optional<UUID>.none)
+                        if !appState.cloudStores.isEmpty {
+                            Divider()
+                            ForEach(appState.cloudStores) { store in
+                                Text(store.name).tag(Optional(store.id))
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 200)
+                    .onChange(of: createFolderCloudStoreID) {
+                        createFolderParentPath = ""
+                    }
+                }
+
+                if let store = selectedCreateFolderStore {
+                    LabeledContent("Parent Folder") {
+                        HStack(spacing: 8) {
+                            Group {
+                                if createFolderParentPath.isEmpty {
+                                    Text("Volume root")
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Text(createFolderParentPath)
+                                        .lineLimit(1)
+                                        .truncationMode(.head)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .font(.callout)
+
+                            if !createFolderParentPath.isEmpty {
+                                Button {
+                                    createFolderParentPath = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            Button {
+                                showCreateFolderPathPicker = true
+                            } label: {
+                                Label("Browse…", systemImage: "folder")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+
+                    let folder = createFolderParentPath.isEmpty ? "/" : "/\(createFolderParentPath)/"
+                    Label("→ \(store.name)\(folder)\(FolderNameEngine.resolve(createFolderNameTemplate))",
+                          systemImage: "folder.badge.plus")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label("Creates the folder inside the global sync destination from Settings.",
+                          systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
 
     private var controlDeckFields: some View {
         Group {
@@ -391,7 +629,25 @@ struct WorkflowStepConfigSheet: View {
                 waitUnit = .minutes
                 waitValue = max(minutes, 1)
             }
-        case .sync, .format:
+        case .createFolder(let cloudStoreID, let parentPath, let nameTemplate):
+            createFolderCloudStoreID = cloudStoreID
+            createFolderParentPath = parentPath
+            createFolderNameTemplate = nameTemplate
+        case .sync(let destination):
+            switch destination {
+            case .global:
+                syncUsesCreatedFolder = false
+                syncCloudStoreID = nil
+                syncCloudStorePath = ""
+            case .cloudStore(let id, let path):
+                syncUsesCreatedFolder = false
+                syncCloudStoreID = id
+                syncCloudStorePath = path
+            case .createdFolder(let stepID):
+                syncUsesCreatedFolder = true
+                syncCreatedFolderStepID = stepID
+            }
+        case .format:
             break
         case .convert(let p, let del, let jobs):
             preset = p; deleteOriginal = del; maxParallelJobs = jobs
@@ -417,7 +673,22 @@ struct WorkflowStepConfigSheet: View {
             )
         case .wait:
             step.action = .wait(minutes: waitUnit == .hours ? waitValue * 60 : waitValue)
-        case .sync:    step.action = .sync
+        case .createFolder:
+            step.action = .createFolder(
+                cloudStoreID: createFolderCloudStoreID,
+                parentPath: createFolderParentPath,
+                nameTemplate: createFolderNameTemplate.isEmpty ? "New Folder_\(FolderNameEngine.dateToken)" : createFolderNameTemplate
+            )
+        case .sync:
+            let destination: SyncDestination
+            if syncUsesCreatedFolder, !availableFolderSteps.isEmpty {
+                destination = .createdFolder(stepID: syncCreatedFolderStepID ?? availableFolderSteps[0].id)
+            } else if let storeID = syncCloudStoreID {
+                destination = .cloudStore(id: storeID, path: syncCloudStorePath)
+            } else {
+                destination = .global
+            }
+            step.action = .sync(destination: destination)
         case .convert: step.action = .convert(preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs)
         case .rename:  step.action = .rename(pattern: pattern.isEmpty ? "{name}" : pattern)
         case .format:  step.action = .format

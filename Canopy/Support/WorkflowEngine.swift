@@ -19,7 +19,13 @@ final class WorkflowEngine: ObservableObject {
     /// Per-deck state threaded through a workflow's steps.
     private struct StepContext {
         let deck: HyperDeck
-        let destDir: URL
+        /// `var` because a Create Folder step earlier in the run can
+        /// replace it with the folder it just created, for every deck at
+        /// once, before the Sync step that consumes it executes.
+        var destDir: URL
+        /// Which cloud store `destDir` lives on, if any — carried alongside
+        /// it so per-file tasks can remember it, for retries.
+        var cloudStoreID: UUID? = nil
         var files: [URL] = []
         let session: WorkflowRunSession
     }
@@ -61,18 +67,46 @@ final class WorkflowEngine: ObservableObject {
         // once and reuse the resolved path for every deck that needs it.
         // This is done up front so every deck has a ready context before
         // the step loop below starts fanning steps out across them.
+        //
+        // The one exception is a Sync step pointed at a Create Folder step:
+        // that folder's name can depend on the date it's created, so it's
+        // resolved when the run loop actually reaches that step, below —
+        // every context just gets a placeholder destDir until then.
         var mountedPaths: [UUID?: String] = [:]
         var contexts: [StepContext] = []
+        let syncDestination = workflow.syncDestination
+
+        var referencedFolderStepID: UUID? = nil
+        if case .createdFolder(let stepID) = syncDestination { referencedFolderStepID = stepID }
+
+        if let referencedFolderStepID,
+           !workflow.steps.contains(where: { $0.id == referencedFolderStepID && $0.kind == .createFolder }) {
+            session.log("❌ The Sync step's destination points at a Create Folder step that no longer exists in this workflow")
+            session.mountError = "Sync destination step missing"
+            session.errors += 1
+            finishRun(workflow: workflow, session: session)
+            return
+        }
 
         for deck in decks {
             guard workflow.needsDestinationMount else {
                 contexts.append(StepContext(deck: deck, destDir: URL(fileURLWithPath: "/dev/null"), session: session))
                 continue
             }
+            guard referencedFolderStepID == nil else {
+                contexts.append(StepContext(deck: deck, destDir: URL(fileURLWithPath: "/dev/null"), session: session))
+                continue
+            }
             do {
-                let destDir = try await resolveDestination(for: deck, session: session, cache: &mountedPaths)
+                let destDir = try await resolveDestination(
+                    for: deck, destination: syncDestination, session: session, cache: &mountedPaths
+                )
                 try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
-                contexts.append(StepContext(deck: deck, destDir: destDir, session: session))
+                contexts.append(StepContext(
+                    deck: deck, destDir: destDir,
+                    cloudStoreID: syncDestination.cloudStoreIDIfAny,
+                    session: session
+                ))
             } catch {
                 session.log("❌ \(deck.name): \(error.localizedDescription)")
                 session.mountError = error.localizedDescription
@@ -106,6 +140,31 @@ final class WorkflowEngine: ObservableObject {
                     break
                 }
                 session.log("▶️ Confirmed \"\(step.kind.title)\" — continuing")
+            }
+
+            // Create Folder runs once for the whole workflow (like the
+            // destination resolution above), not once per device — so it's
+            // handled here rather than fanned out through `execute`.
+            if case .createFolder(let cloudStoreID, let parentPath, let nameTemplate) = step.action {
+                do {
+                    let folderURL = try await resolveCreateFolder(
+                        cloudStoreID: cloudStoreID, parentPath: parentPath, nameTemplate: nameTemplate,
+                        session: session, cache: &mountedPaths
+                    )
+                    session.log("📁 Created folder: \(folderURL.path)")
+                    if step.id == referencedFolderStepID {
+                        contexts = contexts.map {
+                            var context = $0
+                            context.destDir = folderURL
+                            context.cloudStoreID = cloudStoreID
+                            return context
+                        }
+                    }
+                } catch {
+                    session.log("❌ Failed to create folder: \(error.localizedDescription)")
+                    session.errors += 1
+                }
+                continue
             }
 
             contexts = await withTaskGroup(of: StepContext.self) { group in
@@ -167,10 +226,19 @@ final class WorkflowEngine: ObservableObject {
 
     // MARK: - Retry failed tasks
     // Re-downloads and re-converts whichever files errored out on a previous
-    // run, using each deck's normal destination (its Cloud Store, or the
-    // shared global destination) and the app's current conversion settings.
-    // Gets its own session like any other run, so it's blocked only if one
-    // of those specific decks is already busy elsewhere.
+    // run, using each task's own remembered destination (its Cloud Store, or
+    // the shared global destination) and the app's current conversion
+    // settings. Gets its own session like any other run, so it's blocked
+    // only if one of those specific decks is already busy elsewhere.
+
+    /// Groups failed tasks that share both a device and a destination, since
+    /// two failed tasks for the same deck can come from different workflow
+    /// runs (and therefore different Sync-step destinations).
+    private struct RetryGroupKey: Hashable {
+        let deckName: String
+        let destDir: URL
+        let cloudStoreID: UUID?
+    }
 
     func retryFailed() async {
         let failed = appState.failedTasks
@@ -184,20 +252,26 @@ final class WorkflowEngine: ObservableObject {
         session.log("↩ Retrying \(failed.count) failed file(s)...")
 
         var mountedPaths: [UUID?: String] = [:]
-        let byDeck = Dictionary(grouping: failed, by: \.deckName)
+        let byDeck = Dictionary(grouping: failed) {
+            RetryGroupKey(deckName: $0.deckName, destDir: $0.destDir, cloudStoreID: $0.cloudStoreID)
+        }
 
-        for (deckName, tasks) in byDeck {
-            guard let deck = appState.hyperDecks.first(where: { $0.name == deckName }) else { continue }
+        for (key, tasks) in byDeck {
+            guard let deck = appState.hyperDecks.first(where: { $0.name == key.deckName }) else { continue }
 
-            let destDir: URL
+            // The exact folder is already known (key.destDir, including any
+            // dynamically-dated name it was given when first created) — all
+            // that's needed here is to make sure its volume is mounted.
             do {
-                destDir = try await resolveDestination(for: deck, session: session, cache: &mountedPaths)
+                _ = try await mountBase(cloudStoreID: key.cloudStoreID, session: session, cache: &mountedPaths)
             } catch {
                 session.log("❌ \(deck.name): \(error.localizedDescription)")
                 session.mountError = error.localizedDescription
                 session.errors += 1
                 continue
             }
+            let destDir = key.destDir
+            try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
 
             var toConvert: [URL] = []
 
@@ -240,7 +314,12 @@ final class WorkflowEngine: ObservableObject {
             await runControlDeck(context: &context, command: command, stopAfterMinutes: stopAfterMinutes)
         case .wait(let minutes):
             await runWait(minutes: minutes, session: context.session)
+        case .createFolder:
+            break // handled once per run, before the per-deck fan-out — see `start`
         case .sync:
+            // The destination for this step (from the workflow's Sync step
+            // config) is already resolved into context.destDir before the
+            // run loop begins.
             await runSync(context: &context)
         case .convert(let preset, let deleteOriginal, let maxParallelJobs):
             await runConvert(context: &context, preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs)
@@ -283,7 +362,11 @@ final class WorkflowEngine: ObservableObject {
                 continue
             }
 
-            let task = addTask(fileName: fileName, deckName: deck.name, in: session)
+            let task = addTask(
+                fileName: fileName, deckName: deck.name,
+                destDir: context.destDir, cloudStoreID: context.cloudStoreID,
+                in: session
+            )
             updateTask(id: task.id, phase: .downloading, syncProgress: 0)
             session.log("  ⬇ Downloading \(fileName)...")
 
@@ -680,49 +763,81 @@ final class WorkflowEngine: ObservableObject {
         )
     }
 
-    /// Resolves the destination folder for a single deck: its own assigned
-    /// Cloud Store + subfolder if one is set, otherwise the shared global
-    /// sync destination. Mounts are cached per store so decks sharing a
-    /// store (including "no store" → the global default) only mount once
-    /// per run.
-    private func resolveDestination(
-        for deck: HyperDeck, session: WorkflowRunSession, cache mountedPaths: inout [UUID?: String]
+    /// Mounts (if not already cached) the given Cloud Store, or the shared
+    /// global destination when `cloudStoreID` is nil (or doesn't match any
+    /// configured store), returning the local mount root. Mounts are cached
+    /// per store so anything sharing a destination within one run — decks,
+    /// a Create Folder step, a retry — only mounts it once.
+    private func mountBase(
+        cloudStoreID: UUID?, session: WorkflowRunSession, cache mountedPaths: inout [UUID?: String]
     ) async throws -> URL {
-        if let storeID = deck.cloudStoreID,
-           let store = appState.cloudStores.first(where: { $0.id == storeID }) {
-            let mountPath: String
-            if let cached = mountedPaths[storeID] {
-                mountPath = cached
-            } else {
-                session.log("Mounting \(store.name)...")
-                mountPath = try await SMBService.mount(store: store)
-                mountedPaths[storeID] = mountPath
-                session.log("✅ Mounted \(store.name) at \(mountPath)")
-            }
-            // Use the folder the user picked in Sync Destination exactly as
-            // selected — don't nest an extra deck-name subfolder inside it.
-            let base = URL(fileURLWithPath: mountPath)
-            return deck.cloudStorePath.isEmpty ? base : base.appendingPathComponent(deck.cloudStorePath)
+        if let storeID = cloudStoreID, let store = appState.cloudStores.first(where: { $0.id == storeID }) {
+            if let cached = mountedPaths[storeID] { return URL(fileURLWithPath: cached) }
+            session.log("Mounting \(store.name)...")
+            let mountPath = try await SMBService.mount(store: store)
+            mountedPaths[storeID] = mountPath
+            session.log("✅ Mounted \(store.name) at \(mountPath)")
+            return URL(fileURLWithPath: mountPath)
         }
 
-        // No store assigned — fall back to the shared global destination.
-        let mountPath: String
-        if let cached = mountedPaths[nil] {
-            mountPath = cached
-        } else {
-            session.log("Mounting \(appState.syncLocation.volumeName)...")
-            mountPath = try await mountSMBVolume(location: appState.syncLocation)
-            appState.syncLocation.resolvedMountPath = mountPath
-            mountedPaths[nil] = mountPath
-            session.log("✅ Mounted at \(mountPath)")
+        if let cached = mountedPaths[nil] { return URL(fileURLWithPath: cached) }
+        session.log("Mounting \(appState.syncLocation.volumeName)...")
+        let mountPath = try await mountSMBVolume(location: appState.syncLocation)
+        appState.syncLocation.resolvedMountPath = mountPath
+        mountedPaths[nil] = mountPath
+        session.log("✅ Mounted at \(mountPath)")
+        return URL(fileURLWithPath: mountPath)
+    }
+
+    /// Resolves a static Sync destination (global or a specific Cloud
+    /// Store) for a single deck. `.createdFolder` destinations are resolved
+    /// separately, when the Create Folder step they point at actually runs
+    /// — see `resolveCreateFolder` and the run loop in `start`.
+    private func resolveDestination(
+        for deck: HyperDeck, destination: SyncDestination,
+        session: WorkflowRunSession, cache mountedPaths: inout [UUID?: String]
+    ) async throws -> URL {
+        switch destination {
+        case .global:
+            _ = try await mountBase(cloudStoreID: nil, session: session, cache: &mountedPaths)
+            return URL(fileURLWithPath: appState.syncLocation.recordsPath)
+                .appendingPathComponent(deck.name)
+        case .cloudStore(let id, let path):
+            // Use the folder chosen in the Sync step exactly as selected —
+            // don't nest an extra deck-name subfolder inside it.
+            let base = try await mountBase(cloudStoreID: id, session: session, cache: &mountedPaths)
+            return path.isEmpty ? base : base.appendingPathComponent(path)
+        case .createdFolder:
+            struct DestinationNotReady: LocalizedError {
+                var errorDescription: String? { "Sync destination not resolved yet" }
+            }
+            throw DestinationNotReady()
         }
-        return URL(fileURLWithPath: appState.syncLocation.recordsPath)
-            .appendingPathComponent(deck.name)
+    }
+
+    /// Creates (and returns) the folder configured by a Create Folder step.
+    /// Its `{date}` token is resolved against "now" — i.e. when the step
+    /// actually runs rather than when the workflow was configured — so a
+    /// folder named with today's date reflects the day the run happened,
+    /// including for workflows scheduled to fire overnight.
+    private func resolveCreateFolder(
+        cloudStoreID: UUID?, parentPath: String, nameTemplate: String,
+        session: WorkflowRunSession, cache mountedPaths: inout [UUID?: String]
+    ) async throws -> URL {
+        let root = try await mountBase(cloudStoreID: cloudStoreID, session: session, cache: &mountedPaths)
+        let base = parentPath.isEmpty ? root : root.appendingPathComponent(parentPath)
+        let folderURL = base.appendingPathComponent(FolderNameEngine.resolve(nameTemplate))
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        return folderURL
     }
 
     @discardableResult
-    private func addTask(fileName: String, deckName: String, in session: WorkflowRunSession) -> SyncTask {
-        let t = SyncTask(fileName: fileName, deckName: deckName)
+    private func addTask(
+        fileName: String, deckName: String, destDir: URL,
+        cloudStoreID: UUID? = nil,
+        in session: WorkflowRunSession
+    ) -> SyncTask {
+        let t = SyncTask(fileName: fileName, deckName: deckName, destDir: destDir, cloudStoreID: cloudStoreID)
         session.tasks.append(t)
         return t
     }

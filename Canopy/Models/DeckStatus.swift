@@ -15,11 +15,6 @@ struct HyperDeck: Identifiable, Codable, Hashable {
     var password: String = ""
     var sortOrder: Int = 0
 
-    /// Which cloud store this deck syncs to. nil = use the global sync destination.
-    var cloudStoreID: UUID? = nil
-    /// Subfolder within the cloud store volume. Empty = volume root.
-    var cloudStorePath: String = ""
-
     /// Capacity of the deck's installed media, in gigabytes. The HyperDeck
     /// Ethernet protocol has no command that reports raw disk capacity (only
     /// an estimated recording-time-remaining figure), so this is entered by
@@ -117,6 +112,14 @@ struct SyncTask: Identifiable {
     var syncProgress: Double = 0
     var convertProgress: Double = 0
     var errorMessage: String? = nil
+    /// The exact folder this task synced to — carried on the task itself
+    /// (rather than re-resolved from the deck or workflow) so a retry lands
+    /// in the same place even if the originating Sync step's destination is
+    /// a dynamically-named Create Folder step, or has since been edited.
+    var destDir: URL
+    /// Which cloud store `destDir` lives on, if any — used only to make
+    /// sure that store is (re)mounted before a retry writes into destDir.
+    var cloudStoreID: UUID? = nil
 
     enum Phase: String {
         case queued, downloading, converting, done, error

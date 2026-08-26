@@ -30,8 +30,9 @@ func resolveConnectionStatus(_ conn: NWConnection) async -> DeckStatus {
 // MARK: - HyperDeck Content Pane
 // The right-hand content + controls for a selected HyperDeck: live status,
 // transport controls, sync progress, and its file browser. Device settings
-// (name, IP, credentials, sync destination) live in the gear-button sheet
-// on the device row instead of here.
+// (name, IP, credentials) live in the gear-button sheet on the device row
+// instead of here. Sync destination is configured per-workflow, on the
+// Sync step.
 
 struct DeckContentPane: View {
     let deck: HyperDeck

@@ -19,14 +19,15 @@ enum DeckCommand: String, Codable, CaseIterable, Identifiable {
 // MARK: - Step Kind
 // The catalog of step types users can drag into a workflow.
 enum StepKind: String, Codable, CaseIterable, Identifiable {
-    case controlDeck, wait, sync, convert, rename, format, cleanup, notify
+    case controlDeck, wait, createFolder, sync, convert, rename, format, cleanup, notify
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .controlDeck: return "Control HyperDeck"
+        case .controlDeck:  return "Control HyperDeck"
         case .wait:         return "Wait"
+        case .createFolder: return "Create Folder"
         case .sync:         return "Sync"
         case .convert:      return "Convert"
         case .rename:       return "Rename"
@@ -38,8 +39,9 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
 
     var subtitle: String {
         switch self {
-        case .controlDeck: return "Start or stop recording on the device"
+        case .controlDeck:  return "Start or stop recording on the device"
         case .wait:         return "Pause before moving to the next step"
+        case .createFolder: return "Create a new folder, optionally named with today's date"
         case .sync:         return "Download new files from the device"
         case .convert:      return "Transcode files to MP4"
         case .rename:       return "Rename files using a pattern"
@@ -51,8 +53,9 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .controlDeck: return "record.circle"
+        case .controlDeck:  return "record.circle"
         case .wait:         return "hourglass"
+        case .createFolder: return "folder.badge.plus"
         case .sync:         return "arrow.down.circle"
         case .convert:      return "film.stack"
         case .rename:       return "textformat"
@@ -64,8 +67,9 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
 
     var color: Color {
         switch self {
-        case .controlDeck: return .red
+        case .controlDeck:  return .red
         case .wait:         return .indigo
+        case .createFolder: return .mint
         case .sync:         return .blue
         case .convert:      return .orange
         case .rename:       return .purple
@@ -99,12 +103,47 @@ enum WaitDurationFormatter {
     }
 }
 
+// MARK: - Sync Destination
+// Where a workflow's Sync step (and any other step needing a shared
+// destination) writes its files. `.createdFolder` points at a Create Folder
+// step elsewhere in the same workflow rather than storing a static path,
+// since that step's folder name can depend on the date it actually runs.
+enum SyncDestination: Hashable, Codable {
+    case global
+    case cloudStore(id: UUID, path: String)
+    case createdFolder(stepID: UUID)
+
+    var cloudStoreIDIfAny: UUID? {
+        if case .cloudStore(let id, _) = self { return id }
+        return nil
+    }
+}
+
+// MARK: - Folder Name Engine
+// Resolves the optional {date} token in a Create Folder step's name — the
+// only dynamic piece a folder name needs, unlike the rename step's richer
+// per-file token set.
+enum FolderNameEngine {
+    static let dateToken = "{date}"
+
+    static func resolve(_ template: String, date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd"
+        let result = template.replacingOccurrences(of: dateToken, with: formatter.string(from: date))
+        return result.isEmpty ? "New Folder" : result
+    }
+}
+
 // MARK: - Step Action
 // Each case carries only the configuration that step needs.
 enum StepAction: Hashable {
     case controlDeck(command: DeckCommand, stopAfterMinutes: Int?)
     case wait(minutes: Int)
-    case sync
+    /// `parentPath` is the subfolder within the chosen store (or the global
+    /// destination) the new folder is created inside — empty = volume/base
+    /// root. `nameTemplate` may contain `FolderNameEngine.dateToken`.
+    case createFolder(cloudStoreID: UUID?, parentPath: String, nameTemplate: String)
+    case sync(destination: SyncDestination)
     case convert(preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool, maxParallelJobs: Int)
     case rename(pattern: String)
     case format
@@ -113,8 +152,9 @@ enum StepAction: Hashable {
 
     var kind: StepKind {
         switch self {
-        case .controlDeck: return .controlDeck
+        case .controlDeck:  return .controlDeck
         case .wait:         return .wait
+        case .createFolder: return .createFolder
         case .sync:         return .sync
         case .convert:      return .convert
         case .rename:       return .rename
@@ -126,9 +166,10 @@ enum StepAction: Hashable {
 
     static func defaultAction(for kind: StepKind) -> StepAction {
         switch kind {
-        case .controlDeck: return .controlDeck(command: .start, stopAfterMinutes: nil)
+        case .controlDeck:  return .controlDeck(command: .start, stopAfterMinutes: nil)
         case .wait:         return .wait(minutes: 60)
-        case .sync:         return .sync
+        case .createFolder: return .createFolder(cloudStoreID: nil, parentPath: "", nameTemplate: "New Folder_\(FolderNameEngine.dateToken)")
+        case .sync:         return .sync(destination: .global)
         case .convert:      return .convert(preset: .fast, deleteOriginal: true, maxParallelJobs: 2)
         case .rename:       return .rename(pattern: "{device}_{date}_{index}")
         case .format:       return .format
@@ -165,8 +206,20 @@ enum StepAction: Hashable {
             }
         case .wait(let minutes):
             return "Waits \(WaitDurationFormatter.string(forMinutes: minutes)) before continuing"
-        case .sync:
-            return "Downloads any new .mov files"
+        case .createFolder(let cloudStoreID, let parentPath, let nameTemplate):
+            let resolved = FolderNameEngine.resolve(nameTemplate)
+            let location = cloudStoreID == nil ? "the global destination" : "the selected cloud store"
+            let folder = parentPath.isEmpty ? resolved : "\(parentPath)/\(resolved)"
+            return "Creates \"\(folder)\" in \(location)"
+        case .sync(let destination):
+            switch destination {
+            case .global:
+                return "Downloads any new .mov files to the global destination"
+            case .cloudStore:
+                return "Downloads any new .mov files to the selected cloud store"
+            case .createdFolder:
+                return "Downloads any new .mov files into the folder created earlier in this workflow"
+            }
         case .convert(let preset, let deleteOriginal, let maxParallelJobs):
             return "\(preset.displayName) preset" + (deleteOriginal ? " · deletes original" : " · keeps original") + " · \(maxParallelJobs) parallel"
         case .rename(let pattern):
@@ -186,7 +239,7 @@ enum StepAction: Hashable {
 // MARK: - StepAction Codable Implementation
 extension StepAction: Codable {
     enum CodingKeys: String, CodingKey {
-        case controlDeck, record, stopRecord, wait, sync, convert, rename, format, cleanup, notify
+        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, format, cleanup, notify
     }
 
     enum ControlDeckKeys: String, CodingKey {
@@ -201,6 +254,17 @@ extension StepAction: Codable {
 
     enum WaitKeys: String, CodingKey {
         case minutes
+    }
+
+    enum CreateFolderKeys: String, CodingKey {
+        case cloudStoreID, parentPath, nameTemplate
+    }
+
+    enum SyncKeys: String, CodingKey {
+        case destination
+        // Legacy keys, kept only so workflows saved before the Sync step
+        // could point at a Create Folder step still decode correctly.
+        case cloudStoreID, cloudStorePath
     }
 
     enum ConvertKeys: String, CodingKey {
@@ -238,8 +302,27 @@ extension StepAction: Codable {
             let nested = try container.nestedContainer(keyedBy: WaitKeys.self, forKey: .wait)
             let minutes = try nested.decode(Int.self, forKey: .minutes)
             self = .wait(minutes: minutes)
+        } else if container.contains(.createFolder) {
+            let nested = try container.nestedContainer(keyedBy: CreateFolderKeys.self, forKey: .createFolder)
+            let cloudStoreID = try nested.decodeIfPresent(UUID.self, forKey: .cloudStoreID)
+            let parentPath = try nested.decodeIfPresent(String.self, forKey: .parentPath) ?? ""
+            let nameTemplate = try nested.decode(String.self, forKey: .nameTemplate)
+            self = .createFolder(cloudStoreID: cloudStoreID, parentPath: parentPath, nameTemplate: nameTemplate)
         } else if container.contains(.sync) {
-            self = .sync
+            let nested = try container.nestedContainer(keyedBy: SyncKeys.self, forKey: .sync)
+            if let destination = try nested.decodeIfPresent(SyncDestination.self, forKey: .destination) {
+                self = .sync(destination: destination)
+            } else {
+                // Workflows saved before the Sync step could point at a Create
+                // Folder step stored a plain cloudStoreID/cloudStorePath pair.
+                let cloudStoreID = try nested.decodeIfPresent(UUID.self, forKey: .cloudStoreID)
+                let cloudStorePath = try nested.decodeIfPresent(String.self, forKey: .cloudStorePath) ?? ""
+                if let cloudStoreID {
+                    self = .sync(destination: .cloudStore(id: cloudStoreID, path: cloudStorePath))
+                } else {
+                    self = .sync(destination: .global)
+                }
+            }
         } else if container.contains(.convert) {
             let nested = try container.nestedContainer(keyedBy: ConvertKeys.self, forKey: .convert)
             let preset = try nested.decode(ConversionSettings.FFmpegPreset.self, forKey: .preset)
@@ -279,8 +362,14 @@ extension StepAction: Codable {
         case .wait(let minutes):
             var nested = container.nestedContainer(keyedBy: WaitKeys.self, forKey: .wait)
             try nested.encode(minutes, forKey: .minutes)
-        case .sync:
-            _ = container.nestedContainer(keyedBy: DummyKeys.self, forKey: .sync)
+        case .createFolder(let cloudStoreID, let parentPath, let nameTemplate):
+            var nested = container.nestedContainer(keyedBy: CreateFolderKeys.self, forKey: .createFolder)
+            try nested.encode(cloudStoreID, forKey: .cloudStoreID)
+            try nested.encode(parentPath, forKey: .parentPath)
+            try nested.encode(nameTemplate, forKey: .nameTemplate)
+        case .sync(let destination):
+            var nested = container.nestedContainer(keyedBy: SyncKeys.self, forKey: .sync)
+            try nested.encode(destination, forKey: .destination)
         case .convert(let preset, let deleteOriginal, let maxParallelJobs):
             var nested = container.nestedContainer(keyedBy: ConvertKeys.self, forKey: .convert)
             try nested.encode(preset, forKey: .preset)
@@ -424,6 +513,19 @@ struct Workflow: Identifiable, Codable, Hashable {
     /// True if any step needs the shared sync destination mounted.
     var needsDestinationMount: Bool {
         steps.contains { ![.format, .controlDeck, .wait, .notify].contains($0.kind) }
+    }
+
+    /// The destination configured on this workflow's Sync step. Falls back
+    /// to the global default if there's no Sync step at all — e.g. a
+    /// workflow that only converts/renames files already downloaded by a
+    /// previous run.
+    var syncDestination: SyncDestination {
+        for step in steps {
+            if case .sync(let destination) = step.action {
+                return destination
+            }
+        }
+        return .global
     }
 
     /// True if this workflow will run on its own via at least one enabled trigger.

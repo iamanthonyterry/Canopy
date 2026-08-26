@@ -40,6 +40,14 @@ final class HyperDeckService: ObservableObject {
     private static let maxAttempts = 3
     private static let retryDelay: Duration = .seconds(1)
 
+    /// `format: confirm:` returning "200 ok" only means the deck accepted
+    /// the request — the physical erase runs in the background afterward
+    /// and can take well over a minute on a large SSD. These bound how long
+    /// `waitForFormatCompletion` polls `slot info` for the erase to finish
+    /// before the format is reported done.
+    private static let formatPollInterval: Duration = .seconds(2)
+    private static let formatPollTimeout: Duration = .seconds(120)
+
     init(host: String) {
         self.host = host
     }
@@ -123,10 +131,22 @@ final class HyperDeckService: ObservableObject {
     /// `prepare` and `confirm` on two separate connections silently drops
     /// the format: the token comes back looking valid, `confirm` doesn't
     /// error, and nothing actually gets erased.
+    ///
+    /// Retrying only happens for failures that occur *before* `confirm` is
+    /// known to have reached the deck (`canRetry` below) — once `confirm`
+    /// has been sent, a retry would mean issuing a fresh `format: prepare:`
+    /// while the deck could still be physically erasing the drive from the
+    /// first attempt, which can corrupt it badly enough that the HyperDeck
+    /// stops recognizing it.
     private func runFormatHandshake(filesystem: String) async {
         for attempt in 1...Self.maxAttempts {
             lastError = nil
-            if await attemptFormatHandshake(filesystem: filesystem) {
+            let outcome = await attemptFormatHandshake(filesystem: filesystem)
+            if outcome.success {
+                isConnected = true
+                return
+            }
+            if !outcome.canRetry {
                 isConnected = true
                 return
             }
@@ -137,19 +157,27 @@ final class HyperDeckService: ObservableObject {
         isConnected = false
     }
 
-    /// One full prepare→confirm attempt over a single connection. Returns
-    /// true on success; on failure, `lastError` is already set.
-    private func attemptFormatHandshake(filesystem: String) async -> Bool {
+    private struct FormatAttemptOutcome {
+        let success: Bool
+        /// Whether it's still safe to retry with a brand-new `prepare`. Once
+        /// `confirm` has been sent, this is always false — see the doc
+        /// comment on `runFormatHandshake`.
+        let canRetry: Bool
+    }
+
+    /// One full prepare→confirm→wait-for-erase attempt over a single
+    /// connection. On failure, `lastError` is already set.
+    private func attemptFormatHandshake(filesystem: String) async -> FormatAttemptOutcome {
         guard let portObj = NWEndpoint.Port(rawValue: port) else {
             lastError = "Invalid port"
-            return false
+            return FormatAttemptOutcome(success: false, canRetry: true)
         }
         let connection = NWConnection(host: NWEndpoint.Host(host), port: portObj, using: .tcp)
         defer { connection.cancel() }
 
         guard await waitUntilReady(connection) else {
             lastError = "Timed out — device didn't respond"
-            return false
+            return FormatAttemptOutcome(success: false, canRetry: true)
         }
 
         guard let readyResponse = await sendAndRead(
@@ -158,14 +186,14 @@ final class HyperDeckService: ObservableObject {
             multilineResponse: true
         ) else {
             lastError = "Timed out — device didn't respond"
-            return false
+            return FormatAttemptOutcome(success: false, canRetry: true)
         }
         guard let token = formatToken(from: readyResponse) else {
             let trimmed = readyResponse.trimmingCharacters(in: .whitespacesAndNewlines)
             lastError = trimmed.isEmpty
                 ? "Format failed — deck didn't return a confirmation token"
                 : "Format failed: \(trimmed)"
-            return false
+            return FormatAttemptOutcome(success: false, canRetry: true)
         }
 
         guard let confirmResponse = await sendAndRead(
@@ -173,17 +201,71 @@ final class HyperDeckService: ObservableObject {
             command: "format: confirm: \(token)\n",
             multilineResponse: false
         ) else {
+            // No response doesn't mean no effect: the deck may have received
+            // and acted on `confirm` right before the connection dropped.
+            // Poll for the outcome instead of retrying the handshake.
             lastError = "Timed out waiting for format confirmation"
-            return false
+            let completed = await waitForFormatCompletion()
+            if !completed {
+                lastError = "Couldn't confirm the format finished — check the deck before using this drive"
+            }
+            return FormatAttemptOutcome(success: completed, canRetry: false)
         }
         guard confirmResponse.hasPrefix("200") else {
+            // The deck explicitly rejected the request before touching the
+            // drive (e.g. an unsupported filesystem) — nothing to wait on.
             let trimmed = confirmResponse.trimmingCharacters(in: .whitespacesAndNewlines)
             lastError = trimmed.isEmpty
                 ? "Deck didn't confirm the format"
                 : "Format failed: \(trimmed)"
-            return false
+            return FormatAttemptOutcome(success: false, canRetry: true)
         }
-        return true
+
+        // The 200 only means the deck accepted the request — the physical
+        // erase runs in the background afterward. Wait for it to actually
+        // finish before reporting success, so callers (workflow steps,
+        // manual record/eject) don't touch the drive while it's still being
+        // erased.
+        guard await waitForFormatCompletion() else {
+            lastError = "Format was confirmed but didn't finish within \(Int(Self.formatPollTimeout.components.seconds))s — check the deck before using this drive"
+            return FormatAttemptOutcome(success: false, canRetry: false)
+        }
+        return FormatAttemptOutcome(success: true, canRetry: false)
+    }
+
+    /// Polls `slot info` after a confirmed format until the slot settles out
+    /// of "empty"/"error" and holds the same status across two consecutive
+    /// polls (a single sighting of e.g. "mounted" could just be a
+    /// mid-transition read), or until `formatPollTimeout` elapses.
+    private func waitForFormatCompletion() async -> Bool {
+        let deadline = ContinuousClock.now + Self.formatPollTimeout
+        var lastStableStatus: String?
+
+        while ContinuousClock.now < deadline {
+            try? await Task.sleep(for: Self.formatPollInterval)
+            let response = await performWithRetry(command: "slot info\n", readResponse: true) ?? ""
+            let status = slotStatus(from: response)
+
+            guard let status, status != "empty", status != "error" else {
+                lastStableStatus = nil
+                continue
+            }
+            if status == lastStableStatus {
+                return true
+            }
+            lastStableStatus = status
+        }
+        return false
+    }
+
+    /// Pulls the value out of `slot info`'s "status: <value>" line.
+    private func slotStatus(from response: String) -> String? {
+        for line in response.lowercased().components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("status:") else { continue }
+            return trimmed.split(separator: ":", maxSplits: 1).last?.trimmingCharacters(in: .whitespaces)
+        }
+        return nil
     }
 
     /// Switches the deck's active slot via `slot select: slot id: {n}`.

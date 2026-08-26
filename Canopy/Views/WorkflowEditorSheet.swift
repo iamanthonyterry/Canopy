@@ -39,7 +39,11 @@ struct WorkflowEditorSheet: View {
         .frame(width: 520, height: 620)
         .sheet(item: $editingStep) { step in
             if let index = steps.firstIndex(where: { $0.id == step.id }) {
-                WorkflowStepConfigSheet(step: $steps[index])
+                WorkflowStepConfigSheet(
+                    step: $steps[index],
+                    availableFolderSteps: steps.filter { $0.kind == .createFolder && $0.id != step.id }
+                )
+                .environmentObject(appState)
             }
         }
         .sheet(item: $editingTrigger) { trigger in
