@@ -224,6 +224,46 @@ struct FTPService {
         return summary
     }
 
+    // MARK: - Delete a file or (empty) directory
+
+    /// Removes a single remote entry. Directories are removed with FTP's `RMD`,
+    /// which only succeeds on an empty directory — FTP has no recursive delete,
+    /// so a non-empty folder correctly fails here rather than us faking
+    /// recursion file-by-file.
+    static func deleteEntry(atRelativePath path: String, isDirectory: Bool, on deck: HyperDeck) async -> Bool {
+        let command = isDirectory ? "RMD \(path)" : "DELE \(path)"
+        let exitCode = await runQuoteCommand([command], on: deck)
+        return exitCode == 0
+    }
+
+    // MARK: - Move / rename a remote file or directory
+
+    /// Renames/moves a remote entry via FTP's `RNFR`/`RNTO` pair. Both paths are
+    /// resolved relative to `deck.remotePath`.
+    static func moveEntry(fromRelativePath: String, toRelativePath: String, on deck: HyperDeck) async -> Bool {
+        let exitCode = await runQuoteCommand(["RNFR \(fromRelativePath)", "RNTO \(toRelativePath)"], on: deck)
+        return exitCode == 0
+    }
+
+    /// Connects to `deck.remotePath` and runs one or more raw FTP commands via
+    /// curl's `--quote`, discarding the response body — used for delete/rename,
+    /// neither of which transfers a file.
+    private static func runQuoteCommand(_ commands: [String], on deck: HyperDeck) async -> Int32 {
+        let encoded = deck.remotePath
+            .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? deck.remotePath
+        let url = "ftp://\(deck.ipAddress)/\(encoded)/"
+
+        var args = ["--user", "\(deck.username):\(deck.password)",
+                     "--connect-timeout", "5", "--max-time", "15", "-s"]
+        for command in commands {
+            args += ["-Q", command]
+        }
+        args += ["-o", "/dev/null", url]
+
+        let (_, exitCode) = await runProcessWithExitCode(executable: "/usr/bin/curl", args: args)
+        return exitCode
+    }
+
     // MARK: - Generic process runner (non-blocking)
     private static func runProcess(executable: String, args: [String]) async -> String {
         await runProcessWithExitCode(executable: executable, args: args).output

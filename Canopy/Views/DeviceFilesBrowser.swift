@@ -93,6 +93,8 @@ struct PlaybackTarget: Identifiable {
 struct DeviceFilesBrowser: View {
     let device: DeviceSource
 
+    @EnvironmentObject private var appState: AppState
+
     @State private var rootNodes: [FileNode] = []
     @State private var isLoadingFiles = false
     @State private var loadError: String?
@@ -107,6 +109,12 @@ struct DeviceFilesBrowser: View {
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
     @State private var showExportQueue = false
+
+    @State private var deletePending: [FileNode]?
+    @State private var showMoveSheet = false
+    @State private var moveNodes: [FileNode] = []
+    @State private var isProcessingOperation = false
+    @State private var operationError: String?
 
     enum SortOrder: String, CaseIterable {
         case name = "Name", size = "Size", modified = "Modified"
@@ -133,6 +141,31 @@ struct DeviceFilesBrowser: View {
         .sheet(isPresented: $showExportQueue) {
             ExportQueueView()
         }
+        .sheet(isPresented: $showMoveSheet) {
+            DeviceFolderPickerSheet(device: device) { destination in
+                moveSelection(moveNodes, to: destination)
+            }
+        }
+        .alert(
+            deletePending.map { "Delete \($0.count) item\($0.count == 1 ? "" : "s")?" } ?? "",
+            isPresented: Binding(get: { deletePending != nil }, set: { if !$0 { deletePending = nil } })
+        ) {
+            Button("Cancel", role: .cancel) { deletePending = nil }
+            Button("Delete", role: .destructive) {
+                if let nodes = deletePending { deleteSelection(nodes) }
+                deletePending = nil
+            }
+        } message: {
+            Text("This can't be undone.")
+        }
+        .alert(
+            "Couldn't complete operation",
+            isPresented: Binding(get: { operationError != nil }, set: { if !$0 { operationError = nil } })
+        ) {
+            Button("OK") { operationError = nil }
+        } message: {
+            Text(operationError ?? "")
+        }
     }
 
     // MARK: - Toolbar
@@ -146,8 +179,25 @@ struct DeviceFilesBrowser: View {
             Spacer()
             if device.supportsFileBrowsing {
                 if isSelecting {
-                    Text(selectedIDs.isEmpty ? "Select clips…" : "\(selectedIDs.count) selected")
+                    Text(selectedIDs.isEmpty ? "Select files…" : "\(selectedIDs.count) selected")
                         .font(.caption).foregroundStyle(.secondary)
+                    if isProcessingOperation {
+                        ProgressView().controlSize(.small)
+                    }
+                    if appState.isAdmin {
+                        Button("Move…") {
+                            moveNodes = selectedNodes()
+                            showMoveSheet = true
+                        }
+                        .controlSize(.small)
+                        .disabled(selectedIDs.isEmpty || isProcessingOperation)
+                        Button("Delete", role: .destructive) {
+                            deletePending = selectedNodes()
+                        }
+                        .controlSize(.small)
+                        .tint(.red)
+                        .disabled(selectedIDs.isEmpty || isProcessingOperation)
+                    }
                     Button("Add to Queue") { addSelectionToQueue() }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
@@ -240,7 +290,13 @@ struct DeviceFilesBrowser: View {
                                 playbackTarget = PlaybackTarget(node: selected, device: device)
                             },
                             isSelecting: isSelecting,
-                            selectedIDs: $selectedIDs
+                            selectedIDs: $selectedIDs,
+                            canManage: appState.isAdmin,
+                            onDeleteRequest: { deletePending = [$0] },
+                            onMoveRequest: { target in
+                                moveNodes = [target]
+                                showMoveSheet = true
+                            }
                         )
                     }
                 }
@@ -302,11 +358,15 @@ struct DeviceFilesBrowser: View {
     // MARK: - Export Queue
 
     private func addSelectionToQueue() {
-        let nodes = flatten(rootNodes).filter { selectedIDs.contains($0.id) }
+        let nodes = selectedNodes().filter(\.isVideo)
         exportQueue.addMultiple(nodes, device: device)
         isSelecting = false
         selectedIDs.removeAll()
         showExportQueue = true
+    }
+
+    private func selectedNodes() -> [FileNode] {
+        flatten(rootNodes).filter { selectedIDs.contains($0.id) }
     }
 
     private func flatten(_ nodes: [FileNode]) -> [FileNode] {
@@ -316,6 +376,92 @@ struct DeviceFilesBrowser: View {
             if let children = node.children { result += flatten(children) }
         }
         return result
+    }
+
+    // MARK: - Delete
+
+    private func deleteSelection(_ nodes: [FileNode]) {
+        isProcessingOperation = true
+        Task {
+            var failures: [String] = []
+            for node in nodes {
+                let success: Bool
+                switch device {
+                case .hyperDeck(let deck):
+                    guard let path = node.ftpPath else { success = false; break }
+                    success = await FTPService.deleteEntry(atRelativePath: path, isDirectory: node.isDirectory, on: deck)
+                case .cloudStore, .localFolder:
+                    guard let url = node.url else { success = false; break }
+                    success = (try? FileManager.default.removeItem(at: url)) != nil
+                }
+                if !success { failures.append(node.name) }
+            }
+            await MainActor.run {
+                isProcessingOperation = false
+                isSelecting = false
+                selectedIDs.removeAll()
+                if !failures.isEmpty {
+                    operationError = "Couldn't delete: \(failures.joined(separator: ", "))"
+                }
+                loadFiles()
+                refreshStorageInfo()
+            }
+        }
+    }
+
+    // MARK: - Move
+
+    private func moveSelection(_ nodes: [FileNode], to destination: MoveDestination) {
+        isProcessingOperation = true
+        Task {
+            var failures: [String] = []
+            var conflicts: [String] = []
+            for node in nodes {
+                switch (device, destination) {
+                case (.hyperDeck(let deck), .ftpPath(let destPath)):
+                    guard let fromPath = node.ftpPath else { failures.append(node.name); continue }
+                    let toPath = destPath.isEmpty ? node.name : "\(destPath)/\(node.name)"
+                    let existing = await FTPService.listAllFiles(on: deck, path: deck.remotePath.isEmpty ? destPath : "\(deck.remotePath)/\(destPath)")
+                    if existing.contains(where: { $0.name == node.name }) {
+                        conflicts.append(node.name)
+                        continue
+                    }
+                    let success = await FTPService.moveEntry(fromRelativePath: fromPath, toRelativePath: toPath, on: deck)
+                    if !success { failures.append(node.name) }
+                case (.cloudStore, .localURL(let destURL)), (.localFolder, .localURL(let destURL)):
+                    guard let fromURL = node.url else { failures.append(node.name); continue }
+                    let toURL = destURL.appendingPathComponent(node.name)
+                    if FileManager.default.fileExists(atPath: toURL.path) {
+                        conflicts.append(node.name)
+                        continue
+                    }
+                    do {
+                        try FileManager.default.moveItem(at: fromURL, to: toURL)
+                    } catch {
+                        failures.append(node.name)
+                    }
+                default:
+                    failures.append(node.name)
+                }
+            }
+            await MainActor.run {
+                isProcessingOperation = false
+                isSelecting = false
+                selectedIDs.removeAll()
+                moveNodes = []
+                var messages: [String] = []
+                if !conflicts.isEmpty {
+                    messages.append("Already exists at destination, skipped: \(conflicts.joined(separator: ", "))")
+                }
+                if !failures.isEmpty {
+                    messages.append("Couldn't move: \(failures.joined(separator: ", "))")
+                }
+                if !messages.isEmpty {
+                    operationError = messages.joined(separator: "\n")
+                }
+                loadFiles()
+            }
+        }
     }
 
     // MARK: - Load Files
@@ -346,7 +492,7 @@ struct DeviceFilesBrowser: View {
     private func fetchNodes(for device: DeviceSource) async throws -> [FileNode] {
         switch device {
         case .hyperDeck(let deck):
-            return try await fetchFTPNodes(deck: deck, path: deck.remotePath)
+            return try await fetchFTPNodes(deck: deck, relativePath: "")
         case .cloudStore(let store):
             let mountPath = try await SMBService.mountAndResolve(
                 ip: store.ipAddress,
@@ -362,14 +508,20 @@ struct DeviceFilesBrowser: View {
 
     // MARK: - FTP (HyperDeck)
 
-    private func fetchFTPNodes(deck: HyperDeck, path: String) async throws -> [FileNode] {
-        let listing = await FTPService.listAllFiles(on: deck, path: path)
+    /// `relativePath` is the path from `deck.remotePath` down to the directory
+    /// being listed ("" at the root). Each returned node's `ftpPath` is the full
+    /// relative path from `deck.remotePath` (not just the bare entry name), so
+    /// delete/move can target the right file regardless of how deep it is nested.
+    private func fetchFTPNodes(deck: HyperDeck, relativePath: String) async throws -> [FileNode] {
+        let listPath = relativePath.isEmpty ? deck.remotePath : "\(deck.remotePath)/\(relativePath)"
+        let listing = await FTPService.listAllFiles(on: deck, path: listPath)
         return listing.map { entry in
-            FileNode(
-                id: "\(deck.id)-\(entry.name)",
+            let entryPath = relativePath.isEmpty ? entry.name : "\(relativePath)/\(entry.name)"
+            return FileNode(
+                id: "\(deck.id)-\(entryPath)",
                 name: entry.name,
                 url: nil,
-                ftpPath: entry.name,
+                ftpPath: entryPath,
                 isDirectory: entry.isDirectory,
                 size: entry.size,
                 modified: entry.modified,
@@ -461,7 +613,7 @@ struct DeviceFilesBrowser: View {
         switch device {
         case .hyperDeck(let deck):
             guard let path = node.ftpPath else { return [] }
-            return (try? await fetchFTPNodes(deck: deck, path: path)) ?? []
+            return (try? await fetchFTPNodes(deck: deck, relativePath: path)) ?? []
         case .cloudStore, .localFolder:
             guard let url = node.url else { return [] }
             return (try? fetchLocalNodes(at: url)) ?? []
@@ -511,6 +663,9 @@ struct FileNodeView: View {
     let onPlay: (FileNode) -> Void
     var isSelecting: Bool = false
     var selectedIDs: Binding<Set<String>> = .constant([])
+    var canManage: Bool = false
+    var onDeleteRequest: (FileNode) -> Void = { _ in }
+    var onMoveRequest: (FileNode) -> Void = { _ in }
 
     private var isSelected: Bool { selectedFile?.id == node.id }
     private var isCheckedForQueue: Bool { selectedIDs.wrappedValue.contains(node.id) }
@@ -521,7 +676,7 @@ struct FileNodeView: View {
                 if depth > 0 {
                     Rectangle().fill(Color.clear).frame(width: CGFloat(depth) * 16)
                 }
-                if isSelecting && node.isVideo {
+                if isSelecting {
                     Image(systemName: isCheckedForQueue ? "checkmark.square.fill" : "square")
                         .foregroundStyle(isCheckedForQueue ? Color.accentColor : Color.secondary)
                         .frame(width: 16)
@@ -559,15 +714,20 @@ struct FileNodeView: View {
             .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
             .contentShape(Rectangle())
             .onTapGesture {
-                if node.isDirectory {
-                    onToggle(node.id)
-                } else if isSelecting {
-                    guard node.isVideo else { return }
+                if isSelecting {
                     if isCheckedForQueue { selectedIDs.wrappedValue.remove(node.id) }
                     else { selectedIDs.wrappedValue.insert(node.id) }
+                } else if node.isDirectory {
+                    onToggle(node.id)
                 } else {
                     selectedFile = node
                     if node.isVideo { onPlay(node) }
+                }
+            }
+            .contextMenu {
+                if !isSelecting && canManage {
+                    Button("Move…") { onMoveRequest(node) }
+                    Button("Delete", role: .destructive) { onDeleteRequest(node) }
                 }
             }
             Divider().padding(.leading, CGFloat(depth) * 16 + 38)
@@ -577,7 +737,8 @@ struct FileNodeView: View {
                 FileNodeView(
                     node: child, depth: depth + 1, selectedFile: $selectedFile,
                     onToggle: onToggle, onPlay: onPlay,
-                    isSelecting: isSelecting, selectedIDs: selectedIDs
+                    isSelecting: isSelecting, selectedIDs: selectedIDs,
+                    canManage: canManage, onDeleteRequest: onDeleteRequest, onMoveRequest: onMoveRequest
                 )
             }
         }
