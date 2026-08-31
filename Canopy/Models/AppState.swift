@@ -244,6 +244,33 @@ class AppState: ObservableObject {
         activeRuns.removeAll { $0.isFinished && $0.mountError == nil && $0.failedTasks.isEmpty }
     }
 
+    // MARK: - Backup Import
+    /// Upserts everything in an imported backup by `id` — a record that
+    /// matches an existing one (e.g. re-importing the same file, or a file
+    /// exported from this same app) replaces it in place; anything new is
+    /// appended. Returns how many devices and workflows were touched, for
+    /// the confirmation shown to the user.
+    @discardableResult
+    func importBackup(_ result: BackupCSVService.ImportResult) -> (devices: Int, workflows: Int) {
+        func upsert<T: Identifiable>(_ items: [T], into list: inout [T]) {
+            for item in items {
+                if let i = list.firstIndex(where: { $0.id == item.id }) {
+                    list[i] = item
+                } else {
+                    list.append(item)
+                }
+            }
+        }
+
+        upsert(result.hyperDecks, into: &hyperDecks)
+        upsert(result.cloudStores, into: &cloudStores)
+        upsert(result.localFolders, into: &localFolders)
+        upsert(result.workflows, into: &workflows)
+
+        let deviceCount = result.hyperDecks.count + result.cloudStores.count + result.localFolders.count
+        return (deviceCount, result.workflows.count)
+    }
+
     // MARK: - Persistence
     private func save<T: Encodable>(_ value: T, key: String) {
         if let data = try? JSONEncoder().encode(value) {

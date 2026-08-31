@@ -14,6 +14,7 @@ struct SettingsView: View {
                 emailSection
                 AlertSettingsView()
                 RemoteControlSettingsView()
+                DataBackupView()
                 //systemSection
                 Spacer(minLength: 24)
             }

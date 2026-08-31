@@ -3,7 +3,7 @@ import Security
 
 /// Minimal Keychain wrapper for storing the Gmail OAuth refresh token.
 enum KeychainStore {
-    private static let service = "com.networksync.gmail"
+    private static let service = "com.rosesashumans.Canopy.gmail"
 
     static func set(_ value: String, key: String) {
         let data = Data(value.utf8)
