@@ -9,6 +9,10 @@ struct WorkflowStepConfigSheet: View {
     /// Other Create Folder steps in this workflow, so the Sync step can
     /// offer "use the folder that step creates" as a destination option.
     var availableFolderSteps: [WorkflowStep] = []
+    /// The workflow this step belongs to, if it's being edited (nil for a
+    /// brand-new workflow) — excluded from the Trigger Workflow picker so a
+    /// workflow can't be pointed directly at itself.
+    var excludingWorkflowID: UUID? = nil
 
     // Local editable copies so Cancel doesn't mutate the caller's step.
     @State private var syncUsesCreatedFolder = false
@@ -23,6 +27,7 @@ struct WorkflowStepConfigSheet: View {
     @State private var preset: ConversionSettings.FFmpegPreset = .fast
     @State private var deleteOriginal = true
     @State private var maxParallelJobs = 2
+    @State private var convertInPlace = false
     @State private var pattern = ""
     @State private var retentionDays = 30
     @State private var controlCommand: DeckCommand = .start
@@ -36,6 +41,8 @@ struct WorkflowStepConfigSheet: View {
     @State private var notifySendPerDrive = true
     @State private var showingAddRecipient = false
     @State private var requiresConfirmation = false
+    @State private var triggerWorkflowID: UUID? = nil
+    @State private var triggerWaitForCompletion = false
 
     // Tracks which notify field a variable pill should insert into — the
     // one that most recently had the cursor, since tapping a pill steals
@@ -93,6 +100,9 @@ struct WorkflowStepConfigSheet: View {
 
                 case .notify:
                     notifyFields
+
+                case .triggerWorkflow:
+                    triggerWorkflowFields
                 }
 
                 Section {
@@ -397,6 +407,16 @@ struct WorkflowStepConfigSheet: View {
                     }
                 }.labelsHidden().frame(width: 200)
             }
+            LabeledContent("Output Location") {
+                Picker("", selection: $convertInPlace) {
+                    Text("New \"Converted\" folder").tag(false)
+                    Text("Convert in place").tag(true)
+                }.labelsHidden().frame(width: 200)
+            }
+            Text(convertInPlace
+                 ? "Converted files are saved alongside the originals in the same folder."
+                 : "Converted files are saved into a \"Converted\" subfolder.")
+                .font(.caption).foregroundStyle(.secondary)
             Toggle("Delete original after converting", isOn: $deleteOriginal)
             LabeledContent("Max Parallel Jobs") {
                 Stepper("\(maxParallelJobs)", value: $maxParallelJobs, in: 1...8)
@@ -466,6 +486,38 @@ struct WorkflowStepConfigSheet: View {
             }
             Text("Deletes files older than this from the workflow's destination folder — not from the device itself.")
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var availableWorkflows: [Workflow] {
+        appState.workflows
+            .filter { $0.id != excludingWorkflowID }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private var triggerWorkflowFields: some View {
+        Group {
+            if availableWorkflows.isEmpty {
+                Text("No other workflows to trigger yet — create another workflow first.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                LabeledContent("Workflow") {
+                    Picker("", selection: $triggerWorkflowID) {
+                        Text("Select a workflow").tag(Optional<UUID>.none)
+                        ForEach(availableWorkflows) { workflow in
+                            Text(workflow.name).tag(Optional(workflow.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 220)
+                }
+
+                Toggle("Wait for it to finish before continuing", isOn: $triggerWaitForCompletion)
+                Text(triggerWaitForCompletion
+                     ? "This workflow pauses here until the triggered one finishes."
+                     : "This workflow starts the other one and immediately continues to its next step.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -649,8 +701,8 @@ struct WorkflowStepConfigSheet: View {
             }
         case .format:
             break
-        case .convert(let p, let del, let jobs):
-            preset = p; deleteOriginal = del; maxParallelJobs = jobs
+        case .convert(let p, let del, let jobs, let inPlace):
+            preset = p; deleteOriginal = del; maxParallelJobs = jobs; convertInPlace = inPlace
         case .rename(let pat):
             pattern = pat
         case .cleanup(let days):
@@ -660,6 +712,9 @@ struct WorkflowStepConfigSheet: View {
             notifyMessage = message
             notifyRecipients = recipients
             notifySendPerDrive = sendPerDrive
+        case .triggerWorkflow(let workflowID, let waitForCompletion):
+            triggerWorkflowID = workflowID
+            triggerWaitForCompletion = waitForCompletion
         }
     }
 
@@ -689,7 +744,7 @@ struct WorkflowStepConfigSheet: View {
                 destination = .global
             }
             step.action = .sync(destination: destination)
-        case .convert: step.action = .convert(preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs)
+        case .convert: step.action = .convert(preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs, convertInPlace: convertInPlace)
         case .rename:  step.action = .rename(pattern: pattern.isEmpty ? "{name}" : pattern)
         case .format:  step.action = .format
         case .cleanup: step.action = .cleanup(retentionDays: retentionDays)
@@ -700,6 +755,8 @@ struct WorkflowStepConfigSheet: View {
                 recipients: notifyRecipients,
                 sendPerDrive: notifySendPerDrive
             )
+        case .triggerWorkflow:
+            step.action = .triggerWorkflow(workflowID: triggerWorkflowID, waitForCompletion: triggerWaitForCompletion)
         }
         dismiss()
     }

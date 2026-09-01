@@ -56,7 +56,7 @@ final class WorkflowEngine: ObservableObject {
     // MARK: - Run (all target devices)
 
     func run(_ workflow: Workflow) async {
-        await start(workflow, targets: targetDevices(for: workflow))
+        await start(workflow, targets: targetDevices(for: workflow), triggerChain: [workflow.id])
     }
 
     // MARK: - Run (single device)
@@ -65,12 +65,16 @@ final class WorkflowEngine: ObservableObject {
     // Workflow" action on the Dashboard.
 
     func runDevice(_ workflow: Workflow, target: WorkflowTargetDevice) async {
-        await start(workflow, targets: [target])
+        await start(workflow, targets: [target], triggerChain: [workflow.id])
     }
 
     // MARK: - Shared run loop
 
-    private func start(_ workflow: Workflow, targets: [WorkflowTargetDevice]) async {
+    /// `triggerChain` accumulates the IDs of every workflow already running
+    /// upstream in this call stack (the workflow itself, plus any that
+    /// triggered it via a Trigger Workflow step) — checked before honoring
+    /// another Trigger Workflow step so A → B → A can't recurse forever.
+    private func start(_ workflow: Workflow, targets: [WorkflowTargetDevice], triggerChain: Set<UUID> = []) async {
         // The Run buttons are already disabled when this would conflict, so
         // this mainly guards races — e.g. the scheduler firing at the same
         // instant someone taps Run manually.
@@ -158,6 +162,14 @@ final class WorkflowEngine: ObservableObject {
         // at once — this is what keeps multi-deck control synchronized,
         // e.g. every HyperDeck starts (or stops) recording together instead
         // of one finishing its entire step list before the next begins.
+        // Looked up once so the Sync step's "already processed" check knows
+        // where a prior run's converted output would have landed, even
+        // though Convert runs as a later step against a different context.
+        let convertInPlace: Bool = workflow.steps.lazy.compactMap {
+            if case .convert(_, _, _, let inPlace) = $0.action { return inPlace }
+            return nil
+        }.first ?? false
+
         for step in workflow.steps {
             guard !session.isCancelled else { break }
             if case .notify(_, _, _, let sendPerDrive) = step.action, !sendPerDrive {
@@ -206,11 +218,21 @@ final class WorkflowEngine: ObservableObject {
                 continue
             }
 
+            // Trigger Workflow runs once for the whole workflow, like Create
+            // Folder above — it isn't tied to any one device's files.
+            if case .triggerWorkflow(let workflowID, let waitForCompletion) = step.action {
+                await runTriggerWorkflow(
+                    workflowID: workflowID, waitForCompletion: waitForCompletion,
+                    session: session, triggerChain: triggerChain
+                )
+                continue
+            }
+
             contexts = await withTaskGroup(of: StepContext.self) { group in
                 for context in contexts {
                     group.addTask {
                         var context = context
-                        await self.execute(step, context: &context)
+                        await self.execute(step, context: &context, convertInPlace: convertInPlace)
                         return context
                     }
                 }
@@ -339,7 +361,7 @@ final class WorkflowEngine: ObservableObject {
 
                 if !toConvert.isEmpty {
                     var context = StepContext(device: device, destDir: destDir, files: toConvert, session: session)
-                    await runConvert(context: &context, preset: .fast, deleteOriginal: true, maxParallelJobs: 2)
+                    await runConvert(context: &context, preset: .fast, deleteOriginal: true, maxParallelJobs: 2, convertInPlace: false)
                 }
 
             case .localFolder:
@@ -363,7 +385,7 @@ final class WorkflowEngine: ObservableObject {
 
                 if !toConvert.isEmpty {
                     var context = StepContext(device: device, destDir: destDir, files: toConvert, session: session)
-                    await runConvert(context: &context, preset: .fast, deleteOriginal: true, maxParallelJobs: 2)
+                    await runConvert(context: &context, preset: .fast, deleteOriginal: true, maxParallelJobs: 2, convertInPlace: false)
                 }
             }
         }
@@ -375,7 +397,7 @@ final class WorkflowEngine: ObservableObject {
 
     // MARK: - Step dispatch
 
-    private func execute(_ step: WorkflowStep, context: inout StepContext) async {
+    private func execute(_ step: WorkflowStep, context: inout StepContext, convertInPlace: Bool) async {
         switch step.action {
         case .controlDeck(let command, let stopAfterMinutes):
             await runControlDeck(context: &context, command: command, stopAfterMinutes: stopAfterMinutes)
@@ -383,13 +405,18 @@ final class WorkflowEngine: ObservableObject {
             await runWait(minutes: minutes, session: context.session)
         case .createFolder:
             break // handled once per run, before the per-deck fan-out — see `start`
+        case .triggerWorkflow:
+            break // handled once per run, before the per-deck fan-out — see `start`
         case .sync:
             // The destination for this step (from the workflow's Sync step
             // config) is already resolved into context.destDir before the
-            // run loop begins.
-            await runSync(context: &context)
-        case .convert(let preset, let deleteOriginal, let maxParallelJobs):
-            await runConvert(context: &context, preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs)
+            // run loop begins. `convertInPlace` here is the *workflow's*
+            // Convert step setting (looked up ahead of time in `start`), so
+            // the "already processed" check below knows where a prior run's
+            // output would have landed even though Convert hasn't run yet.
+            await runSync(context: &context, convertInPlace: convertInPlace)
+        case .convert(let preset, let deleteOriginal, let maxParallelJobs, let convertInPlace):
+            await runConvert(context: &context, preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs, convertInPlace: convertInPlace)
         case .rename(let pattern):
             runRename(context: &context, pattern: pattern)
         case .format:
@@ -403,16 +430,16 @@ final class WorkflowEngine: ObservableObject {
 
     // MARK: - Sync step
 
-    private func runSync(context: inout StepContext) async {
+    private func runSync(context: inout StepContext, convertInPlace: Bool) async {
         switch context.device {
         case .hyperDeck(let deck):
-            await runSyncFromDeck(context: &context, deck: deck)
+            await runSyncFromDeck(context: &context, deck: deck, convertInPlace: convertInPlace)
         case .localFolder(let folder):
-            await runSyncFromLocalFolder(context: &context, folder: folder)
+            await runSyncFromLocalFolder(context: &context, folder: folder, convertInPlace: convertInPlace)
         }
     }
 
-    private func runSyncFromDeck(context: inout StepContext, deck: HyperDeck) async {
+    private func runSyncFromDeck(context: inout StepContext, deck: HyperDeck, convertInPlace: Bool) async {
         let session = context.session
         session.log("  📡 Scanning \(deck.name) (\(deck.ipAddress))...")
 
@@ -427,8 +454,8 @@ final class WorkflowEngine: ObservableObject {
             guard !session.isCancelled else { return }
 
             let destURL = context.destDir.appendingPathComponent(fileName)
-            let convertedURL = context.destDir
-                .appendingPathComponent("Converted")
+            let convertedDir = convertInPlace ? context.destDir : context.destDir.appendingPathComponent("Converted")
+            let convertedURL = convertedDir
                 .appendingPathComponent((fileName as NSString).deletingPathExtension + ".mp4")
 
             if FileManager.default.fileExists(atPath: convertedURL.path) {
@@ -470,10 +497,10 @@ final class WorkflowEngine: ObservableObject {
     /// A Local Folder target has no network device to pull from — the
     /// folder is both source and working directory. "Sync" for a folder
     /// just means finding files already sitting there that haven't been
-    /// processed yet, using the same "already has a Converted/*.mp4"
+    /// processed yet, using the same "already has a converted output"
     /// check as the HyperDeck path, so re-running a folder workflow is
     /// just as idempotent as re-running a deck one.
-    private func runSyncFromLocalFolder(context: inout StepContext, folder: LocalFolder) async {
+    private func runSyncFromLocalFolder(context: inout StepContext, folder: LocalFolder, convertInPlace: Bool) async {
         let session = context.session
         session.log("  📂 Scanning \(folder.name) (\(folder.path))...")
 
@@ -498,8 +525,8 @@ final class WorkflowEngine: ObservableObject {
             guard !session.isCancelled else { return }
 
             let fileName = fileURL.lastPathComponent
-            let convertedURL = context.destDir
-                .appendingPathComponent("Converted")
+            let convertedDir = convertInPlace ? context.destDir : context.destDir.appendingPathComponent("Converted")
+            let convertedURL = convertedDir
                 .appendingPathComponent((fileName as NSString).deletingPathExtension + ".mp4")
 
             if fm.fileExists(atPath: convertedURL.path) {
@@ -522,7 +549,7 @@ final class WorkflowEngine: ObservableObject {
 
     // MARK: - Convert step
 
-    private func runConvert(context: inout StepContext, preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool, maxParallelJobs: Int) async {
+    private func runConvert(context: inout StepContext, preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool, maxParallelJobs: Int, convertInPlace: Bool) async {
         let session = context.session
         guard !context.files.isEmpty else {
             session.log("  ⏭ Convert: no files to convert")
@@ -531,7 +558,7 @@ final class WorkflowEngine: ObservableObject {
 
         let settings = ConversionSettings(preset: preset)
 
-        let convertedDir = context.destDir.appendingPathComponent("Converted")
+        let convertedDir = convertInPlace ? context.destDir : context.destDir.appendingPathComponent("Converted")
         try? FileManager.default.createDirectory(at: convertedDir, withIntermediateDirectories: true)
 
         let maxJobs = maxParallelJobs
@@ -769,6 +796,44 @@ final class WorkflowEngine: ObservableObject {
         }.value
 
         session.log("  🗑 Cleanup removed \(deletedCount) old file(s)")
+    }
+
+    // MARK: - Trigger Workflow step
+
+    /// Starts another workflow from within this one. Runs it through the
+    /// normal `start` path — its own session, its own log, its own history
+    /// entry — so it shows up in the Dashboard exactly like a manually or
+    /// schedule-triggered run.
+    private func runTriggerWorkflow(
+        workflowID: UUID?, waitForCompletion: Bool,
+        session: WorkflowRunSession, triggerChain: Set<UUID>
+    ) async {
+        guard let workflowID, let target = appState.workflows.first(where: { $0.id == workflowID }) else {
+            session.log("  ❌ Trigger Workflow: no workflow selected")
+            session.errors += 1
+            return
+        }
+        guard !triggerChain.contains(workflowID) else {
+            session.log("  ❌ Trigger Workflow: skipped \"\(target.name)\" — it's already running upstream in this chain")
+            session.errors += 1
+            return
+        }
+        guard appState.canRun(target) else {
+            session.log("  ⚠️ Trigger Workflow: \"\(target.name)\" can't start — one of its devices is already busy")
+            return
+        }
+
+        let nextChain = triggerChain.union([workflowID])
+        let targets = targetDevices(for: target)
+
+        if waitForCompletion {
+            session.log("  🔗 Triggering \"\(target.name)\" and waiting for it to finish...")
+            await start(target, targets: targets, triggerChain: nextChain)
+            session.log("  🔗 \"\(target.name)\" finished")
+        } else {
+            session.log("  🔗 Triggering \"\(target.name)\"...")
+            Task { await self.start(target, targets: targets, triggerChain: nextChain) }
+        }
     }
 
     // MARK: - Notification step

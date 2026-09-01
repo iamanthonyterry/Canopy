@@ -41,7 +41,8 @@ struct WorkflowEditorSheet: View {
             if let index = steps.firstIndex(where: { $0.id == step.id }) {
                 WorkflowStepConfigSheet(
                     step: $steps[index],
-                    availableFolderSteps: steps.filter { $0.kind == .createFolder && $0.id != step.id }
+                    availableFolderSteps: steps.filter { $0.kind == .createFolder && $0.id != step.id },
+                    excludingWorkflowID: existingWorkflow?.id
                 )
                 .environmentObject(appState)
             }

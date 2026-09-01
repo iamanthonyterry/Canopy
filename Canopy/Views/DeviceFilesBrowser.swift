@@ -1,4 +1,5 @@
 import SwiftUI
+import QuickLookThumbnailing
 
 // MARK: - Device Source
 // Identifies which underlying device a browsable file tree belongs to, so
@@ -101,6 +102,8 @@ struct DeviceFilesBrowser: View {
     @State private var selectedFile: FileNode?
     @State private var searchText = ""
     @State private var sortOrder: SortOrder = .name
+    @AppStorage("dashboardFilesViewMode") private var viewMode: ViewMode = .list
+    @State private var galleryPathIDs: [String] = []
     @State private var playbackTarget: PlaybackTarget?
     @State private var storageInfo: StorageInfo?
     @State private var isLoadingStorage = false
@@ -118,6 +121,10 @@ struct DeviceFilesBrowser: View {
 
     enum SortOrder: String, CaseIterable {
         case name = "Name", size = "Size", modified = "Modified"
+    }
+
+    enum ViewMode: String {
+        case list, gallery
     }
 
     var body: some View {
@@ -206,6 +213,14 @@ struct DeviceFilesBrowser: View {
                         .controlSize(.small)
                 } else {
                     HStack(spacing: 0) {
+                        ViewModeButton(icon: "list.bullet", selected: viewMode == .list) {
+                            viewMode = .list
+                        }
+                        ViewModeButton(icon: "square.grid.2x2", selected: viewMode == .gallery) {
+                            viewMode = .gallery
+                        }
+                    }
+                    HStack(spacing: 0) {
                         ForEach(SortOrder.allCases, id: \.self) { order in
                             SortOrderButton(order: order, selected: sortOrder == order) {
                                 sortOrder = order
@@ -280,29 +295,140 @@ struct DeviceFilesBrowser: View {
                 Spacer()
             }
         } else {
+            switch viewMode {
+            case .list: listContent
+            case .gallery: galleryContent
+            }
+        }
+    }
+
+    private var listContent: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(filteredNodes) { node in
+                    FileNodeView(
+                        node: node, depth: 0, selectedFile: $selectedFile,
+                        onToggle: toggleNode,
+                        onPlay: { selected in
+                            playbackTarget = PlaybackTarget(node: selected, device: device)
+                        },
+                        isSelecting: isSelecting,
+                        selectedIDs: $selectedIDs,
+                        canManage: appState.isAdmin,
+                        onDeleteRequest: { deletePending = [$0] },
+                        onMoveRequest: { target in
+                            moveNodes = [target]
+                            showMoveSheet = true
+                        }
+                    )
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    // MARK: - Gallery view
+    // A grid of thumbnails scoped to one folder at a time (rather than the
+    // list's inline tree), with a breadcrumb bar for drilling in and out.
+
+    private var galleryNodes: [FileNode] {
+        guard searchText.isEmpty else { return filteredNodes }
+        if let current = galleryCurrentNode {
+            return sortedNodes(current.children ?? [])
+        }
+        return sortedNodes(rootNodes)
+    }
+
+    private var galleryCurrentNode: FileNode? {
+        guard let id = galleryPathIDs.last else { return nil }
+        return findNode(id: id, in: rootNodes)
+    }
+
+    private func findNode(id: String, in nodes: [FileNode]) -> FileNode? {
+        for node in nodes {
+            if node.id == id { return node }
+            if let children = node.children, let found = findNode(id: id, in: children) { return found }
+        }
+        return nil
+    }
+
+    private func navigateGallery(into node: FileNode) {
+        guard node.isDirectory else { return }
+        galleryPathIDs.append(node.id)
+        guard node.children == nil else { return }
+        Task {
+            let children = await loadChildren(for: node)
+            await MainActor.run {
+                _ = toggleInTree(&rootNodes, id: node.id, setChildren: children)
+            }
+        }
+    }
+
+    private var galleryContent: some View {
+        VStack(spacing: 0) {
+            if searchText.isEmpty {
+                galleryBreadcrumbBar
+                Divider()
+            }
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(filteredNodes) { node in
-                        FileNodeView(
-                            node: node, depth: 0, selectedFile: $selectedFile,
-                            onToggle: toggleNode,
-                            onPlay: { selected in
-                                playbackTarget = PlaybackTarget(node: selected, device: device)
-                            },
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 110, maximum: 140), spacing: 16)], spacing: 20) {
+                    ForEach(galleryNodes) { node in
+                        FileGalleryTile(
+                            node: node,
+                            isSelected: selectedFile?.id == node.id,
                             isSelecting: isSelecting,
-                            selectedIDs: $selectedIDs,
+                            isChecked: selectedIDs.contains(node.id),
                             canManage: appState.isAdmin,
-                            onDeleteRequest: { deletePending = [$0] },
-                            onMoveRequest: { target in
-                                moveNodes = [target]
-                                showMoveSheet = true
-                            }
+                            onOpen: {
+                                if isSelecting {
+                                    if selectedIDs.contains(node.id) { selectedIDs.remove(node.id) }
+                                    else { selectedIDs.insert(node.id) }
+                                } else if node.isDirectory {
+                                    navigateGallery(into: node)
+                                } else {
+                                    selectedFile = node
+                                    if node.isVideo {
+                                        playbackTarget = PlaybackTarget(node: node, device: device)
+                                    }
+                                }
+                            },
+                            onPlay: { playbackTarget = PlaybackTarget(node: node, device: device) },
+                            onDeleteRequest: { target in deletePending = [target] },
+                            onMoveRequest: { target in moveNodes = [target]; showMoveSheet = true }
                         )
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(16)
             }
         }
+    }
+
+    private var galleryBreadcrumbBar: some View {
+        HStack(spacing: 4) {
+            Button {
+                galleryPathIDs.removeAll()
+            } label: {
+                Image(systemName: "house")
+            }
+            .buttonStyle(.borderless)
+            .disabled(galleryPathIDs.isEmpty)
+
+            ForEach(Array(galleryPathIDs.enumerated()), id: \.offset) { index, id in
+                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
+                if let node = findNode(id: id, in: rootNodes) {
+                    Button(node.name) {
+                        galleryPathIDs = Array(galleryPathIDs.prefix(index + 1))
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(index == galleryPathIDs.count - 1)
+                }
+            }
+            Spacer()
+        }
+        .font(.caption)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color(NSColor.controlBackgroundColor))
     }
 
     private var noFilesState: some View {
@@ -472,6 +598,7 @@ struct DeviceFilesBrowser: View {
         loadError = nil
         rootNodes = []
         selectedFile = nil
+        galleryPathIDs = []
 
         Task {
             do {
@@ -762,6 +889,142 @@ private struct SortOrderButton: View {
     }
 }
 
+
+// MARK: - View Mode Button
+
+private struct ViewModeButton: View {
+    let icon: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .background(selected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+    }
+}
+
+// MARK: - Gallery Tile
+
+struct FileGalleryTile: View {
+    let node: FileNode
+    let isSelected: Bool
+    var isSelecting: Bool = false
+    var isChecked: Bool = false
+    var canManage: Bool = false
+    let onOpen: () -> Void
+    let onPlay: () -> Void
+    var onDeleteRequest: (FileNode) -> Void = { _ in }
+    var onMoveRequest: (FileNode) -> Void = { _ in }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack(alignment: .topTrailing) {
+                FileThumbnailView(node: node)
+                    .frame(width: 96, height: 96)
+
+                if isSelecting {
+                    Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(isChecked ? Color.accentColor : Color.secondary)
+                        .background(Circle().fill(.background))
+                        .padding(4)
+                } else if node.isVideo {
+                    Button(action: onPlay) {
+                        Image(systemName: "play.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.white, .black.opacity(0.5))
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(4)
+                }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+            )
+
+            Text(node.name)
+                .font(.caption)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .truncationMode(.middle)
+            if !node.sizeFormatted.isEmpty {
+                Text(node.sizeFormatted)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(width: 110)
+        .padding(6)
+        .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onOpen)
+        .contextMenu {
+            if !isSelecting && canManage {
+                Button("Move…") { onMoveRequest(node) }
+                Button("Delete", role: .destructive) { onDeleteRequest(node) }
+            }
+        }
+    }
+}
+
+// MARK: - File Thumbnail
+// Real thumbnails for local files (Cloud Store / Local Folder) via
+// QuickLook; HyperDeck (FTP) files have no local URL, so they always
+// fall back to the type icon.
+
+struct FileThumbnailView: View {
+    let node: FileNode
+    @State private var image: NSImage?
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(NSColor.controlBackgroundColor))
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 96, height: 96)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                Image(systemName: node.icon)
+                    .font(.system(size: 32))
+                    .foregroundStyle(node.iconColor)
+            }
+        }
+        .task(id: node.id) {
+            await loadThumbnail()
+        }
+    }
+
+    private static let thumbnailableExtensions: Set<String> = [
+        "mp4", "mov", "mxf", "m2ts", "jpg", "jpeg", "png", "tiff", "pdf"
+    ]
+
+    private func loadThumbnail() async {
+        image = nil
+        guard !node.isDirectory, let url = node.url else { return }
+        guard Self.thumbnailableExtensions.contains(url.pathExtension.lowercased()) else { return }
+
+        let scale = await MainActor.run { NSScreen.main?.backingScaleFactor ?? 2 }
+        let request = QLThumbnailGenerator.Request(
+            fileAt: url,
+            size: CGSize(width: 96, height: 96),
+            scale: scale,
+            representationTypes: .thumbnail
+        )
+        if let representation = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) {
+            await MainActor.run { image = representation.nsImage }
+        }
+    }
+}
 
 // MARK: - Storage Summary (compact, used in the files browser toolbar)
 

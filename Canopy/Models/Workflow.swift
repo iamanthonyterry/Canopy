@@ -19,63 +19,67 @@ enum DeckCommand: String, Codable, CaseIterable, Identifiable {
 // MARK: - Step Kind
 // The catalog of step types users can drag into a workflow.
 enum StepKind: String, Codable, CaseIterable, Identifiable {
-    case controlDeck, wait, createFolder, sync, convert, rename, format, cleanup, notify
+    case controlDeck, wait, createFolder, sync, convert, rename, format, cleanup, notify, triggerWorkflow
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .controlDeck:  return "Control HyperDeck"
-        case .wait:         return "Wait"
-        case .createFolder: return "Create Folder"
-        case .sync:         return "Sync"
-        case .convert:      return "Convert"
-        case .rename:       return "Rename"
-        case .format:       return "Format Drive"
-        case .cleanup:      return "Cleanup"
-        case .notify:       return "Notification"
+        case .controlDeck:     return "Control HyperDeck"
+        case .wait:            return "Wait"
+        case .createFolder:    return "Create Folder"
+        case .sync:            return "Sync"
+        case .convert:         return "Convert"
+        case .rename:          return "Rename"
+        case .format:          return "Format Drive"
+        case .cleanup:         return "Cleanup"
+        case .notify:          return "Notification"
+        case .triggerWorkflow: return "Trigger Workflow"
         }
     }
 
     var subtitle: String {
         switch self {
-        case .controlDeck:  return "Start or stop recording on the device"
-        case .wait:         return "Pause before moving to the next step"
-        case .createFolder: return "Create a new folder, optionally named with today's date"
-        case .sync:         return "Download new files from the device"
-        case .convert:      return "Transcode files to MP4"
-        case .rename:       return "Rename files using a pattern"
-        case .format:       return "Permanently erase the device's drive"
-        case .cleanup:      return "Delete files older than N days in the destination folder"
-        case .notify:       return "Send an email"
+        case .controlDeck:     return "Start or stop recording on the device"
+        case .wait:            return "Pause before moving to the next step"
+        case .createFolder:    return "Create a new folder, optionally named with today's date"
+        case .sync:            return "Download new files from the device"
+        case .convert:         return "Transcode files to MP4"
+        case .rename:          return "Rename files using a pattern"
+        case .format:          return "Permanently erase the device's drive"
+        case .cleanup:         return "Delete files older than N days in the destination folder"
+        case .notify:          return "Send an email"
+        case .triggerWorkflow: return "Start another workflow running"
         }
     }
 
     var icon: String {
         switch self {
-        case .controlDeck:  return "record.circle"
-        case .wait:         return "hourglass"
-        case .createFolder: return "folder.badge.plus"
-        case .sync:         return "arrow.down.circle"
-        case .convert:      return "film.stack"
-        case .rename:       return "textformat"
-        case .format:       return "externaldrive.badge.xmark"
-        case .cleanup:      return "trash"
-        case .notify:       return "envelope"
+        case .controlDeck:     return "record.circle"
+        case .wait:            return "hourglass"
+        case .createFolder:    return "folder.badge.plus"
+        case .sync:            return "arrow.down.circle"
+        case .convert:         return "film.stack"
+        case .rename:          return "textformat"
+        case .format:          return "externaldrive.badge.xmark"
+        case .cleanup:         return "trash"
+        case .notify:          return "envelope"
+        case .triggerWorkflow: return "arrow.triangle.branch"
         }
     }
 
     var color: Color {
         switch self {
-        case .controlDeck:  return .red
-        case .wait:         return .indigo
-        case .createFolder: return .mint
-        case .sync:         return .blue
-        case .convert:      return .orange
-        case .rename:       return .purple
-        case .format:       return .red
-        case .cleanup:      return .gray
-        case .notify:       return .teal
+        case .controlDeck:     return .red
+        case .wait:            return .indigo
+        case .createFolder:    return .mint
+        case .sync:            return .blue
+        case .convert:         return .orange
+        case .rename:          return .purple
+        case .format:          return .red
+        case .cleanup:         return .gray
+        case .notify:          return .teal
+        case .triggerWorkflow: return .cyan
         }
     }
 }
@@ -144,37 +148,40 @@ enum StepAction: Hashable {
     /// root. `nameTemplate` may contain `FolderNameEngine.dateToken`.
     case createFolder(cloudStoreID: UUID?, parentPath: String, nameTemplate: String)
     case sync(destination: SyncDestination)
-    case convert(preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool, maxParallelJobs: Int)
+    case convert(preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool, maxParallelJobs: Int, convertInPlace: Bool = false)
     case rename(pattern: String)
     case format
     case cleanup(retentionDays: Int)
     case notify(header: String, message: String, recipients: [NotificationRecipient], sendPerDrive: Bool)
+    case triggerWorkflow(workflowID: UUID?, waitForCompletion: Bool)
 
     var kind: StepKind {
         switch self {
-        case .controlDeck:  return .controlDeck
-        case .wait:         return .wait
-        case .createFolder: return .createFolder
-        case .sync:         return .sync
-        case .convert:      return .convert
-        case .rename:       return .rename
-        case .format:       return .format
-        case .cleanup:      return .cleanup
-        case .notify:       return .notify
+        case .controlDeck:     return .controlDeck
+        case .wait:            return .wait
+        case .createFolder:    return .createFolder
+        case .sync:            return .sync
+        case .convert:         return .convert
+        case .rename:          return .rename
+        case .format:          return .format
+        case .cleanup:         return .cleanup
+        case .notify:          return .notify
+        case .triggerWorkflow: return .triggerWorkflow
         }
     }
 
     static func defaultAction(for kind: StepKind) -> StepAction {
         switch kind {
-        case .controlDeck:  return .controlDeck(command: .start, stopAfterMinutes: nil)
-        case .wait:         return .wait(minutes: 60)
-        case .createFolder: return .createFolder(cloudStoreID: nil, parentPath: "", nameTemplate: "New Folder_\(FolderNameEngine.dateToken)")
-        case .sync:         return .sync(destination: .global)
-        case .convert:      return .convert(preset: .fast, deleteOriginal: true, maxParallelJobs: 2)
-        case .rename:       return .rename(pattern: "{device}_{date}_{index}")
-        case .format:       return .format
-        case .cleanup:      return .cleanup(retentionDays: 30)
-        case .notify:       return .notify(header: "Workflow update", message: "", recipients: [], sendPerDrive: true)
+        case .controlDeck:     return .controlDeck(command: .start, stopAfterMinutes: nil)
+        case .wait:            return .wait(minutes: 60)
+        case .createFolder:    return .createFolder(cloudStoreID: nil, parentPath: "", nameTemplate: "New Folder_\(FolderNameEngine.dateToken)")
+        case .sync:            return .sync(destination: .global)
+        case .convert:         return .convert(preset: .fast, deleteOriginal: true, maxParallelJobs: 2, convertInPlace: false)
+        case .rename:          return .rename(pattern: "{device}_{date}_{index}")
+        case .format:          return .format
+        case .cleanup:         return .cleanup(retentionDays: 30)
+        case .notify:          return .notify(header: "Workflow update", message: "", recipients: [], sendPerDrive: true)
+        case .triggerWorkflow: return .triggerWorkflow(workflowID: nil, waitForCompletion: false)
         }
     }
 
@@ -220,8 +227,8 @@ enum StepAction: Hashable {
             case .createdFolder:
                 return "Downloads any new .mov files into the folder created earlier in this workflow"
             }
-        case .convert(let preset, let deleteOriginal, let maxParallelJobs):
-            return "\(preset.displayName) preset" + (deleteOriginal ? " · deletes original" : " · keeps original") + " · \(maxParallelJobs) parallel"
+        case .convert(let preset, let deleteOriginal, let maxParallelJobs, let convertInPlace):
+            return "\(preset.displayName) preset" + (deleteOriginal ? " · deletes original" : " · keeps original") + " · \(maxParallelJobs) parallel" + (convertInPlace ? " · converts in place" : " · saves to a Converted folder")
         case .rename(let pattern):
             return "Pattern: \(pattern)"
         case .format:
@@ -232,6 +239,11 @@ enum StepAction: Hashable {
             let who = recipients.isEmpty ? "no recipients set" : "\(recipients.count) recipient\(recipients.count == 1 ? "" : "s")"
             let mode = sendPerDrive ? "per drive" : "entire workflow"
             return "\"\(header)\" → \(who) (\(mode))"
+        case .triggerWorkflow(let workflowID, let waitForCompletion):
+            guard workflowID != nil else { return "No workflow selected" }
+            return waitForCompletion
+                ? "Starts the selected workflow and waits for it to finish"
+                : "Starts the selected workflow and continues immediately"
         }
     }
 }
@@ -239,7 +251,7 @@ enum StepAction: Hashable {
 // MARK: - StepAction Codable Implementation
 extension StepAction: Codable {
     enum CodingKeys: String, CodingKey {
-        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, format, cleanup, notify
+        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, format, cleanup, notify, triggerWorkflow
     }
 
     enum ControlDeckKeys: String, CodingKey {
@@ -268,7 +280,7 @@ extension StepAction: Codable {
     }
 
     enum ConvertKeys: String, CodingKey {
-        case preset, deleteOriginal, maxParallelJobs
+        case preset, deleteOriginal, maxParallelJobs, convertInPlace
     }
 
     enum RenameKeys: String, CodingKey {
@@ -281,6 +293,10 @@ extension StepAction: Codable {
 
     enum NotifyKeys: String, CodingKey {
         case header, message, recipients, sendPerDrive
+    }
+
+    enum TriggerWorkflowKeys: String, CodingKey {
+        case workflowID, waitForCompletion
     }
 
     private enum DummyKeys: CodingKey {}
@@ -329,7 +345,9 @@ extension StepAction: Codable {
             let deleteOriginal = try nested.decode(Bool.self, forKey: .deleteOriginal)
             // Pre-per-step-concurrency workflows didn't store this — default to 2.
             let maxParallelJobs = try nested.decodeIfPresent(Int.self, forKey: .maxParallelJobs) ?? 2
-            self = .convert(preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs)
+            // Pre-convert-in-place workflows always used a "Converted" subfolder.
+            let convertInPlace = try nested.decodeIfPresent(Bool.self, forKey: .convertInPlace) ?? false
+            self = .convert(preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs, convertInPlace: convertInPlace)
         } else if container.contains(.rename) {
             let nested = try container.nestedContainer(keyedBy: RenameKeys.self, forKey: .rename)
             let pattern = try nested.decode(String.self, forKey: .pattern)
@@ -347,6 +365,11 @@ extension StepAction: Codable {
             let recipients = try nested.decode([NotificationRecipient].self, forKey: .recipients)
             let sendPerDrive = try nested.decodeIfPresent(Bool.self, forKey: .sendPerDrive) ?? true
             self = .notify(header: header, message: message, recipients: recipients, sendPerDrive: sendPerDrive)
+        } else if container.contains(.triggerWorkflow) {
+            let nested = try container.nestedContainer(keyedBy: TriggerWorkflowKeys.self, forKey: .triggerWorkflow)
+            let workflowID = try nested.decodeIfPresent(UUID.self, forKey: .workflowID)
+            let waitForCompletion = try nested.decodeIfPresent(Bool.self, forKey: .waitForCompletion) ?? false
+            self = .triggerWorkflow(workflowID: workflowID, waitForCompletion: waitForCompletion)
         } else {
             throw DecodingError.dataCorrupted(DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unknown StepAction case"))
         }
@@ -370,11 +393,12 @@ extension StepAction: Codable {
         case .sync(let destination):
             var nested = container.nestedContainer(keyedBy: SyncKeys.self, forKey: .sync)
             try nested.encode(destination, forKey: .destination)
-        case .convert(let preset, let deleteOriginal, let maxParallelJobs):
+        case .convert(let preset, let deleteOriginal, let maxParallelJobs, let convertInPlace):
             var nested = container.nestedContainer(keyedBy: ConvertKeys.self, forKey: .convert)
             try nested.encode(preset, forKey: .preset)
             try nested.encode(deleteOriginal, forKey: .deleteOriginal)
             try nested.encode(maxParallelJobs, forKey: .maxParallelJobs)
+            try nested.encode(convertInPlace, forKey: .convertInPlace)
         case .rename(let pattern):
             var nested = container.nestedContainer(keyedBy: RenameKeys.self, forKey: .rename)
             try nested.encode(pattern, forKey: .pattern)
@@ -389,6 +413,10 @@ extension StepAction: Codable {
             try nested.encode(message, forKey: .message)
             try nested.encode(recipients, forKey: .recipients)
             try nested.encode(sendPerDrive, forKey: .sendPerDrive)
+        case .triggerWorkflow(let workflowID, let waitForCompletion):
+            var nested = container.nestedContainer(keyedBy: TriggerWorkflowKeys.self, forKey: .triggerWorkflow)
+            try nested.encode(workflowID, forKey: .workflowID)
+            try nested.encode(waitForCompletion, forKey: .waitForCompletion)
         }
     }
 }
@@ -522,7 +550,7 @@ struct Workflow: Identifiable, Codable, Hashable {
 
     /// True if any step needs the shared sync destination mounted.
     var needsDestinationMount: Bool {
-        steps.contains { ![.format, .controlDeck, .wait, .notify].contains($0.kind) }
+        steps.contains { ![.format, .controlDeck, .wait, .notify, .triggerWorkflow].contains($0.kind) }
     }
 
     /// The destination configured on this workflow's Sync step. Falls back
