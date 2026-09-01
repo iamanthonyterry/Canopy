@@ -18,21 +18,21 @@
 			containerPortal = 648E39B82FD6334E00EE3177 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 648E39BF2FD6334E00EE3177;
-			remoteInfo = "Canopy";
+			remoteInfo = Canopy;
 		};
 		648E39DD2FD6335100EE3177 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 648E39B82FD6334E00EE3177 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 648E39BF2FD6334E00EE3177;
-			remoteInfo = "Canopy";
+			remoteInfo = Canopy;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		648E39C02FD6334E00EE3177 /* Canopy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Canopy.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		648E39D22FD6335100EE3177 /* CanopyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "CanopyTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		648E39DC2FD6335100EE3177 /* CanopyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "CanopyUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		648E39C02FD6334E00EE3177 /* Canopy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Canopy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		648E39D22FD6335100EE3177 /* CanopyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CanopyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		648E39DC2FD6335100EE3177 /* CanopyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CanopyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		64E3101A2FDB0EEF00BD0F01 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
 		64E3101B2FDB0EEF00BD0F01 /* UserNotificationsUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotificationsUI.framework; path = System/Library/Frameworks/UserNotificationsUI.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
@@ -40,17 +40,17 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		648E39C22FD6334E00EE3177 /* Canopy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "Canopy";
+			path = Canopy;
 			sourceTree = "<group>";
 		};
 		648E39D52FD6335100EE3177 /* CanopyTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "CanopyTests";
+			path = CanopyTests;
 			sourceTree = "<group>";
 		};
 		648E39DF2FD6335100EE3177 /* CanopyUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "CanopyUITests";
+			path = CanopyUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -131,11 +131,11 @@
 			fileSystemSynchronizedGroups = (
 				648E39C22FD6334E00EE3177 /* Canopy */,
 			);
-			name = "Canopy";
+			name = Canopy;
 			packageProductDependencies = (
 				644D5A5F2FFC42C900204FD5 /* Sparkle */,
 			);
-			productName = "Canopy";
+			productName = Canopy;
 			productReference = 648E39C02FD6334E00EE3177 /* Canopy.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -155,10 +155,10 @@
 			fileSystemSynchronizedGroups = (
 				648E39D52FD6335100EE3177 /* CanopyTests */,
 			);
-			name = "CanopyTests";
+			name = CanopyTests;
 			packageProductDependencies = (
 			);
-			productName = "CanopyTests";
+			productName = CanopyTests;
 			productReference = 648E39D22FD6335100EE3177 /* CanopyTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
@@ -178,10 +178,10 @@
 			fileSystemSynchronizedGroups = (
 				648E39DF2FD6335100EE3177 /* CanopyUITests */,
 			);
-			name = "CanopyUITests";
+			name = CanopyUITests;
 			packageProductDependencies = (
 			);
-			productName = "CanopyUITests";
+			productName = CanopyUITests;
 			productReference = 648E39DC2FD6335100EE3177 /* CanopyUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
@@ -425,7 +425,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
-				CODE_SIGN_ENTITLEMENTS = "Canopy/Canopy.entitlements";
+				CODE_SIGN_ENTITLEMENTS = Canopy/Canopy.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -437,7 +437,7 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Canopy-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Canopy";
+				INFOPLIST_KEY_CFBundleDisplayName = Canopy;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Canopy discovers HyperDecks, ATEM switchers, and cloud storage on your local network so it can control and sync with them.";
@@ -446,8 +446,8 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 0.0.32-alpha;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.Canopy";
+				MARKETING_VERSION = "0.0.32-alpha";
+				PRODUCT_BUNDLE_IDENTIFIER = com.ROSESASHUMANS.Canopy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -464,7 +464,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
-				CODE_SIGN_ENTITLEMENTS = "Canopy/Canopy.entitlements";
+				CODE_SIGN_ENTITLEMENTS = Canopy/Canopy.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -476,7 +476,7 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Canopy-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Canopy";
+				INFOPLIST_KEY_CFBundleDisplayName = Canopy;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Canopy discovers HyperDecks, ATEM switchers, and cloud storage on your local network so it can control and sync with them.";
@@ -485,8 +485,8 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 0.0.32-alpha;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.Canopy";
+				MARKETING_VERSION = "0.0.32-alpha";
+				PRODUCT_BUNDLE_IDENTIFIER = com.ROSESASHUMANS.Canopy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -507,8 +507,8 @@
 				DEVELOPMENT_TEAM = GAYT638PXY;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
-				MARKETING_VERSION = 0.0.32-alpha;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.CanopyTests";
+				MARKETING_VERSION = "0.0.32-alpha";
+				PRODUCT_BUNDLE_IDENTIFIER = com.ROSESASHUMANS.CanopyTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -529,8 +529,8 @@
 				DEVELOPMENT_TEAM = GAYT638PXY;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
-				MARKETING_VERSION = 0.0.32-alpha;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.CanopyTests";
+				MARKETING_VERSION = "0.0.32-alpha";
+				PRODUCT_BUNDLE_IDENTIFIER = com.ROSESASHUMANS.CanopyTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -549,15 +549,15 @@
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = GAYT638PXY;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 0.0.32-alpha;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.CanopyUITests";
+				MARKETING_VERSION = "0.0.32-alpha";
+				PRODUCT_BUNDLE_IDENTIFIER = com.ROSESASHUMANS.CanopyUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = "Canopy";
+				TEST_TARGET_NAME = Canopy;
 			};
 			name = Debug;
 		};
@@ -569,15 +569,15 @@
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = GAYT638PXY;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 0.0.32-alpha;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.ROSESASHUMANS.CanopyUITests";
+				MARKETING_VERSION = "0.0.32-alpha";
+				PRODUCT_BUNDLE_IDENTIFIER = com.ROSESASHUMANS.CanopyUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = "Canopy";
+				TEST_TARGET_NAME = Canopy;
 			};
 			name = Release;
 		};

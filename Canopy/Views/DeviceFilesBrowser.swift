@@ -76,6 +76,13 @@ struct FileNode: Identifiable {
             .components(separatedBy: ".").last?.lowercased() ?? ""
         return ["mp4", "mov", "mxf", "m2ts"].contains(ext)
     }
+
+    var isImage: Bool {
+        guard !isDirectory else { return false }
+        let ext = (ftpPath ?? url?.lastPathComponent ?? name)
+            .components(separatedBy: ".").last?.lowercased() ?? ""
+        return ["jpg", "jpeg", "png", "tiff", "gif", "heic", "bmp"].contains(ext)
+    }
 }
 
 // Identifiable wrapper so the video player can be driven by .sheet(item:) —
@@ -105,6 +112,7 @@ struct DeviceFilesBrowser: View {
     @AppStorage("dashboardFilesViewMode") private var viewMode: ViewMode = .list
     @State private var galleryPathIDs: [String] = []
     @State private var playbackTarget: PlaybackTarget?
+    @State private var imagePreviewTarget: PlaybackTarget?
     @State private var storageInfo: StorageInfo?
     @State private var isLoadingStorage = false
 
@@ -144,6 +152,9 @@ struct DeviceFilesBrowser: View {
         }
         .sheet(item: $playbackTarget) { target in
             VideoPlayerSheet(node: target.node, device: target.device)
+        }
+        .sheet(item: $imagePreviewTarget) { target in
+            ImagePreviewSheet(node: target.node, device: target.device)
         }
         .sheet(isPresented: $showExportQueue) {
             ExportQueueView()
@@ -312,6 +323,9 @@ struct DeviceFilesBrowser: View {
                         onPlay: { selected in
                             playbackTarget = PlaybackTarget(node: selected, device: device)
                         },
+                        onPreviewImage: { selected in
+                            imagePreviewTarget = PlaybackTarget(node: selected, device: device)
+                        },
                         isSelecting: isSelecting,
                         selectedIDs: $selectedIDs,
                         canManage: appState.isAdmin,
@@ -389,10 +403,13 @@ struct DeviceFilesBrowser: View {
                                     selectedFile = node
                                     if node.isVideo {
                                         playbackTarget = PlaybackTarget(node: node, device: device)
+                                    } else if node.isImage {
+                                        imagePreviewTarget = PlaybackTarget(node: node, device: device)
                                     }
                                 }
                             },
                             onPlay: { playbackTarget = PlaybackTarget(node: node, device: device) },
+                            onPreviewImage: { imagePreviewTarget = PlaybackTarget(node: node, device: device) },
                             onDeleteRequest: { target in deletePending = [target] },
                             onMoveRequest: { target in moveNodes = [target]; showMoveSheet = true }
                         )
@@ -788,6 +805,7 @@ struct FileNodeView: View {
     @Binding var selectedFile: FileNode?
     let onToggle: (String) -> Void
     let onPlay: (FileNode) -> Void
+    var onPreviewImage: (FileNode) -> Void = { _ in }
     var isSelecting: Bool = false
     var selectedIDs: Binding<Set<String>> = .constant([])
     var canManage: Bool = false
@@ -829,6 +847,13 @@ struct FileNodeView: View {
                     .buttonStyle(.borderless)
                     .foregroundStyle(.tint)
                     .help("Play")
+                } else if node.isImage && !isSelecting {
+                    Button { onPreviewImage(node) } label: {
+                        Image(systemName: "eye.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.tint)
+                    .help("Preview")
                 }
                 if !node.sizeFormatted.isEmpty {
                     Text(node.sizeFormatted)
@@ -849,6 +874,7 @@ struct FileNodeView: View {
                 } else {
                     selectedFile = node
                     if node.isVideo { onPlay(node) }
+                    else if node.isImage { onPreviewImage(node) }
                 }
             }
             .contextMenu {
@@ -863,7 +889,7 @@ struct FileNodeView: View {
             ForEach(children) { child in
                 FileNodeView(
                     node: child, depth: depth + 1, selectedFile: $selectedFile,
-                    onToggle: onToggle, onPlay: onPlay,
+                    onToggle: onToggle, onPlay: onPlay, onPreviewImage: onPreviewImage,
                     isSelecting: isSelecting, selectedIDs: selectedIDs,
                     canManage: canManage, onDeleteRequest: onDeleteRequest, onMoveRequest: onMoveRequest
                 )
@@ -919,6 +945,7 @@ struct FileGalleryTile: View {
     var canManage: Bool = false
     let onOpen: () -> Void
     let onPlay: () -> Void
+    var onPreviewImage: () -> Void = {}
     var onDeleteRequest: (FileNode) -> Void = { _ in }
     var onMoveRequest: (FileNode) -> Void = { _ in }
 
@@ -936,6 +963,14 @@ struct FileGalleryTile: View {
                 } else if node.isVideo {
                     Button(action: onPlay) {
                         Image(systemName: "play.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.white, .black.opacity(0.5))
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(4)
+                } else if node.isImage {
+                    Button(action: onPreviewImage) {
+                        Image(systemName: "eye.circle.fill")
                             .font(.title3)
                             .foregroundStyle(.white, .black.opacity(0.5))
                     }
@@ -1005,7 +1040,7 @@ struct FileThumbnailView: View {
     }
 
     private static let thumbnailableExtensions: Set<String> = [
-        "mp4", "mov", "mxf", "m2ts", "jpg", "jpeg", "png", "tiff", "pdf"
+        "mp4", "mov", "mxf", "m2ts", "jpg", "jpeg", "png", "tiff", "gif", "heic", "bmp", "pdf"
     ]
 
     private func loadThumbnail() async {
