@@ -16,11 +16,34 @@ final class WorkflowEngine: ObservableObject {
 
     private let appState = AppState.shared
 
-    /// Per-deck state threaded through a workflow's steps.
+    /// The device a workflow's steps are running against — either a real
+    /// network HyperDeck or a folder already on this Mac's filesystem.
+    enum WorkflowTargetDevice: Hashable {
+        case hyperDeck(HyperDeck)
+        case localFolder(LocalFolder)
+
+        var name: String {
+            switch self {
+            case .hyperDeck(let d):   return d.name
+            case .localFolder(let f): return f.name
+            }
+        }
+
+        /// Non-nil only for a HyperDeck target — used to guard steps
+        /// (Control HyperDeck, Format) that only make sense for a real
+        /// device, and by retry to decide whether there's anything to
+        /// re-download.
+        var hyperDeck: HyperDeck? {
+            if case .hyperDeck(let d) = self { return d }
+            return nil
+        }
+    }
+
+    /// Per-device state threaded through a workflow's steps.
     private struct StepContext {
-        let deck: HyperDeck
+        let device: WorkflowTargetDevice
         /// `var` because a Create Folder step earlier in the run can
-        /// replace it with the folder it just created, for every deck at
+        /// replace it with the folder it just created, for every device at
         /// once, before the Sync step that consumes it executes.
         var destDir: URL
         /// Which cloud store `destDir` lives on, if any — carried alongside
@@ -33,7 +56,7 @@ final class WorkflowEngine: ObservableObject {
     // MARK: - Run (all target devices)
 
     func run(_ workflow: Workflow) async {
-        await start(workflow, decks: targetDecks(for: workflow))
+        await start(workflow, targets: targetDevices(for: workflow))
     }
 
     // MARK: - Run (single device)
@@ -41,37 +64,43 @@ final class WorkflowEngine: ObservableObject {
     // that workflow's own target list — used by the per-device "Run
     // Workflow" action on the Dashboard.
 
-    func runDevice(_ workflow: Workflow, deck: HyperDeck) async {
-        await start(workflow, decks: [deck])
+    func runDevice(_ workflow: Workflow, target: WorkflowTargetDevice) async {
+        await start(workflow, targets: [target])
     }
 
     // MARK: - Shared run loop
 
-    private func start(_ workflow: Workflow, decks: [HyperDeck]) async {
+    private func start(_ workflow: Workflow, targets: [WorkflowTargetDevice]) async {
         // The Run buttons are already disabled when this would conflict, so
         // this mainly guards races — e.g. the scheduler firing at the same
         // instant someone taps Run manually.
         guard appState.canRun(workflow) else { return }
 
-        let session = appState.beginRun(for: workflow, deckNames: Set(decks.map(\.name)))
+        let session = appState.beginRun(for: workflow, deckNames: Set(targets.map(\.name)))
         session.log("▶ Workflow started: \(workflow.name)")
 
-        guard !decks.isEmpty else {
+        guard !targets.isEmpty else {
             session.log("⚠️ No devices configured for this workflow")
             finishRun(workflow: workflow, session: session)
             return
         }
 
-        // Each deck may point at its own Cloud Store, or fall back to the
-        // shared global destination — mount every distinct store exactly
-        // once and reuse the resolved path for every deck that needs it.
-        // This is done up front so every deck has a ready context before
-        // the step loop below starts fanning steps out across them.
+        // Each HyperDeck target may point at its own Cloud Store, or fall
+        // back to the shared global destination — mount every distinct
+        // store exactly once and reuse the resolved path for every device
+        // that needs it. This is done up front so every device has a ready
+        // context before the step loop below starts fanning steps out
+        // across them.
+        //
+        // A Local Folder target is never mounted and never redirected by
+        // the workflow's configured Sync destination — its own path always
+        // is its destination, since the whole point of a folder target is
+        // to run in place.
         //
         // The one exception is a Sync step pointed at a Create Folder step:
         // that folder's name can depend on the date it's created, so it's
         // resolved when the run loop actually reaches that step, below —
-        // every context just gets a placeholder destDir until then.
+        // every HyperDeck context just gets a placeholder destDir until then.
         var mountedPaths: [UUID?: String] = [:]
         var contexts: [StepContext] = []
         let syncDestination = workflow.syncDestination
@@ -88,13 +117,19 @@ final class WorkflowEngine: ObservableObject {
             return
         }
 
-        for deck in decks {
+        for target in targets {
+            guard case .hyperDeck(let deck) = target else {
+                if case .localFolder(let folder) = target {
+                    contexts.append(StepContext(device: target, destDir: URL(fileURLWithPath: folder.path), session: session))
+                }
+                continue
+            }
             guard workflow.needsDestinationMount else {
-                contexts.append(StepContext(deck: deck, destDir: URL(fileURLWithPath: "/dev/null"), session: session))
+                contexts.append(StepContext(device: target, destDir: URL(fileURLWithPath: "/dev/null"), session: session))
                 continue
             }
             guard referencedFolderStepID == nil else {
-                contexts.append(StepContext(deck: deck, destDir: URL(fileURLWithPath: "/dev/null"), session: session))
+                contexts.append(StepContext(device: target, destDir: URL(fileURLWithPath: "/dev/null"), session: session))
                 continue
             }
             do {
@@ -103,7 +138,7 @@ final class WorkflowEngine: ObservableObject {
                 )
                 try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
                 contexts.append(StepContext(
-                    deck: deck, destDir: destDir,
+                    device: target, destDir: destDir,
                     cloudStoreID: syncDestination.cloudStoreIDIfAny,
                     session: session
                 ))
@@ -155,6 +190,10 @@ final class WorkflowEngine: ObservableObject {
                     if step.id == referencedFolderStepID {
                         contexts = contexts.map {
                             var context = $0
+                            // A Local Folder target always keeps its own
+                            // path as destDir — it never adopts a shared
+                            // created folder.
+                            guard context.device.hyperDeck != nil else { return context }
                             context.destDir = folderURL
                             context.cloudStoreID = cloudStoreID
                             return context
@@ -193,7 +232,7 @@ final class WorkflowEngine: ObservableObject {
 
         if !workflowWideNotifySteps.isEmpty && !session.isCancelled {
             var workflowContext = StepContext(
-                deck: contexts.first?.deck ?? HyperDeck(name: "Workflow", ipAddress: "", remotePath: ""),
+                device: contexts.first?.device ?? .hyperDeck(HyperDeck(name: "Workflow", ipAddress: "", remotePath: "")),
                 destDir: URL(fileURLWithPath: "/dev/null"),
                 files: allProcessedFiles,
                 session: session
@@ -257,47 +296,75 @@ final class WorkflowEngine: ObservableObject {
         }
 
         for (key, tasks) in byDeck {
-            guard let deck = appState.hyperDecks.first(where: { $0.name == key.deckName }) else { continue }
-
-            // The exact folder is already known (key.destDir, including any
-            // dynamically-dated name it was given when first created) — all
-            // that's needed here is to make sure its volume is mounted.
-            do {
-                _ = try await mountBase(cloudStoreID: key.cloudStoreID, session: session, cache: &mountedPaths)
-            } catch {
-                session.log("❌ \(deck.name): \(error.localizedDescription)")
-                session.mountError = error.localizedDescription
-                session.errors += 1
-                continue
-            }
+            guard let device = resolveTargetDevice(named: key.deckName) else { continue }
             let destDir = key.destDir
-            try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
 
-            var toConvert: [URL] = []
-
-            for task in tasks {
-                resetTask(id: task.id)
-                let destURL = destDir.appendingPathComponent(task.fileName)
-                try? FileManager.default.removeItem(at: destURL)
-
-                let result = await FTPService.downloadFile(
-                    named: task.fileName, from: deck, to: destURL
-                ) { [weak self] pct in Task { @MainActor in self?.updateTask(id: task.id, syncProgress: pct) } }
-
-                if result.success {
-                    updateTask(id: task.id, phase: .converting, syncProgress: 1)
-                    toConvert.append(destURL)
-                } else {
-                    let reason = result.failureReason ?? "unknown error"
-                    updateTask(id: task.id, phase: .error, errorMessage: "Retry failed: \(reason)")
-                    session.log("  ❌ Retry failed: \(task.fileName) (\(reason))")
+            switch device {
+            case .hyperDeck(let deck):
+                // The exact folder is already known (key.destDir, including
+                // any dynamically-dated name it was given when first
+                // created) — all that's needed here is to make sure its
+                // volume is mounted.
+                do {
+                    _ = try await mountBase(cloudStoreID: key.cloudStoreID, session: session, cache: &mountedPaths)
+                } catch {
+                    session.log("❌ \(deck.name): \(error.localizedDescription)")
+                    session.mountError = error.localizedDescription
                     session.errors += 1
+                    continue
                 }
-            }
+                try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
 
-            if !toConvert.isEmpty {
-                var context = StepContext(deck: deck, destDir: destDir, files: toConvert, session: session)
-                await runConvert(context: &context, preset: .fast, deleteOriginal: true, maxParallelJobs: 2)
+                var toConvert: [URL] = []
+
+                for task in tasks {
+                    resetTask(id: task.id)
+                    let destURL = destDir.appendingPathComponent(task.fileName)
+                    try? FileManager.default.removeItem(at: destURL)
+
+                    let result = await FTPService.downloadFile(
+                        named: task.fileName, from: deck, to: destURL
+                    ) { [weak self] pct in Task { @MainActor in self?.updateTask(id: task.id, syncProgress: pct) } }
+
+                    if result.success {
+                        updateTask(id: task.id, phase: .converting, syncProgress: 1)
+                        toConvert.append(destURL)
+                    } else {
+                        let reason = result.failureReason ?? "unknown error"
+                        updateTask(id: task.id, phase: .error, errorMessage: "Retry failed: \(reason)")
+                        session.log("  ❌ Retry failed: \(task.fileName) (\(reason))")
+                        session.errors += 1
+                    }
+                }
+
+                if !toConvert.isEmpty {
+                    var context = StepContext(device: device, destDir: destDir, files: toConvert, session: session)
+                    await runConvert(context: &context, preset: .fast, deleteOriginal: true, maxParallelJobs: 2)
+                }
+
+            case .localFolder:
+                // A folder-sourced failure can only ever be a conversion
+                // failure — the file was never downloaded, it was already
+                // sitting in the folder — so "retry" here means re-convert
+                // in place, not re-download.
+                var toConvert: [URL] = []
+                for task in tasks {
+                    resetTask(id: task.id)
+                    let fileURL = destDir.appendingPathComponent(task.fileName)
+                    guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                        updateTask(id: task.id, phase: .error, errorMessage: "Retry failed: file no longer in folder")
+                        session.log("  ❌ Retry failed: \(task.fileName) is no longer in \(key.deckName)")
+                        session.errors += 1
+                        continue
+                    }
+                    updateTask(id: task.id, phase: .converting, syncProgress: 1)
+                    toConvert.append(fileURL)
+                }
+
+                if !toConvert.isEmpty {
+                    var context = StepContext(device: device, destDir: destDir, files: toConvert, session: session)
+                    await runConvert(context: &context, preset: .fast, deleteOriginal: true, maxParallelJobs: 2)
+                }
             }
         }
 
@@ -337,7 +404,15 @@ final class WorkflowEngine: ObservableObject {
     // MARK: - Sync step
 
     private func runSync(context: inout StepContext) async {
-        let deck = context.deck
+        switch context.device {
+        case .hyperDeck(let deck):
+            await runSyncFromDeck(context: &context, deck: deck)
+        case .localFolder(let folder):
+            await runSyncFromLocalFolder(context: &context, folder: folder)
+        }
+    }
+
+    private func runSyncFromDeck(context: inout StepContext, deck: HyperDeck) async {
         let session = context.session
         session.log("  📡 Scanning \(deck.name) (\(deck.ipAddress))...")
 
@@ -392,6 +467,59 @@ final class WorkflowEngine: ObservableObject {
         }
     }
 
+    /// A Local Folder target has no network device to pull from — the
+    /// folder is both source and working directory. "Sync" for a folder
+    /// just means finding files already sitting there that haven't been
+    /// processed yet, using the same "already has a Converted/*.mp4"
+    /// check as the HyperDeck path, so re-running a folder workflow is
+    /// just as idempotent as re-running a deck one.
+    private func runSyncFromLocalFolder(context: inout StepContext, folder: LocalFolder) async {
+        let session = context.session
+        session.log("  📂 Scanning \(folder.name) (\(folder.path))...")
+
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(at: context.destDir, includingPropertiesForKeys: nil) else {
+            session.log("  ❌ \(folder.name): couldn't read folder contents")
+            session.errors += 1
+            return
+        }
+
+        let movFiles = entries
+            .filter { $0.lastPathComponent.lowercased().hasSuffix(".mov") }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        guard !movFiles.isEmpty else {
+            session.log("  \(folder.name): no .mov files found")
+            return
+        }
+        session.log("  \(folder.name): \(movFiles.count) file(s) found")
+
+        for fileURL in movFiles {
+            guard !session.isCancelled else { return }
+
+            let fileName = fileURL.lastPathComponent
+            let convertedURL = context.destDir
+                .appendingPathComponent("Converted")
+                .appendingPathComponent((fileName as NSString).deletingPathExtension + ".mp4")
+
+            if fm.fileExists(atPath: convertedURL.path) {
+                session.log("  ⏭ \(fileName) already processed")
+                session.skipped += 1
+                continue
+            }
+
+            let task = addTask(
+                fileName: fileName, deckName: folder.name,
+                destDir: context.destDir, cloudStoreID: nil,
+                in: session
+            )
+            // The file is already local — there's no download phase.
+            updateTask(id: task.id, phase: .done, syncProgress: 1)
+            session.log("  📄 Found \(fileName) in \(folder.name)")
+            context.files.append(fileURL)
+        }
+    }
+
     // MARK: - Convert step
 
     private func runConvert(context: inout StepContext, preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool, maxParallelJobs: Int) async {
@@ -411,7 +539,7 @@ final class WorkflowEngine: ObservableObject {
             Array(context.files[$0 ..< min($0 + maxJobs, context.files.count)])
         }
 
-        let deckName = context.deck.name
+        let deckName = context.device.name
         var convertedFiles: [URL] = []
 
         for batch in batches {
@@ -487,7 +615,7 @@ final class WorkflowEngine: ObservableObject {
             let newName = RenamePatternEngine.apply(
                 pattern: pattern,
                 originalName: originalName,
-                deviceName: context.deck.name,
+                deviceName: context.device.name,
                 index: index + 1
             )
             let newURL = url.deletingLastPathComponent().appendingPathComponent("\(newName).\(ext)")
@@ -497,10 +625,10 @@ final class WorkflowEngine: ObservableObject {
                     try FileManager.default.removeItem(at: newURL)
                 }
                 try FileManager.default.moveItem(at: url, to: newURL)
-                session.log("  ✏️ Renamed → \(newURL.lastPathComponent) (\(context.deck.name))")
+                session.log("  ✏️ Renamed → \(newURL.lastPathComponent) (\(context.device.name))")
                 renamed.append(newURL)
             } catch {
-                session.log("  ❌ Rename failed for \(url.lastPathComponent) (\(context.deck.name)): \(error.localizedDescription)")
+                session.log("  ❌ Rename failed for \(url.lastPathComponent) (\(context.device.name)): \(error.localizedDescription)")
                 session.errors += 1
                 renamed.append(url)
             }
@@ -512,8 +640,11 @@ final class WorkflowEngine: ObservableObject {
     // MARK: - Control HyperDeck step
 
     private func runControlDeck(context: inout StepContext, command: DeckCommand, stopAfterMinutes: Int?) async {
-        let deck = context.deck
         let session = context.session
+        guard let deck = context.device.hyperDeck else {
+            session.log("  ⏭ \(context.device.name): Control HyperDeck is not applicable to a local folder — skipped")
+            return
+        }
         let service = HyperDeckService(host: deck.ipAddress)
 
         await service.fetchTransport()
@@ -594,12 +725,16 @@ final class WorkflowEngine: ObservableObject {
 
     private func runFormat(context: inout StepContext) async {
         let session = context.session
-        session.log("  🗑 Erasing \(context.deck.name)'s drive (\(context.deck.ipAddress))...")
+        guard let deck = context.device.hyperDeck else {
+            session.log("  ⏭ \(context.device.name): Format Drive is not applicable to a local folder — skipped")
+            return
+        }
+        session.log("  🗑 Erasing \(deck.name)'s drive (\(deck.ipAddress))...")
         do {
-            try await HyperDeckService.formatDrive(deck: context.deck)
-            session.log("  ✅ \(context.deck.name)'s drive erased successfully")
+            try await HyperDeckService.formatDrive(deck: deck)
+            session.log("  ✅ \(deck.name)'s drive erased successfully")
         } catch {
-            session.log("  ❌ \(context.deck.name) drive erase failed: \(error.localizedDescription)")
+            session.log("  ❌ \(deck.name) drive erase failed: \(error.localizedDescription)")
             session.errors += 1
         }
     }
@@ -610,7 +745,7 @@ final class WorkflowEngine: ObservableObject {
         let session = context.session
         let cutoff = Date().addingTimeInterval(-Double(retentionDays) * 86400)
         let base = context.destDir
-        session.log("  🧹 Cleaning \(context.deck.name)'s destination folder — removing files older than \(retentionDays) day(s)...")
+        session.log("  🧹 Cleaning \(context.device.name)'s destination folder — removing files older than \(retentionDays) day(s)...")
 
         let deletedCount = await Task.detached(priority: .background) {
             let fm = FileManager.default
@@ -749,9 +884,32 @@ final class WorkflowEngine: ObservableObject {
 
     // MARK: - Helpers
 
-    private func targetDecks(for workflow: Workflow) -> [HyperDeck] {
-        guard !workflow.targetDeckIDs.isEmpty else { return appState.hyperDecks }
-        return appState.hyperDecks.filter { workflow.targetDeckIDs.contains($0.id) }
+    private func targetDevices(for workflow: Workflow) -> [WorkflowTargetDevice] {
+        guard !workflow.targets.isEmpty else {
+            return appState.hyperDecks.map(WorkflowTargetDevice.hyperDeck)
+                + appState.localFolders.map(WorkflowTargetDevice.localFolder)
+        }
+        return workflow.targets.compactMap { target in
+            switch target {
+            case .hyperDeck(let id):
+                return appState.hyperDecks.first { $0.id == id }.map(WorkflowTargetDevice.hyperDeck)
+            case .localFolder(let id):
+                return appState.localFolders.first { $0.id == id }.map(WorkflowTargetDevice.localFolder)
+            }
+        }
+    }
+
+    /// Resolves a device by name for retry, checking HyperDecks first, then
+    /// Local Folders — used because a failed task only remembers its
+    /// device's name (see `RetryGroupKey`), not which kind of device it is.
+    private func resolveTargetDevice(named name: String) -> WorkflowTargetDevice? {
+        if let deck = appState.hyperDecks.first(where: { $0.name == name }) {
+            return .hyperDeck(deck)
+        }
+        if let folder = appState.localFolders.first(where: { $0.name == name }) {
+            return .localFolder(folder)
+        }
+        return nil
     }
 
     private func mountSMBVolume(location: SyncLocation) async throws -> String {

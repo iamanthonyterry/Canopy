@@ -9,17 +9,17 @@ struct WorkflowEditorSheet: View {
 
     @State private var name: String
     @State private var steps: [WorkflowStep]
-    @State private var targetDeckIDs: Set<UUID>
+    @State private var targets: Set<WorkflowTarget>
     @State private var triggers: [ScheduleSettings]
     @State private var editingStep: WorkflowStep? = nil
     @State private var editingTrigger: ScheduleSettings? = nil
 
     init(workflow: Workflow?) {
         existingWorkflow = workflow
-        _name          = State(initialValue: workflow?.name ?? "")
-        _steps         = State(initialValue: workflow?.steps ?? [])
-        _targetDeckIDs = State(initialValue: Set(workflow?.targetDeckIDs ?? []))
-        _triggers      = State(initialValue: workflow?.triggers ?? [])
+        _name    = State(initialValue: workflow?.name ?? "")
+        _steps   = State(initialValue: workflow?.steps ?? [])
+        _targets = State(initialValue: Set(workflow?.targets ?? []))
+        _triggers = State(initialValue: workflow?.triggers ?? [])
     }
 
     var canSave: Bool { !name.isEmpty && !steps.isEmpty }
@@ -77,31 +77,62 @@ struct WorkflowEditorSheet: View {
 
     // MARK: - Target Devices
 
+    /// Every HyperDeck and Local Folder currently configured — used to
+    /// decide when an explicit selection actually covers everything (and
+    /// so can collapse back down to the "All Devices" empty-set shorthand).
+    private var allPossibleTargets: Set<WorkflowTarget> {
+        Set(appState.hyperDecks.map { WorkflowTarget.hyperDeck($0.id) }
+            + appState.localFolders.map { WorkflowTarget.localFolder($0.id) })
+    }
+
     private var targetDevicesSection: some View {
-        Section("Runs On") {
+        Section {
             Toggle("All Devices", isOn: Binding(
-                get: { targetDeckIDs.isEmpty },
-                set: { if $0 { targetDeckIDs.removeAll() } }
+                get: { targets.isEmpty },
+                set: { if $0 { targets.removeAll() } }
             ))
             if !appState.hyperDecks.isEmpty {
                 ForEach(appState.hyperDecks) { deck in
-                    Toggle(deck.name, isOn: Binding(
-                        get: { targetDeckIDs.isEmpty || targetDeckIDs.contains(deck.id) },
-                        set: { isOn in
-                            if isOn {
-                                targetDeckIDs.insert(deck.id)
-                                if targetDeckIDs.count == appState.hyperDecks.count { targetDeckIDs.removeAll() }
-                            } else {
-                                if targetDeckIDs.isEmpty { targetDeckIDs = Set(appState.hyperDecks.map(\.id)) }
-                                targetDeckIDs.remove(deck.id)
-                            }
-                        }
-                    ))
+                    targetToggle(.hyperDeck(deck.id), label: deck.name)
                 }
-            } else {
+            }
+            if !appState.localFolders.isEmpty {
+                ForEach(appState.localFolders) { folder in
+                    targetToggle(.localFolder(folder.id), label: folder.name)
+                }
+            }
+            if appState.hyperDecks.isEmpty && appState.localFolders.isEmpty {
                 Text("No devices configured yet.").font(.caption).foregroundStyle(.secondary)
             }
+        } header: {
+            Text("Runs On")
+        } footer: {
+            Text("Cloud Stores can be a Sync destination but aren't selectable as a workflow target yet.")
+                .font(.caption).foregroundStyle(.secondary)
         }
+    }
+
+    private func targetToggle(_ target: WorkflowTarget, label: String) -> some View {
+        Toggle(label, isOn: Binding(
+            get: { targets.isEmpty || targets.contains(target) },
+            set: { isOn in
+                if isOn {
+                    targets.insert(target)
+                    if targets.count == allPossibleTargets.count { targets.removeAll() }
+                } else {
+                    if targets.isEmpty { targets = allPossibleTargets }
+                    targets.remove(target)
+                }
+            }
+        ))
+    }
+
+    /// Whether the current selection includes at least one HyperDeck —
+    /// explicitly, or implicitly via "All Devices" when any are configured.
+    /// Gates whether HyperDeck-only steps can be added below.
+    private var includesHyperDeckTarget: Bool {
+        if targets.isEmpty { return !appState.hyperDecks.isEmpty }
+        return targets.contains { if case .hyperDeck = $0 { return true }; return false }
     }
 
     // MARK: - Steps
@@ -188,7 +219,7 @@ struct WorkflowEditorSheet: View {
 
     private var addStepMenu: some View {
         Menu {
-            ForEach(StepKind.allCases) { kind in
+            ForEach(StepKind.allCases.filter { includesHyperDeckTarget || ![.controlDeck, .format].contains($0) }) { kind in
                 Button {
                     steps.append(WorkflowStep(action: .defaultAction(for: kind)))
                 } label: {
@@ -281,7 +312,7 @@ struct WorkflowEditorSheet: View {
         var workflow = existingWorkflow ?? Workflow(name: name)
         workflow.name = name
         workflow.steps = steps
-        workflow.targetDeckIDs = Array(targetDeckIDs)
+        workflow.targets = Array(targets)
         workflow.triggers = triggers
 
         if existingWorkflow == nil {

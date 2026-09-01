@@ -77,17 +77,26 @@ class AppState: ObservableObject {
         activeRuns.filter { !$0.isFinished }.reduce(into: Set<String>()) { $0.formUnion($1.deckNames) }
     }
 
-    func targetDeckNames(for workflow: Workflow) -> Set<String> {
-        let decks = workflow.targetDeckIDs.isEmpty
-            ? hyperDecks
-            : hyperDecks.filter { workflow.targetDeckIDs.contains($0.id) }
-        return Set(decks.map(\.name))
+    func targetDeviceNames(for workflow: Workflow) -> Set<String> {
+        guard !workflow.targets.isEmpty else {
+            return Set(hyperDecks.map(\.name) + localFolders.map(\.name))
+        }
+        var names: Set<String> = []
+        for target in workflow.targets {
+            switch target {
+            case .hyperDeck(let id):
+                if let deck = hyperDecks.first(where: { $0.id == id }) { names.insert(deck.name) }
+            case .localFolder(let id):
+                if let folder = localFolders.first(where: { $0.id == id }) { names.insert(folder.name) }
+            }
+        }
+        return names
     }
 
     /// False only if running this workflow right now would touch a device
     /// that's already busy in another in-progress run.
     func canRun(_ workflow: Workflow) -> Bool {
-        busyDeckNames.isDisjoint(with: targetDeckNames(for: workflow))
+        busyDeckNames.isDisjoint(with: targetDeviceNames(for: workflow))
     }
 
     // MARK: - System log

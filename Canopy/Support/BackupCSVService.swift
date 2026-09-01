@@ -26,7 +26,7 @@ enum BackupCSVService {
 
     private static let columns = [
         "id", "type", "name", "ipAddress", "remotePath", "volumeName", "path",
-        "username", "password", "capacityGB", "targetDeviceNames", "targetDeviceIDs",
+        "username", "password", "capacityGB", "targetDeviceNames", "targetDeviceIDs", "targets",
         "triggers", "steps", "sortOrder"
     ]
 
@@ -67,16 +67,29 @@ enum BackupCSVService {
         }
 
         let deckNamesByID = Dictionary(uniqueKeysWithValues: hyperDecks.map { ($0.id, $0.name) })
+        let folderNamesByID = Dictionary(uniqueKeysWithValues: localFolders.map { ($0.id, $0.name) })
         let encoder = JSONEncoder()
         for workflow in workflows {
-            let targetNames = workflow.targetDeckIDs.compactMap { deckNamesByID[$0] }
-            let targetIDs = workflow.targetDeckIDs.map(\.uuidString)
+            let targetNames = workflow.targets.compactMap { target -> String? in
+                switch target {
+                case .hyperDeck(let id):   return deckNamesByID[id]
+                case .localFolder(let id): return folderNamesByID[id]
+                }
+            }
+            // Legacy column, kept only so an older app version reading this
+            // file still sees a HyperDeck-only target list.
+            let legacyDeckIDs = workflow.targets.compactMap { target -> UUID? in
+                if case .hyperDeck(let id) = target { return id }
+                return nil
+            }
+            let targetsJSON = (try? encoder.encode(workflow.targets)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
             let triggersJSON = (try? encoder.encode(workflow.triggers)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
             let stepsJSON = (try? encoder.encode(workflow.steps)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
             rows.append(row(
                 id: workflow.id, type: .workflow, name: workflow.name,
                 targetDeviceNames: targetNames.joined(separator: ", "),
-                targetDeviceIDs: targetIDs.joined(separator: ","),
+                targetDeviceIDs: legacyDeckIDs.map(\.uuidString).joined(separator: ","),
+                targets: targetsJSON,
                 triggers: triggersJSON, steps: stepsJSON, sortOrder: workflow.sortOrder
             ))
         }
@@ -87,11 +100,11 @@ enum BackupCSVService {
     private static func row(
         id: UUID, type: RowType, name: String = "", ipAddress: String = "", remotePath: String = "",
         volumeName: String = "", path: String = "", username: String = "", password: String = "",
-        capacityGB: String = "", targetDeviceNames: String = "", targetDeviceIDs: String = "",
+        capacityGB: String = "", targetDeviceNames: String = "", targetDeviceIDs: String = "", targets: String = "",
         triggers: String = "", steps: String = "", sortOrder: Int = 0
     ) -> [String] {
         [id.uuidString, type.rawValue, name, ipAddress, remotePath, volumeName, path, username, password,
-         capacityGB, targetDeviceNames, targetDeviceIDs, triggers, steps, String(sortOrder)]
+         capacityGB, targetDeviceNames, targetDeviceIDs, targets, triggers, steps, String(sortOrder)]
     }
 
     // MARK: - Import
@@ -151,9 +164,17 @@ enum BackupCSVService {
             case .localFolder:
                 result.localFolders.append(LocalFolder(id: id, name: field(row, "name"), path: field(row, "path"), sortOrder: sortOrder))
             case .workflow:
-                let targetDeckIDs = field(row, "targetDeviceIDs")
-                    .split(separator: ",")
-                    .compactMap { UUID(uuidString: $0.trimmingCharacters(in: .whitespaces)) }
+                let targetsData = Data(field(row, "targets").utf8)
+                let targets: [WorkflowTarget]
+                if let decoded = try? decoder.decode([WorkflowTarget].self, from: targetsData), !decoded.isEmpty {
+                    targets = decoded
+                } else {
+                    // Older backup files only had a HyperDeck-only targetDeviceIDs column.
+                    targets = field(row, "targetDeviceIDs")
+                        .split(separator: ",")
+                        .compactMap { UUID(uuidString: $0.trimmingCharacters(in: .whitespaces)) }
+                        .map { .hyperDeck($0) }
+                }
 
                 let triggersData = Data(field(row, "triggers").utf8)
                 let stepsData = Data(field(row, "steps").utf8)
@@ -161,7 +182,7 @@ enum BackupCSVService {
                 let steps = (try? decoder.decode([WorkflowStep].self, from: stepsData)) ?? []
 
                 result.workflows.append(Workflow(
-                    id: id, name: field(row, "name"), steps: steps, targetDeckIDs: targetDeckIDs,
+                    id: id, name: field(row, "name"), steps: steps, targets: targets,
                     triggers: triggers, sortOrder: sortOrder
                 ))
             }

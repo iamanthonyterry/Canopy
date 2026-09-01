@@ -194,10 +194,13 @@ struct WorkflowsView: View {
     // MARK: - Helpers
 
     private func targetDeviceLabel(_ workflow: Workflow) -> String {
-        if workflow.targetDeckIDs.isEmpty { return "All devices" }
-        let names = appState.hyperDecks
-            .filter { workflow.targetDeckIDs.contains($0.id) }
-            .map(\.name)
+        if workflow.targets.isEmpty { return "All devices" }
+        let names = workflow.targets.compactMap { target -> String? in
+            switch target {
+            case .hyperDeck(let id):   return appState.hyperDecks.first { $0.id == id }?.name
+            case .localFolder(let id): return appState.localFolders.first { $0.id == id }?.name
+            }
+        }
         return names.isEmpty ? "No devices selected" : names.joined(separator: ", ")
     }
 

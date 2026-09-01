@@ -478,13 +478,23 @@ extension WorkflowStep: Codable {
     }
 }
 
+// MARK: - Workflow Target
+// Which kind of device a workflow can be pointed at. Cloud Stores are only
+// ever a Sync *destination* (see `SyncDestination`), not a selectable
+// workflow target, so they have no case here.
+enum WorkflowTarget: Hashable, Codable {
+    case hyperDeck(UUID)
+    case localFolder(UUID)
+}
+
 // MARK: - Workflow
 struct Workflow: Identifiable, Codable, Hashable {
     var id = UUID()
     var name: String
     var steps: [WorkflowStep] = []
-    /// Which HyperDecks this workflow runs against. Empty = all configured decks.
-    var targetDeckIDs: [UUID] = []
+    /// Which devices this workflow runs against. Empty = all configured
+    /// HyperDecks and Local Folders.
+    var targets: [WorkflowTarget] = []
     /// A workflow can have any number of automatic time triggers (e.g. a
     /// daily run at 2 AM plus a separate one-time run this weekend).
     var triggers: [ScheduleSettings] = []
@@ -494,14 +504,14 @@ struct Workflow: Identifiable, Codable, Hashable {
         id: UUID = UUID(),
         name: String,
         steps: [WorkflowStep] = [],
-        targetDeckIDs: [UUID] = [],
+        targets: [WorkflowTarget] = [],
         triggers: [ScheduleSettings] = [],
         sortOrder: Int = 0
     ) {
         self.id = id
         self.name = name
         self.steps = steps
-        self.targetDeckIDs = targetDeckIDs
+        self.targets = targets
         self.triggers = triggers
         self.sortOrder = sortOrder
     }
@@ -536,7 +546,7 @@ struct Workflow: Identifiable, Codable, Hashable {
     // MARK: Codable (with migration from the old single `schedule` field)
 
     enum CodingKeys: String, CodingKey {
-        case id, name, steps, targetDeckIDs, triggers, schedule, sortOrder
+        case id, name, steps, targets, targetDeckIDs, triggers, schedule, sortOrder
     }
 
     init(from decoder: Decoder) throws {
@@ -544,7 +554,15 @@ struct Workflow: Identifiable, Codable, Hashable {
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try container.decode(String.self, forKey: .name)
         steps = try container.decodeIfPresent([WorkflowStep].self, forKey: .steps) ?? []
-        targetDeckIDs = try container.decodeIfPresent([UUID].self, forKey: .targetDeckIDs) ?? []
+
+        if let decodedTargets = try container.decodeIfPresent([WorkflowTarget].self, forKey: .targets) {
+            targets = decodedTargets
+        } else {
+            // Workflows saved before Local Folder targets existed only had a
+            // plain list of HyperDeck UUIDs.
+            let legacyDeckIDs = try container.decodeIfPresent([UUID].self, forKey: .targetDeckIDs) ?? []
+            targets = legacyDeckIDs.map { .hyperDeck($0) }
+        }
 
         if let decodedTriggers = try container.decodeIfPresent([ScheduleSettings].self, forKey: .triggers) {
             triggers = decodedTriggers
@@ -563,7 +581,7 @@ struct Workflow: Identifiable, Codable, Hashable {
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encode(steps, forKey: .steps)
-        try container.encode(targetDeckIDs, forKey: .targetDeckIDs)
+        try container.encode(targets, forKey: .targets)
         try container.encode(triggers, forKey: .triggers)
         try container.encode(sortOrder, forKey: .sortOrder)
     }

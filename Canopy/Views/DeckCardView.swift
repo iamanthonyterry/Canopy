@@ -116,7 +116,7 @@ struct DeckContentPane: View {
             Menu {
                 ForEach(appState.workflows.sorted { $0.sortOrder < $1.sortOrder }) { workflow in
                     Button(workflow.name) {
-                        Task { await workflowEngine.runDevice(workflow, deck: deck) }
+                        Task { await workflowEngine.runDevice(workflow, target: .hyperDeck(deck)) }
                     }
                     .disabled(workflow.steps.isEmpty)
                 }

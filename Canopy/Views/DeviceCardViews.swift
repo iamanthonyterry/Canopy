@@ -81,6 +81,8 @@ struct CloudStoreContentPane: View {
 
 struct LocalFolderContentPane: View {
     let folder: LocalFolder
+    @EnvironmentObject var appState: AppState
+    @StateObject private var workflowEngine = WorkflowEngine.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -101,8 +103,31 @@ struct LocalFolderContentPane: View {
             Label(folder.exists ? "Available" : "Not Found", systemImage: folder.exists ? "checkmark.circle.fill" : "xmark.circle.fill")
                 .font(.caption).bold()
                 .foregroundStyle(folder.exists ? .green : .red)
+            if appState.isAdmin {
+                runWorkflowMenu
+            }
         }
         .padding()
+    }
+
+    @ViewBuilder
+    private var runWorkflowMenu: some View {
+        if !appState.workflows.isEmpty {
+            Menu {
+                ForEach(appState.workflows.sorted { $0.sortOrder < $1.sortOrder }) { workflow in
+                    Button(workflow.name) {
+                        Task { await workflowEngine.runDevice(workflow, target: .localFolder(folder)) }
+                    }
+                    .disabled(workflow.steps.isEmpty)
+                }
+            } label: {
+                Label("Run Workflow", systemImage: "flowchart")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .buttonStyle(.borderedProminent)
+            .disabled(!folder.exists || appState.busyDeckNames.contains(folder.name))
+        }
     }
 }
 
