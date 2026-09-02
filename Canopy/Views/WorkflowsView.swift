@@ -199,6 +199,9 @@ struct WorkflowsView: View {
             switch target {
             case .hyperDeck(let id):   return appState.hyperDecks.first { $0.id == id }?.name
             case .localFolder(let id): return appState.localFolders.first { $0.id == id }?.name
+            case .cloudStore(let id, let path):
+                guard let store = appState.cloudStores.first(where: { $0.id == id }) else { return nil }
+                return path.isEmpty ? store.name : "\(store.name)/\(path)"
             }
         }
         return names.isEmpty ? "No devices selected" : names.joined(separator: ", ")

@@ -88,6 +88,10 @@ class AppState: ObservableObject {
                 if let deck = hyperDecks.first(where: { $0.id == id }) { names.insert(deck.name) }
             case .localFolder(let id):
                 if let folder = localFolders.first(where: { $0.id == id }) { names.insert(folder.name) }
+            case .cloudStore(let id, let path):
+                if let store = cloudStores.first(where: { $0.id == id }) {
+                    names.insert(path.isEmpty ? store.name : "\(store.name)/\(path)")
+                }
             }
         }
         return names

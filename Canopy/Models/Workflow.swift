@@ -507,12 +507,16 @@ extension WorkflowStep: Codable {
 }
 
 // MARK: - Workflow Target
-// Which kind of device a workflow can be pointed at. Cloud Stores are only
-// ever a Sync *destination* (see `SyncDestination`), not a selectable
-// workflow target, so they have no case here.
+// Which kind of device a workflow can be pointed at. A Cloud Store target
+// names a specific folder within that store (unlike a HyperDeck or Local
+// Folder, a Cloud Store isn't a single preconfigured place to run — the
+// same store can host any number of different folders across different
+// workflows), so the path is stored on the target itself rather than
+// looked up from a registered device by id.
 enum WorkflowTarget: Hashable, Codable {
     case hyperDeck(UUID)
     case localFolder(UUID)
+    case cloudStore(id: UUID, path: String)
 }
 
 // MARK: - Workflow

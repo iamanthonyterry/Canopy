@@ -13,6 +13,7 @@ struct WorkflowEditorSheet: View {
     @State private var triggers: [ScheduleSettings]
     @State private var editingStep: WorkflowStep? = nil
     @State private var editingTrigger: ScheduleSettings? = nil
+    @State private var pickingCloudStoreFolder: CloudStore? = nil
 
     init(workflow: Workflow?) {
         existingWorkflow = workflow
@@ -50,6 +51,11 @@ struct WorkflowEditorSheet: View {
         .sheet(item: $editingTrigger) { trigger in
             if let index = triggers.firstIndex(where: { $0.id == trigger.id }) {
                 ScheduleTriggerConfigSheet(trigger: $triggers[index])
+            }
+        }
+        .sheet(item: $pickingCloudStoreFolder) { store in
+            FolderPickerSheet(store: store) { path in
+                addCloudStoreFolderTarget(store: store, path: path)
             }
         }
     }
@@ -105,12 +111,62 @@ struct WorkflowEditorSheet: View {
             if appState.hyperDecks.isEmpty && appState.localFolders.isEmpty {
                 Text("No devices configured yet.").font(.caption).foregroundStyle(.secondary)
             }
+
+            ForEach(selectedCloudStoreFolderTargets, id: \.target) { entry in
+                HStack {
+                    Label(
+                        entry.path.isEmpty ? entry.store.name : "\(entry.store.name)/\(entry.path)",
+                        systemImage: "externaldrive.badge.wifi"
+                    )
+                    Spacer()
+                    Button {
+                        targets.remove(entry.target)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            if !appState.cloudStores.isEmpty {
+                Menu {
+                    ForEach(appState.cloudStores) { store in
+                        Button(store.name) { pickingCloudStoreFolder = store }
+                    }
+                } label: {
+                    Label("Add Cloud Store Folder…", systemImage: "plus.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
         } header: {
             Text("Runs On")
         } footer: {
-            Text("Cloud Stores can be a Sync destination but aren't selectable as a workflow target yet.")
+            Text("A Cloud Store Folder runs in place, like a Local Folder — it processes files already sitting in that folder rather than downloading from a device.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+    }
+
+    /// Cloud Store Folder targets currently selected on this workflow, paired
+    /// with the still-configured store they point at (a target whose store
+    /// was since deleted is silently dropped from the list rather than shown
+    /// broken).
+    private var selectedCloudStoreFolderTargets: [(target: WorkflowTarget, store: CloudStore, path: String)] {
+        targets.compactMap { target in
+            guard case .cloudStore(let id, let path) = target,
+                  let store = appState.cloudStores.first(where: { $0.id == id }) else { return nil }
+            return (target, store, path)
+        }
+    }
+
+    /// Adds a Cloud Store Folder target for the given store + path. If the
+    /// selection was still the "All Devices" shorthand (an empty `targets`
+    /// set), that shorthand is expanded to its explicit equivalent first —
+    /// otherwise adding this one target would also silently drop every
+    /// implicitly-included HyperDeck and Local Folder.
+    private func addCloudStoreFolderTarget(store: CloudStore, path: String) {
+        if targets.isEmpty { targets = allPossibleTargets }
+        targets.insert(.cloudStore(id: store.id, path: path))
     }
 
     private func targetToggle(_ target: WorkflowTarget, label: String) -> some View {

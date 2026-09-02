@@ -44,7 +44,9 @@ struct StatusBadge: View {
 
 struct CloudStoreContentPane: View {
     let store: CloudStore
+    @EnvironmentObject var appState: AppState
     @ObservedObject private var monitor = ConnectionMonitor.shared
+    @StateObject private var workflowEngine = WorkflowEngine.shared
 
     private var liveStatus: DeckStatus { monitor.status(for: store.ipAddress) }
 
@@ -70,8 +72,34 @@ struct CloudStoreContentPane: View {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
+            if appState.isAdmin {
+                runWorkflowMenu
+            }
         }
         .padding()
+    }
+
+    /// Runs the chosen workflow against this store's volume root — picking a
+    /// specific subfolder isn't available from this quick action, only from
+    /// a workflow's own "Runs On" configuration in the editor.
+    @ViewBuilder
+    private var runWorkflowMenu: some View {
+        if !appState.workflows.isEmpty {
+            Menu {
+                ForEach(appState.workflows.sorted { $0.sortOrder < $1.sortOrder }) { workflow in
+                    Button(workflow.name) {
+                        Task { await workflowEngine.runDevice(workflow, target: .cloudStore(store, path: "")) }
+                    }
+                    .disabled(workflow.steps.isEmpty)
+                }
+            } label: {
+                Label("Run Workflow", systemImage: "flowchart")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .buttonStyle(.borderedProminent)
+            .disabled(appState.busyDeckNames.contains(store.name))
+        }
     }
 }
 

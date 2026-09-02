@@ -68,12 +68,16 @@ enum BackupCSVService {
 
         let deckNamesByID = Dictionary(uniqueKeysWithValues: hyperDecks.map { ($0.id, $0.name) })
         let folderNamesByID = Dictionary(uniqueKeysWithValues: localFolders.map { ($0.id, $0.name) })
+        let storeNamesByID = Dictionary(uniqueKeysWithValues: cloudStores.map { ($0.id, $0.name) })
         let encoder = JSONEncoder()
         for workflow in workflows {
             let targetNames = workflow.targets.compactMap { target -> String? in
                 switch target {
                 case .hyperDeck(let id):   return deckNamesByID[id]
                 case .localFolder(let id): return folderNamesByID[id]
+                case .cloudStore(let id, let path):
+                    guard let storeName = storeNamesByID[id] else { return nil }
+                    return path.isEmpty ? storeName : "\(storeName)/\(path)"
                 }
             }
             // Legacy column, kept only so an older app version reading this
