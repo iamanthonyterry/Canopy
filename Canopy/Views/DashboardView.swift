@@ -24,6 +24,7 @@ struct DashboardView: View {
 
     @State private var showingAddDeck = false
     @State private var showingAddCloudStore = false
+    @State private var addCloudStoreKind: CloudStore.Kind = .blackmagicCloudStore
     @State private var showingAddLocalFolder = false
     @State private var selection: DashboardSelection?
     @State private var showMode = false
@@ -79,7 +80,7 @@ struct DashboardView: View {
         }
         .background(Color.canopyPaper)
         .sheet(isPresented: $showingAddDeck) { DeckEditSheet(deck: nil) }
-        .sheet(isPresented: $showingAddCloudStore) { CloudStoreEditSheet(store: nil) }
+        .sheet(isPresented: $showingAddCloudStore) { CloudStoreEditSheet(store: nil, defaultKind: addCloudStoreKind) }
         .sheet(isPresented: $showingAddLocalFolder) { LocalFolderEditSheet(folder: nil) }
         .onAppear { monitor.start() }
     }
@@ -152,7 +153,8 @@ struct DashboardView: View {
 
                     Menu {
                         Button("HyperDeck") { showingAddDeck = true }
-                        Button("Cloud Store") { showingAddCloudStore = true }
+                        Button("Cloud Store") { addCloudStoreKind = .blackmagicCloudStore; showingAddCloudStore = true }
+                        Button("Synology NAS") { addCloudStoreKind = .synologyNAS; showingAddCloudStore = true }
                         Button("Local Folder") { showingAddLocalFolder = true }
                     } label: {
                         Label("Add Device", systemImage: "plus")
@@ -289,7 +291,7 @@ struct DashboardView: View {
                     }
                 }
                 ForEach(newStores) { s in
-                    DiscoveredDeviceRow(name: s.name, ip: s.ipAddress, icon: "externaldrive.badge.wifi") {
+                    DiscoveredDeviceRow(name: s.name, ip: s.ipAddress, icon: s.kind.icon) {
                         appState.addCloudStore(s)
                     }
                 }
@@ -303,7 +305,7 @@ struct DashboardView: View {
             Spacer()
             Image(systemName: "network").font(.system(size: 48)).foregroundStyle(Color.canopySage)
             Text("No Devices Added").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
-            Text("Scan the network, or add a HyperDeck, Cloud Store, or Local Folder.")
+            Text("Scan the network, or add a HyperDeck, Cloud Store, Synology NAS, or Local Folder.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             HStack(spacing: 10) {

@@ -71,12 +71,20 @@ class DeviceDiscovery: ObservableObject {
     private func handleSMBResult(_ result: NWBrowser.Result) async {
         let name = result.endpoint.serviceName ?? ""
         let lower = name.lowercased()
-        guard lower.contains("cloud") || lower.contains("blackmagic") else { return }
+
+        let kind: CloudStore.Kind
+        if lower.contains("cloud") || lower.contains("blackmagic") {
+            kind = .blackmagicCloudStore
+        } else if lower.contains("synology") || lower.contains("diskstation") || lower.contains("nas") {
+            kind = .synologyNAS
+        } else {
+            return
+        }
 
         guard let ip = await resolveIP(for: result.endpoint), !ip.isEmpty else { return }
         guard !discoveredCloudStores.contains(where: { $0.ipAddress == ip }) else { return }
 
-        discoveredCloudStores.append(CloudStore(name: name, ipAddress: ip, volumeName: name))
+        discoveredCloudStores.append(CloudStore(name: name, ipAddress: ip, volumeName: name, kind: kind))
     }
 
     // MARK: - IP Resolution

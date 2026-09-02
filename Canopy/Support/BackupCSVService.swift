@@ -27,7 +27,7 @@ enum BackupCSVService {
     private static let columns = [
         "id", "type", "name", "ipAddress", "remotePath", "volumeName", "path",
         "username", "password", "capacityGB", "targetDeviceNames", "targetDeviceIDs", "targets",
-        "triggers", "steps", "sortOrder"
+        "triggers", "steps", "sortOrder", "kind"
     ]
 
     // MARK: - Export
@@ -58,7 +58,7 @@ enum BackupCSVService {
                 volumeName: store.volumeName,
                 username: includeCredentials ? store.username : "",
                 password: includeCredentials ? store.password : "",
-                sortOrder: store.sortOrder
+                sortOrder: store.sortOrder, kind: store.kind.rawValue
             ))
         }
 
@@ -105,10 +105,10 @@ enum BackupCSVService {
         id: UUID, type: RowType, name: String = "", ipAddress: String = "", remotePath: String = "",
         volumeName: String = "", path: String = "", username: String = "", password: String = "",
         capacityGB: String = "", targetDeviceNames: String = "", targetDeviceIDs: String = "", targets: String = "",
-        triggers: String = "", steps: String = "", sortOrder: Int = 0
+        triggers: String = "", steps: String = "", sortOrder: Int = 0, kind: String = ""
     ) -> [String] {
         [id.uuidString, type.rawValue, name, ipAddress, remotePath, volumeName, path, username, password,
-         capacityGB, targetDeviceNames, targetDeviceIDs, targets, triggers, steps, String(sortOrder)]
+         capacityGB, targetDeviceNames, targetDeviceIDs, targets, triggers, steps, String(sortOrder), kind]
     }
 
     // MARK: - Import
@@ -160,10 +160,11 @@ enum BackupCSVService {
                     capacityGB: Double(field(row, "capacityGB"))
                 ))
             case .cloudStore:
+                let kind = CloudStore.Kind(rawValue: field(row, "kind")) ?? .blackmagicCloudStore
                 result.cloudStores.append(CloudStore(
                     id: id, name: field(row, "name"), ipAddress: field(row, "ipAddress"),
                     volumeName: field(row, "volumeName"), username: field(row, "username"),
-                    password: field(row, "password"), sortOrder: sortOrder
+                    password: field(row, "password"), sortOrder: sortOrder, kind: kind
                 ))
             case .localFolder:
                 result.localFolders.append(LocalFolder(id: id, name: field(row, "name"), path: field(row, "path"), sortOrder: sortOrder))

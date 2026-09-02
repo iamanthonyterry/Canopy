@@ -5,6 +5,7 @@ struct CloudStoreEditSheet: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
     let existingStore: CloudStore?
+    let kind: CloudStore.Kind
 
     @State private var name       = ""
     @State private var ipAddress  = ""
@@ -16,8 +17,9 @@ struct CloudStoreEditSheet: View {
     @State private var mountResult: String? = nil
     @State private var showVolumePicker = false
 
-    init(store: CloudStore?) {
+    init(store: CloudStore?, defaultKind: CloudStore.Kind = .blackmagicCloudStore) {
         existingStore = store
+        kind = store?.kind ?? defaultKind
         _name       = State(initialValue: store?.name       ?? "")
         _ipAddress  = State(initialValue: store?.ipAddress  ?? "")
         _volumeName = State(initialValue: store?.volumeName ?? "")
@@ -30,7 +32,7 @@ struct CloudStoreEditSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(existingStore == nil ? "Add Cloud Store" : "Edit Cloud Store")
+                Text(existingStore == nil ? "Add \(kind.displayName)" : "Edit \(kind.displayName)")
                     .font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -44,14 +46,14 @@ struct CloudStoreEditSheet: View {
             Form {
                 Section("Device Info") {
                     LabeledContent("Name") {
-                        TextField("e.g. Cloud Store 1", text: $name).textFieldStyle(.roundedBorder)
+                        TextField(kind == .synologyNAS ? "e.g. Synology NAS" : "e.g. Cloud Store 1", text: $name).textFieldStyle(.roundedBorder)
                     }
                     LabeledContent("IP Address") {
                         TextField("192.168.x.x", text: $ipAddress).textFieldStyle(.roundedBorder)
                     }
                     LabeledContent("Volume Name") {
                         HStack(spacing: 8) {
-                            TextField("e.g. CloudStore", text: $volumeName)
+                            TextField(kind == .synologyNAS ? "e.g. video" : "e.g. CloudStore", text: $volumeName)
                                 .textFieldStyle(.roundedBorder)
                             Button {
                                 showVolumePicker = true
@@ -116,7 +118,8 @@ struct CloudStoreEditSheet: View {
         } else {
             appState.addCloudStore(CloudStore(
                 name: name, ipAddress: ipAddress,
-                volumeName: volumeName, username: username, password: password
+                volumeName: volumeName, username: username, password: password,
+                kind: kind
             ))
         }
         dismiss()

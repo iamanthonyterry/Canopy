@@ -22,7 +22,10 @@ struct HyperDeck: Identifiable, Codable, Hashable {
     var capacityGB: Double? = nil
 }
 
-// MARK: - Blackmagic Cloud Store
+// MARK: - Blackmagic Cloud Store / Network-Attached Storage
+// Both connect the same way — an SMB share reached by IP, volume/share name,
+// and credentials — so a Synology NAS reuses this exact model and just
+// carries a different `kind` for display (icon/title) purposes.
 struct CloudStore: Identifiable, Codable, Hashable {
     var id = UUID()
     var name: String
@@ -31,6 +34,54 @@ struct CloudStore: Identifiable, Codable, Hashable {
     var username: String = ""
     var password: String = ""
     var sortOrder: Int = 0
+    var kind: Kind = .blackmagicCloudStore
+
+    enum Kind: String, Codable, CaseIterable, Hashable {
+        case blackmagicCloudStore
+        case synologyNAS
+
+        var displayName: String {
+            switch self {
+            case .blackmagicCloudStore: return "Cloud Store"
+            case .synologyNAS:          return "Synology NAS"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .blackmagicCloudStore: return "externaldrive.badge.wifi"
+            case .synologyNAS:          return "server.rack"
+            }
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, ipAddress, volumeName, username, password, sortOrder, kind
+    }
+
+    init(
+        id: UUID = UUID(), name: String, ipAddress: String, volumeName: String = "",
+        username: String = "", password: String = "", sortOrder: Int = 0,
+        kind: Kind = .blackmagicCloudStore
+    ) {
+        self.id = id; self.name = name; self.ipAddress = ipAddress
+        self.volumeName = volumeName; self.username = username; self.password = password
+        self.sortOrder = sortOrder; self.kind = kind
+    }
+
+    // Custom decode so existing saved stores (encoded before `kind` existed)
+    // still load instead of failing and silently wiping the user's devices.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id         = try c.decode(UUID.self, forKey: .id)
+        name       = try c.decode(String.self, forKey: .name)
+        ipAddress  = try c.decode(String.self, forKey: .ipAddress)
+        volumeName = try c.decodeIfPresent(String.self, forKey: .volumeName) ?? ""
+        username   = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
+        password   = try c.decodeIfPresent(String.self, forKey: .password) ?? ""
+        sortOrder  = try c.decodeIfPresent(Int.self, forKey: .sortOrder) ?? 0
+        kind       = try c.decodeIfPresent(Kind.self, forKey: .kind) ?? .blackmagicCloudStore
+    }
 }
 
 // MARK: - Local Folder / Drive
