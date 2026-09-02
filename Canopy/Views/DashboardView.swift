@@ -122,7 +122,7 @@ struct DashboardView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Dashboard").font(.canopyTitle).foregroundStyle(Color.canopyInk)
-                    Text("\(appState.hyperDecks.count) decks · \(appState.cloudStores.count) cloud stores · \(appState.localFolders.count) local folders")
+                    Text("\(appState.hyperDecks.count) decks · \(appState.cloudStores.count) network storage · \(appState.localFolders.count) local folders")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -205,7 +205,7 @@ struct DashboardView: View {
             }
 
             if !appState.cloudStores.isEmpty {
-                Section("Cloud Stores") {
+                Section("Network Storage") {
                     ForEach(appState.cloudStores) { store in
                         CloudStoreListRow(store: store)
                             .tag(DashboardSelection.cloudStore(store.id))

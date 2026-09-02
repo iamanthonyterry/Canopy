@@ -17,6 +17,7 @@ struct DeckEditSheet: View {
     @State private var isTesting       = false
     @State private var isCheckingBrowseAvailability = false
     @State private var browseAvailable = false
+    @State private var showingRemoveConfirmation = false
 
     init(deck: HyperDeck?) {
         existingDeck = deck
@@ -51,8 +52,8 @@ struct DeckEditSheet: View {
                     LabeledContent("Name") {
                         TextField("e.g. ISO 1", text: $name).textFieldStyle(.roundedBorder)
                     }
-                    LabeledContent("IP Address") {
-                        TextField("192.168.x.x", text: $ipAddress).textFieldStyle(.roundedBorder)
+                    LabeledContent("Address") {
+                        TextField("192.168.x.x or hostname.local", text: $ipAddress).textFieldStyle(.roundedBorder)
                     }
                     LabeledContent("Remote Path") {
                         HStack(spacing: 8) {
@@ -115,6 +116,18 @@ struct DeckEditSheet: View {
                         }
                     }
                 }
+
+                // MARK: Remove
+                if existingDeck != nil {
+                    Section {
+                        Button(role: .destructive) {
+                            showingRemoveConfirmation = true
+                        } label: {
+                            Label("Remove Device", systemImage: "trash")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
             }
             .formStyle(.grouped)
         }
@@ -127,6 +140,21 @@ struct DeckEditSheet: View {
             DeckPathPickerSheet(ipAddress: ipAddress, username: username, password: password) { path in
                 remotePath = path
             }
+        }
+        .confirmationDialog(
+            "Remove \(existingDeck?.name ?? "this device")?",
+            isPresented: $showingRemoveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Remove", role: .destructive) {
+                if let id = existingDeck?.id {
+                    appState.deleteDeck(id: id)
+                }
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the device from Canopy. It won't affect any files already on it.")
         }
     }
 

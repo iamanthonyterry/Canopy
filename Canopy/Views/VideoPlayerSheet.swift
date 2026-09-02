@@ -424,6 +424,12 @@ struct VideoPlayerSheet: View {
         panel.nameFieldStringValue = "\(base)_clip.\(useMP4 ? "mp4" : "mov")"
         panel.allowedContentTypes = [useMP4 ? .mpeg4Movie : .quickTimeMovie]
         panel.canCreateDirectories = true
+        switch device {
+        case .cloudStore, .localFolder:
+            panel.directoryURL = sourceURL.flatMap { $0.deletingLastPathComponent() }
+        case .hyperDeck:
+            break
+        }
 
         guard panel.runModal() == .OK, let destination = panel.url else { return }
 

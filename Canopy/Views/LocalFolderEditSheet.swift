@@ -11,6 +11,7 @@ struct LocalFolderEditSheet: View {
 
     @State private var name = ""
     @State private var path = ""
+    @State private var showingRemoveConfirmation = false
 
     init(folder: LocalFolder?) {
         existingFolder = folder
@@ -56,11 +57,38 @@ struct LocalFolderEditSheet: View {
                         }
                     }
                 }
+
+                // MARK: Remove
+                if existingFolder != nil {
+                    Section {
+                        Button(role: .destructive) {
+                            showingRemoveConfirmation = true
+                        } label: {
+                            Label("Remove Device", systemImage: "trash")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
             }
             .formStyle(.grouped)
         }
         .frame(width: 440)
         .background(Color.canopyPaper)
+        .confirmationDialog(
+            "Remove \(existingFolder?.name ?? "this device")?",
+            isPresented: $showingRemoveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Remove", role: .destructive) {
+                if let id = existingFolder?.id {
+                    appState.deleteLocalFolder(id: id)
+                }
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the folder from Canopy. It won't affect the files themselves.")
+        }
     }
 
     private func choosePath() {

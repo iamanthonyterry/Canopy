@@ -16,6 +16,7 @@ struct CloudStoreEditSheet: View {
     @State private var isTesting  = false
     @State private var mountResult: String? = nil
     @State private var showVolumePicker = false
+    @State private var showingRemoveConfirmation = false
 
     init(store: CloudStore?, defaultKind: CloudStore.Kind = .blackmagicCloudStore) {
         existingStore = store
@@ -48,8 +49,8 @@ struct CloudStoreEditSheet: View {
                     LabeledContent("Name") {
                         TextField(kind == .synologyNAS ? "e.g. Synology NAS" : "e.g. Cloud Store 1", text: $name).textFieldStyle(.roundedBorder)
                     }
-                    LabeledContent("IP Address") {
-                        TextField("192.168.x.x", text: $ipAddress).textFieldStyle(.roundedBorder)
+                    LabeledContent("Address") {
+                        TextField("192.168.x.x or hostname.local", text: $ipAddress).textFieldStyle(.roundedBorder)
                     }
                     LabeledContent("Volume Name") {
                         HStack(spacing: 8) {
@@ -98,6 +99,18 @@ struct CloudStoreEditSheet: View {
                         }
                     }
                 }
+
+                // MARK: Remove
+                if existingStore != nil {
+                    Section {
+                        Button(role: .destructive) {
+                            showingRemoveConfirmation = true
+                        } label: {
+                            Label("Remove Device", systemImage: "trash")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
             }
             .formStyle(.grouped)
         }
@@ -107,6 +120,21 @@ struct CloudStoreEditSheet: View {
             CloudStoreVolumePickerSheet(ipAddress: ipAddress, username: username, password: password) { share in
                 volumeName = share
             }
+        }
+        .confirmationDialog(
+            "Remove \(existingStore?.name ?? "this device")?",
+            isPresented: $showingRemoveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Remove", role: .destructive) {
+                if let id = existingStore?.id {
+                    appState.deleteCloudStore(id: id)
+                }
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the device from Canopy. It won't affect any files already on it.")
         }
     }
 
