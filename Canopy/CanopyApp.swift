@@ -20,8 +20,7 @@ struct CanopyApp: App {
                     GmailAuthService.shared.handleRedirect(url: url)
                 }
         }
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified)
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 700)
         .commands {
             CommandGroup(after: .appInfo) {

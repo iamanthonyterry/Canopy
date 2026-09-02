@@ -25,14 +25,14 @@ struct ElapsedTimeView: View {
             HStack {
                 Label("Running", systemImage: "clock")
                     .font(.caption).bold()
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Color.accentColor)
                 Spacer()
                 Text(elapsedString(elapsed))
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
             ProgressView(value: progressValue(elapsed))
-                .tint(.blue)
+                .tint(Color.accentColor)
                 .animation(.linear(duration: 1), value: elapsed)
         }
     }
@@ -55,7 +55,7 @@ struct ElapsedTimeView: View {
     private func compactLayout(elapsed: TimeInterval) -> some View {
         HStack(spacing: 8) {
             ProgressView(value: progressValue(elapsed))
-                .tint(.blue)
+                .tint(Color.accentColor)
                 .frame(width: 80)
             Text(elapsedString(elapsed))
                 .font(.system(.caption2, design: .monospaced))

@@ -33,14 +33,15 @@ struct DeckPathPickerSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
             breadcrumb
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
             content
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
             footer
         }
         .frame(width: 480, height: 380)
+        .background(Color.canopyPaper)
         .task { await load() }
     }
 
@@ -51,7 +52,7 @@ struct DeckPathPickerSheet: View {
             Image(systemName: "server.rack")
                 .foregroundStyle(.tint)
             Text("Choose Remote Path")
-                .font(.title3).bold()
+                .font(.canopyTitle2).foregroundStyle(Color.canopyInk)
             Spacer()
             Button("Cancel") { dismiss() }
                 .keyboardShortcut(.cancelAction)
@@ -157,7 +158,7 @@ struct DeckPathPickerSheet: View {
                     dismiss()
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.canopyPrimary)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

@@ -18,7 +18,7 @@ struct ShowModeView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
@@ -38,6 +38,7 @@ struct ShowModeView: View {
                 .padding(28)
             }
         }
+        .background(Color.canopyPaper)
         .onAppear { monitor.start() }
     }
 
@@ -47,7 +48,8 @@ struct ShowModeView: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Live Status")
-                    .font(.system(size: 30, weight: .bold))
+                    .font(.canopyDisplay(30, weight: .bold))
+                    .foregroundStyle(Color.canopyInk)
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text(context.date.formatted(date: .abbreviated, time: .standard))
                         .font(.system(size: 15, design: .monospaced))
@@ -62,7 +64,7 @@ struct ShowModeView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .padding(.horizontal, 6).padding(.vertical, 4)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.canopyPrimary)
             .controlSize(.large)
         }
         .padding(28)
@@ -73,8 +75,8 @@ struct ShowModeView: View {
     private var activeRunsSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Active Runs")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(.secondary)
+                .font(.canopyDisplay(20, weight: .bold))
+                .foregroundStyle(Color.canopyInk)
 
             ForEach(inProgress) { session in
                 activeRunCard(session)
@@ -91,8 +93,8 @@ struct ShowModeView: View {
     private func deviceSection(title: String, ipAddresses: [(UUID, String, String, Bool)]) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title)
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(.secondary)
+                .font(.canopyDisplay(20, weight: .bold))
+                .foregroundStyle(Color.canopyInk)
 
             LazyVGrid(columns: columns, spacing: 20) {
                 ForEach(ipAddresses, id: \.0) { _, name, ip, canRecord in
@@ -125,7 +127,7 @@ struct ShowModeView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color("CanopySageTint"))
+        .background(Color.canopySageTint)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
@@ -135,9 +137,10 @@ struct ShowModeView: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "network").font(.system(size: 44)).foregroundStyle(.secondary)
+            Image(systemName: "network").font(.system(size: 44)).foregroundStyle(Color.canopySage)
             Text("No Devices Added")
-                .font(.system(size: 20, weight: .semibold))
+                .font(.canopyDisplay(20, weight: .semibold))
+                .foregroundStyle(Color.canopyInk)
             Text("Add devices from the main Dashboard to see them here.")
                 .foregroundStyle(.secondary)
         }
@@ -162,10 +165,10 @@ struct ShowModeView: View {
 
     private func statusColor(_ status: DeckStatus) -> Color {
         switch status {
-        case .online:                                  .green
-        case .offline, .noMedia:                        .red
+        case .online:                                  .canopySage
+        case .offline, .noMedia:                        .canopyRust
         case .unauthorized, .pathNotFound, .transcoding: .orange
-        case .syncing:                                   .blue
+        case .syncing:                                   .accentColor
         case .unknown:                                   .gray
         }
     }
@@ -188,7 +191,7 @@ private struct ActiveRunCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 18) {
-                Circle().fill(.blue).frame(width: 16, height: 16)
+                Circle().fill(Color.accentColor).frame(width: 16, height: 16)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(session.workflow.name)
                         .font(.system(size: 24, weight: .semibold))
@@ -211,7 +214,7 @@ private struct ActiveRunCard: View {
                         .font(.system(size: 15, weight: .semibold))
                         .padding(.horizontal, 4).padding(.vertical, 2)
                 }
-                .buttonStyle(.bordered).tint(.red).controlSize(.large)
+                .buttonStyle(.bordered).tint(Color.canopyRust).controlSize(.large)
             }
 
             if let step = session.pendingConfirmationStep {
@@ -219,7 +222,7 @@ private struct ActiveRunCard: View {
             }
         }
         .padding(20)
-        .background(Color.blue.opacity(0.08))
+        .background(Color.accentColor.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
@@ -237,9 +240,9 @@ private struct ActiveRunCard: View {
             }
             Spacer()
             Button("Stop") { session.resolveConfirmation(proceed: false) }
-                .buttonStyle(.bordered).controlSize(.large)
+                .buttonStyle(.canopySecondary).controlSize(.large)
             Button("Continue") { session.resolveConfirmation(proceed: true) }
-                .buttonStyle(.borderedProminent).controlSize(.large)
+                .buttonStyle(.canopyPrimary).controlSize(.large)
         }
         .padding(16)
         .background(Color.orange.opacity(0.15))

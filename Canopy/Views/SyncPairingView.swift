@@ -14,12 +14,13 @@ struct SyncPairingView: View {
             DriveListPanel()
                 .frame(maxWidth: .infinity)
 
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(width: 1)
 
             // Right — Cloud Store
             CloudStorePanel()
                 .frame(maxWidth: .infinity)
         }
+        .background(Color.canopyPaper)
     }
 }
 
@@ -36,7 +37,7 @@ private struct DriveListPanel: View {
                 count: appState.hyperDecks.count,
                 tint: .accentColor
             )
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
 
             if appState.hyperDecks.isEmpty {
                 emptyNotice("No HyperDecks configured", icon: "externaldrive")
@@ -65,9 +66,9 @@ private struct CloudStorePanel: View {
                 title: "Cloud Store",
                 icon: "server.rack",
                 count: appState.cloudStores.count,
-                tint: Color("CanopySage")
+                tint: Color.canopySage
             )
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
 
             if appState.cloudStores.isEmpty {
                 emptyNotice("No Cloud Stores configured", icon: "server.rack")
@@ -117,17 +118,11 @@ private struct DriveRow: View {
             }
 
             if !appState.cloudStores.isEmpty {
-                Divider()
+                Rectangle().fill(Color.canopyRule).frame(height: 1)
                 destinationPicker
             }
         }
-        .padding()
-        .background(Color(NSColor.controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        )
+        .canopyCard(cornerRadius: 10)
         .onAppear { monitor.start() }
         .onChange(of: selectedStoreID) { _, _ in loadFolders() }
     }
@@ -185,20 +180,14 @@ private struct DriveRow: View {
                             selectedNode: $selectedNode
                         )
                     }
-                    .padding(6)
-                    .background(Color(NSColor.textBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-                    )
+                    .canopyCard(padding: 6, cornerRadius: 6)
                     .frame(maxHeight: 200)
                 }
 
                 // Selection confirmation
                 if let node = selectedNode, let store = selectedStore {
                     HStack(spacing: 4) {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.canopySage)
                         Text("→ \(store.name) / \(node.name)")
                             .font(.caption).foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -320,7 +309,7 @@ private struct FolderTreeRow: View {
 
                 Image(systemName: node.isExpanded ? "folder.fill" : "folder")
                     .font(.caption)
-                    .foregroundStyle(Color("CanopySage"))
+                    .foregroundStyle(Color.canopySage)
 
                 Text(node.name)
                     .font(.caption)
@@ -393,7 +382,7 @@ private struct SelectableFolderTreeRow: View {
 
                 Image(systemName: node.isExpanded ? "folder.fill" : "folder")
                     .font(.caption)
-                    .foregroundStyle(isSelected ? .white : Color("CanopySage"))
+                    .foregroundStyle(isSelected ? .white : Color.canopySage)
 
                 Text(node.name)
                     .font(.caption)
@@ -450,7 +439,7 @@ private struct CloudStorePairingRow: View {
                 statusBadge(pingStatus)
             }
 
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
 
             DisclosureGroup(isExpanded: $isExpanded) {
                 if isLoading {
@@ -478,24 +467,18 @@ private struct CloudStorePairingRow: View {
                 if expanded && rootNodes.isEmpty { loadRootFolders() }
             }
         }
-        .padding()
-        .background(Color(NSColor.controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        )
+        .canopyCard(cornerRadius: 10)
         .onAppear { monitor.start() }
     }
 
     private var storeIcon: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color("CanopySage").opacity(0.12))
+                .fill(Color.canopySage.opacity(0.12))
                 .frame(width: 42, height: 42)
             Image(systemName: "server.rack")
                 .font(.system(size: 18))
-                .foregroundStyle(Color("CanopySage"))
+                .foregroundStyle(Color.canopySage)
         }
     }
 
@@ -529,7 +512,7 @@ private struct CloudStorePairingRow: View {
 private func panelHeader(title: String, icon: String, count: Int, tint: Color) -> some View {
     HStack(spacing: 8) {
         Image(systemName: icon).foregroundStyle(tint)
-        Text(title).font(.title3).bold()
+        Text(title).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
         Spacer()
         Text("\(count)").font(.caption).padding(.horizontal, 8).padding(.vertical, 3)
             .background(tint.opacity(0.12)).foregroundStyle(tint).clipShape(Capsule())
@@ -540,7 +523,7 @@ private func panelHeader(title: String, icon: String, count: Int, tint: Color) -
 private func emptyNotice(_ message: String, icon: String) -> some View {
     VStack(spacing: 10) {
         Spacer()
-        Image(systemName: icon).font(.system(size: 36)).foregroundStyle(.secondary)
+        Image(systemName: icon).font(.system(size: 36)).foregroundStyle(Color.canopySage)
         Text(message).foregroundStyle(.secondary)
         Spacer()
     }
@@ -552,20 +535,15 @@ private func emptyNotice(_ message: String, icon: String) -> some View {
 private func statusBadge(_ status: DeckStatus) -> some View {
     let (label, color): (String, Color) = switch status {
     case .unknown:      ("Checking", .gray)
-    case .online:       ("Online", .green)
-    case .offline:      ("Offline", .red)
+    case .online:       ("Online", Color.canopySage)
+    case .offline:      ("Offline", Color.canopyRust)
     case .unauthorized: ("Login Failed", .orange)
     case .pathNotFound: ("Wrong Path", .orange)
-    case .noMedia:      ("No Drive", .red)
-    case .syncing:      ("Syncing", .blue)
+    case .noMedia:      ("No Drive", Color.canopyRust)
+    case .syncing:      ("Syncing", Color.accentColor)
     case .transcoding:  ("Converting", .orange)
     }
 
-    Text(label)
-        .font(.system(size: 10, weight: .bold))
-        .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(color.opacity(0.15))
-        .foregroundStyle(color)
-        .clipShape(Capsule())
+    CanopyPill(label: label, color: color)
 }
 

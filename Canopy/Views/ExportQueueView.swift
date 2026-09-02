@@ -12,32 +12,38 @@ struct ExportQueueView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            rule
             if manager.items.isEmpty {
                 emptyState
             } else {
                 list
             }
-            Divider()
+            rule
             footer
         }
         .frame(minWidth: 480, minHeight: 420)
+        .background(Color.canopyPaper)
     }
 
     private var header: some View {
         HStack {
             Image(systemName: "square.and.arrow.up.on.square.fill").foregroundStyle(.tint)
-            Text("Export Queue").font(.title3).bold()
+            Text("Export Queue").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
             Spacer()
             Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
         }
         .padding()
     }
 
+    // MARK: - Hairline rule
+    private var rule: some View {
+        Rectangle().fill(Color.canopyRule).frame(height: 1)
+    }
+
     private var emptyState: some View {
         VStack(spacing: 10) {
             Spacer()
-            Image(systemName: "tray").font(.system(size: 36)).foregroundStyle(.secondary)
+            Image(systemName: "tray").font(.system(size: 36)).foregroundStyle(Color.canopySage)
             Text("No clips queued").foregroundStyle(.secondary)
             Text("Select clips in a folder and tap “Add to Queue”, or queue a trimmed clip from the video player.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -75,7 +81,7 @@ struct ExportQueueView: View {
                 Button("Clear Completed") { manager.clearCompleted() }
                     .disabled(!manager.items.contains { $0.phase == .done || $0.phase == .error })
                 Button("Export All…") { chooseDestinationAndStart() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.canopyPrimary)
                     .disabled(manager.pendingCount == 0)
             }
         }
@@ -124,12 +130,7 @@ private struct ExportQueueRow: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text(item.phase.label)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(phaseColor)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(phaseColor.opacity(0.12))
-                    .clipShape(Capsule())
+                CanopyPill(label: item.phase.label, color: phaseColor)
 
                 if item.phase == .queued || item.phase == .done || item.phase == .error {
                     Button { onRemove() } label: {
@@ -145,7 +146,7 @@ private struct ExportQueueRow: View {
                 ProgressView(value: item.progress).tint(phaseColor)
             case .error:
                 if let msg = item.errorMessage {
-                    Text(msg).font(.caption2).foregroundStyle(.red)
+                    Text(msg).font(.caption2).foregroundStyle(Color.canopyRust)
                 }
             default:
                 EmptyView()
@@ -158,10 +159,10 @@ private struct ExportQueueRow: View {
     private var phaseColor: Color {
         switch item.phase {
         case .queued:      return .secondary
-        case .downloading: return .blue
+        case .downloading: return .accentColor
         case .exporting:   return .orange
-        case .done:        return .green
-        case .error:       return .red
+        case .done:        return .canopySage
+        case .error:       return .canopyRust
         }
     }
 }

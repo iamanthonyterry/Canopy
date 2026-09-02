@@ -26,20 +26,20 @@ struct DataBackupView: View {
                     } label: {
                         Label("Export…", systemImage: "square.and.arrow.up")
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.canopySecondary)
 
                     Button {
                         importCSV()
                     } label: {
                         Label("Import…", systemImage: "square.and.arrow.down")
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.canopySecondary)
                 }
 
                 if let resultMessage {
                     Text(resultMessage)
                         .font(.caption)
-                        .foregroundStyle(isError ? .red : .secondary)
+                        .foregroundStyle(isError ? Color.canopyRust : .secondary)
                 }
             }
             .padding(.top, 8)
@@ -71,7 +71,7 @@ struct DataBackupView: View {
                     showingExportOptions = false
                     exportCSV()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.canopyPrimary)
             }
         }
         .padding()

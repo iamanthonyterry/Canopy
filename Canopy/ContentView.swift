@@ -26,29 +26,35 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(visibleNavItems, id: \.self, selection: $selection) { item in
-                Label(item.rawValue, systemImage: item.icon)
-            }
-            .listStyle(.sidebar)
-            .navigationTitle("Canopy")
+            VStack(alignment: .leading, spacing: 0) {
+                masthead
 
-            // Schedule status badge at bottom of sidebar
-            if appState.isAdmin && !scheduledWorkflows.isEmpty {
-                Divider()
-                HStack(spacing: 6) {
-                    Image(systemName: "clock.fill")
-                        .font(.caption)
-                        .foregroundStyle(.tint)
-                    Text(scheduleBadgeText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                List(visibleNavItems, id: \.self, selection: $selection) { item in
+                    Label(item.rawValue, systemImage: item.icon)
+                        .font(.system(size: 13, weight: .medium))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
 
-            Divider()
-            roleSwitcher
+                // Schedule status badge at bottom of sidebar
+                if appState.isAdmin && !scheduledWorkflows.isEmpty {
+                    Rectangle().fill(Color.canopyRule).frame(height: 1)
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock.fill")
+                            .font(.caption)
+                            .foregroundStyle(Color.canopySage)
+                        Text(scheduleBadgeText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                }
+
+                Rectangle().fill(Color.canopyRule).frame(height: 1)
+                roleSwitcher
+            }
+            .background(Color.canopyPaper)
         } detail: {
             switch selection {
             case .workflows where appState.isAdmin: WorkflowsView()
@@ -57,11 +63,29 @@ struct ContentView: View {
             default:                                  DashboardView()
             }
         }
+        .toolbar(removing: .title)
         .onChange(of: appState.userRole) {
             if !visibleNavItems.contains(selection ?? .dashboard) {
                 selection = .dashboard
             }
         }
+    }
+
+    // MARK: - Masthead
+    // An editorial nameplate above the nav list — the sidebar's first
+    // impression, set in the brand serif rather than stock sidebar chrome.
+    private var masthead: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("Canopy")
+                .font(.canopyTitle)
+                .foregroundStyle(Color.canopyInk)
+            Text("by Roses as Humans")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 32)
+        .padding(.bottom, 10)
     }
 
     // MARK: - Role switcher

@@ -9,7 +9,7 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text("Settings").font(.title2).bold().padding(.horizontal)
+                Text("Settings").font(.canopyTitle).foregroundStyle(Color.canopyInk).padding(.horizontal)
                 //cloudStoreSection
                 emailSection
                 AlertSettingsView()
@@ -20,6 +20,7 @@ struct SettingsView: View {
             }
             .padding(.vertical)
         }
+        .background(Color.canopyPaper)
     }
     
     // MARK: - Email

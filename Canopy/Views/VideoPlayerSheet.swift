@@ -53,13 +53,13 @@ struct VideoPlayerSheet: View {
             HStack {
                 Image(systemName: "film.fill").foregroundStyle(.tint)
                 Text(node.name)
-                    .font(.title3).bold()
+                    .font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer()
                 Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             .padding()
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
 
             // PlayerContainerView (below) wraps AVKit's plain AppKit
             // AVPlayerView instead of SwiftUI's own VideoPlayer. VideoPlayer
@@ -92,6 +92,7 @@ struct VideoPlayerSheet: View {
             }
         }
         .frame(minWidth: 680, minHeight: 460)
+        .background(Color.canopyPaper)
         .task { await load() }
         .onDisappear { cleanUp() }
     }
@@ -102,7 +103,7 @@ struct VideoPlayerSheet: View {
             VStack(spacing: 12) {
                 Spacer()
                 Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 40)).foregroundStyle(.red)
+                    .font(.system(size: 40)).foregroundStyle(Color.canopyRust)
                 Text("Can't play this file").font(.headline)
                 Text(errorMessage)
                     .font(.caption).foregroundStyle(.secondary)
@@ -219,7 +220,7 @@ struct VideoPlayerSheet: View {
 
             if let exportError {
                 Text(exportError)
-                    .font(.caption).foregroundStyle(.red)
+                    .font(.caption).foregroundStyle(Color.canopyRust)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

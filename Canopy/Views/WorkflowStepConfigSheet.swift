@@ -57,16 +57,16 @@ struct WorkflowStepConfigSheet: View {
         VStack(spacing: 0) {
             HStack {
                 Label(step.kind.title, systemImage: step.kind.icon)
-                    .font(.title3).bold()
+                    .font(.canopyTitle2)
                     .foregroundStyle(step.kind.color)
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Save") { save() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.canopyPrimary)
                     .keyboardShortcut(.defaultAction)
             }
             .padding()
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
 
             Form {
                 Text(step.kind.subtitle)
@@ -93,7 +93,7 @@ struct WorkflowStepConfigSheet: View {
 
                 case .format:
                     Label("This step erases the device's drive. All footage still on it will be permanently deleted — this cannot be undone.", systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout).foregroundStyle(.red)
+                        .font(.callout).foregroundStyle(Color.canopyRust)
 
                 case .cleanup:
                     cleanupFields
@@ -116,6 +116,7 @@ struct WorkflowStepConfigSheet: View {
             .padding(.top, 4)
         }
         .frame(width: 420)
+        .background(Color.canopyPaper)
         .onAppear(perform: load)
         .sheet(isPresented: $showingAddRecipient) {
             AddRecipientSheet(isPresented: $showingAddRecipient) { name, email in
@@ -473,10 +474,8 @@ struct WorkflowStepConfigSheet: View {
                 }
             }
         }
-        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(NSColor.controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .canopyCard(padding: 10, cornerRadius: 6)
     }
 
     private var cleanupFields: some View {
@@ -615,7 +614,7 @@ struct WorkflowStepConfigSheet: View {
                             Button {
                                 notifyRecipients.removeAll { $0.id == recipient.id }
                             } label: {
-                                Image(systemName: "trash").foregroundStyle(.red)
+                                Image(systemName: "trash").foregroundStyle(Color.canopyRust)
                             }
                             .buttonStyle(.borderless)
                         }
@@ -780,8 +779,8 @@ struct AddRecipientSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Add Recipient")
-                .font(.title3)
-                .bold()
+                .font(.canopyTitle2)
+                .foregroundStyle(Color.canopyInk)
 
             Form {
                 TextField("Name", text: $name)
@@ -807,10 +806,11 @@ struct AddRecipientSheet: View {
                 }
                 .keyboardShortcut(.return)
                 .disabled(!isValid)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.canopyPrimary)
             }
         }
         .padding(24)
         .frame(width: 360)
+        .background(Color.canopyPaper)
     }
 }

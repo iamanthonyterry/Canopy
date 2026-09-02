@@ -28,7 +28,7 @@ struct WorkflowEditorSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
             List {
                 detailsSection
                 targetDevicesSection
@@ -38,6 +38,7 @@ struct WorkflowEditorSheet: View {
             .listStyle(.inset)
         }
         .frame(width: 520, height: 620)
+        .background(Color.canopyPaper)
         .sheet(item: $editingStep) { step in
             if let index = steps.firstIndex(where: { $0.id == step.id }) {
                 WorkflowStepConfigSheet(
@@ -63,11 +64,11 @@ struct WorkflowEditorSheet: View {
     private var header: some View {
         HStack {
             Text(existingWorkflow == nil ? "New Workflow" : "Edit Workflow")
-                .font(.title2).bold()
+                .font(.canopyTitle2).foregroundStyle(Color.canopyInk)
             Spacer()
             Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
             Button(existingWorkflow == nil ? "Create" : "Save") { save() }
-                .buttonStyle(.borderedProminent).disabled(!canSave)
+                .buttonStyle(.canopyPrimary).disabled(!canSave)
                 .keyboardShortcut(.defaultAction)
         }
         .padding()
@@ -266,7 +267,7 @@ struct WorkflowEditorSheet: View {
                 steps.remove(at: index)
             } label: {
                 Image(systemName: "trash")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.canopyRust)
             }
             .buttonStyle(.borderless)
         }
@@ -343,7 +344,7 @@ struct WorkflowEditorSheet: View {
                 triggers.remove(at: index)
             } label: {
                 Image(systemName: "trash")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.canopyRust)
             }
             .buttonStyle(.borderless)
         }
@@ -397,14 +398,14 @@ struct ScheduleTriggerConfigSheet: View {
                     trigger.mode == .daily ? "Daily Trigger" : "One-Time Trigger",
                     systemImage: trigger.mode == .daily ? "clock" : "calendar"
                 )
-                .font(.title3).bold()
+                .font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                 Spacer()
                 Button("Done") { dismiss() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.canopyPrimary)
                     .keyboardShortcut(.defaultAction)
             }
             .padding()
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
 
             Form {
                 Toggle("Enabled", isOn: $trigger.isEnabled)
@@ -449,6 +450,7 @@ struct ScheduleTriggerConfigSheet: View {
             .padding(.top, 4)
         }
         .frame(width: 380)
+        .background(Color.canopyPaper)
     }
 
     private var weekdaySelector: some View {

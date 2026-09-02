@@ -27,7 +27,7 @@ struct ImagePreviewSheet: View {
             HStack {
                 Image(systemName: "photo.fill").foregroundStyle(.tint)
                 Text(node.name)
-                    .font(.title3).bold()
+                    .font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer()
                 if image != nil {
@@ -43,7 +43,7 @@ struct ImagePreviewSheet: View {
                 Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             .padding()
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
 
             ZStack {
                 Color.black
@@ -90,6 +90,7 @@ struct ImagePreviewSheet: View {
             .clipped()
         }
         .frame(minWidth: 680, minHeight: 460)
+        .background(Color.canopyPaper)
         .task { await load() }
         .onDisappear { cleanUp() }
     }
@@ -107,7 +108,7 @@ struct ImagePreviewSheet: View {
             VStack(spacing: 12) {
                 Spacer()
                 Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 40)).foregroundStyle(.red)
+                    .font(.system(size: 40)).foregroundStyle(Color.canopyRust)
                 Text("Can't preview this file").font(.headline)
                 Text(errorMessage)
                     .font(.caption).foregroundStyle(.secondary)

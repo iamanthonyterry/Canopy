@@ -29,17 +29,17 @@ struct TaskRow: View {
             // Progress bars
             switch task.phase {
             case .downloading:
-                progressBar(label: "Download", value: task.syncProgress, color: .blue)
+                progressBar(label: "Download", value: task.syncProgress, color: .accentColor)
             case .converting:
-                progressBar(label: "Download", value: 1.0, color: .blue.opacity(0.4))
+                progressBar(label: "Download", value: 1.0, color: .accentColor.opacity(0.4))
                 progressBar(label: "Convert",  value: task.convertProgress, color: .orange)
             case .done:
-                ProgressView(value: 1.0).tint(.green)
+                ProgressView(value: 1.0).tint(.canopySage)
             case .error:
                 if let msg = task.errorMessage {
                     HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red).font(.caption2)
-                        Text(msg).font(.caption2).foregroundStyle(.red)
+                        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Color.canopyRust).font(.caption2)
+                        Text(msg).font(.caption2).foregroundStyle(Color.canopyRust)
                     }
                 }
             default:
@@ -78,10 +78,10 @@ struct TaskRow: View {
     private var phaseColor: Color {
         switch task.phase {
         case .queued:      return .secondary
-        case .downloading: return .blue
+        case .downloading: return .accentColor
         case .converting:  return .orange
-        case .done:        return .green
-        case .error:       return .red
+        case .done:        return .canopySage
+        case .error:       return .canopyRust
         }
     }
 }

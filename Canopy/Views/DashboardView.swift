@@ -53,13 +53,13 @@ struct DashboardView: View {
     private var normalDashboard: some View {
         VStack(spacing: 0) {
             headerBar
-            Divider()
+            rule
 
             if !erroredMounts.isEmpty {
                 ForEach(erroredMounts) { session in
                     mountErrorBanner(session)
                 }
-                Divider()
+                rule
             }
 
             if totalDevices == 0 && !hasDiscovered {
@@ -68,15 +68,16 @@ struct DashboardView: View {
                 HStack(spacing: 0) {
                     deviceList
                         .frame(width: 300)
-                    Divider()
+                    Rectangle().fill(Color.canopyRule).frame(width: 1)
                     detailPane
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
 
-            Divider()
+            rule
             actionBar
         }
+        .background(Color.canopyPaper)
         .sheet(isPresented: $showingAddDeck) { DeckEditSheet(deck: nil) }
         .sheet(isPresented: $showingAddCloudStore) { CloudStoreEditSheet(store: nil) }
         .sheet(isPresented: $showingAddLocalFolder) { LocalFolderEditSheet(folder: nil) }
@@ -87,7 +88,7 @@ struct DashboardView: View {
     private func mountErrorBanner(_ session: WorkflowRunSession) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(Color.canopyRust)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\"\(session.workflow.name)\" stopped — couldn't reach storage").font(.subheadline).bold()
                 Text(session.mountError ?? "").font(.caption).foregroundStyle(.secondary)
@@ -99,7 +100,7 @@ struct DashboardView: View {
                 } label: {
                     Label("Retry", systemImage: "arrow.counterclockwise")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.canopySecondary)
                 .disabled(!appState.canRun(session.workflow))
             }
             Button {
@@ -110,7 +111,7 @@ struct DashboardView: View {
             .buttonStyle(.plain)
         }
         .padding(12)
-        .background(Color.red.opacity(0.1))
+        .background(Color.canopyRust.opacity(0.1))
     }
 
 
@@ -119,7 +120,7 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Dashboard").font(.title2).bold()
+                    Text("Dashboard").font(.canopyTitle).foregroundStyle(Color.canopyInk)
                     Text("\(appState.hyperDecks.count) decks · \(appState.cloudStores.count) cloud stores · \(appState.localFolders.count) local folders")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
@@ -127,10 +128,10 @@ struct DashboardView: View {
 
                 if !inProgress.isEmpty {
                     HStack(spacing: 10) {
-                        statPill("\(inProgress.count) running", color: .blue)
-                        statPill("\(activeCount) active", color: .blue)
-                        statPill("\(doneCount) done", color: .green)
-                        if errorCount > 0 { statPill("\(errorCount) errors", color: .red) }
+                        statPill("\(inProgress.count) running", color: .accentColor)
+                        statPill("\(activeCount) active", color: .accentColor)
+                        statPill("\(doneCount) done", color: .canopySage)
+                        if errorCount > 0 { statPill("\(errorCount) errors", color: .canopyRust) }
                     }
                 } else {
                     HStack(spacing: 6) {
@@ -147,7 +148,7 @@ struct DashboardView: View {
                     } label: {
                         Label("Show Mode", systemImage: "tv")
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.canopySecondary)
 
                     Menu {
                         Button("HyperDeck") { showingAddDeck = true }
@@ -155,7 +156,7 @@ struct DashboardView: View {
                         Button("Local Folder") { showingAddLocalFolder = true }
                     } label: {
                         Label("Add Device", systemImage: "plus")
-                    }.buttonStyle(.borderedProminent)
+                    }.buttonStyle(.canopyPrimary)
                 }
             }
 
@@ -179,6 +180,14 @@ struct DashboardView: View {
                 Label("Scan Network", systemImage: "antenna.radiowaves.left.and.right")
             }
         }
+        .buttonStyle(.canopySecondary)
+    }
+
+    // MARK: - Hairline rule
+    // A warm-toned divider used in place of the system Divider() across
+    // this screen, so seams read as part of the paper rather than chrome.
+    private var rule: some View {
+        Rectangle().fill(Color.canopyRule).frame(height: 1)
     }
 
     // MARK: - Left column: device list
@@ -292,16 +301,16 @@ struct DashboardView: View {
     private var emptyState: some View {
         VStack(spacing: 14) {
             Spacer()
-            Image(systemName: "network").font(.system(size: 48)).foregroundStyle(.secondary)
-            Text("No Devices Added").font(.title3).bold()
+            Image(systemName: "network").font(.system(size: 48)).foregroundStyle(Color.canopySage)
+            Text("No Devices Added").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
             Text("Scan the network, or add a HyperDeck, Cloud Store, or Local Folder.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             HStack(spacing: 10) {
                 Button("Scan Network") { discovery.startScanning() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.canopyPrimary)
                 Button("Add Local Folder") { showingAddLocalFolder = true }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.canopySecondary)
             }
             Spacer()
         }
@@ -350,7 +359,7 @@ struct DashboardView: View {
                             Label("Stop All", systemImage: "stop.fill")
                                 .padding(.horizontal, 20).padding(.vertical, 8)
                         }
-                        .buttonStyle(.bordered).tint(.red)
+                        .buttonStyle(.bordered).tint(.canopyRust)
                     }
 
                     runWorkflowMenu
@@ -386,11 +395,15 @@ struct DashboardView: View {
                     } label: {
                         Label("Stop", systemImage: "stop.fill")
                     }
-                    .buttonStyle(.bordered).tint(.red).controlSize(.small)
+                    .buttonStyle(.bordered).tint(.canopyRust).controlSize(.small)
                 }
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(Color("CanopySageTint"))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(Color.canopySageTint)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.canopyRule, lineWidth: 1)
+                )
             }
         }
         .padding(.horizontal)
@@ -421,17 +434,12 @@ struct DashboardView: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.canopyPrimary)
         }
     }
 
     // MARK: - Helpers
     private func statPill(_ label: String, color: Color) -> some View {
-        Text(label)
-            .font(.system(size: 11, weight: .semibold))
-            .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(color.opacity(0.15))
-            .foregroundStyle(color)
-            .clipShape(Capsule())
+        CanopyPill(label: label, color: color)
     }
 }

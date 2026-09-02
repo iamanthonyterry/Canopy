@@ -15,13 +15,13 @@ struct WorkflowsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            rule
 
             if !inProgress.isEmpty {
                 ForEach(inProgress) { session in
                     RunningWorkflowBanner(session: session, engine: engine)
                 }
-                Divider()
+                rule
             }
 
             if appState.workflows.isEmpty {
@@ -30,6 +30,7 @@ struct WorkflowsView: View {
                 workflowList
             }
         }
+        .background(Color.canopyPaper)
         .sheet(isPresented: $isCreating) {
             WorkflowEditorSheet(workflow: nil).environmentObject(appState)
         }
@@ -55,7 +56,7 @@ struct WorkflowsView: View {
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Workflows").font(.title2).bold()
+                Text("Workflows").font(.canopyTitle).foregroundStyle(Color.canopyInk)
                 Text("\(appState.workflows.count) workflow\(appState.workflows.count == 1 ? "" : "s")")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
@@ -65,9 +66,14 @@ struct WorkflowsView: View {
             } label: {
                 Label("New Workflow", systemImage: "plus")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.canopyPrimary)
         }
         .padding()
+    }
+
+    // MARK: - Hairline rule
+    private var rule: some View {
+        Rectangle().fill(Color.canopyRule).frame(height: 1)
     }
 
     // MARK: - Empty state
@@ -75,8 +81,8 @@ struct WorkflowsView: View {
     private var emptyState: some View {
         VStack(spacing: 14) {
             Spacer()
-            Image(systemName: "flowchart").font(.system(size: 48)).foregroundStyle(.secondary)
-            Text("No Workflows Yet").font(.title3).bold()
+            Image(systemName: "flowchart").font(.system(size: 48)).foregroundStyle(Color.canopySage)
+            Text("No Workflows Yet").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
             Text("Build a workflow from steps like Record, Sync, Convert, Rename, Format, and Cleanup — then run it manually or on a schedule.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -86,7 +92,7 @@ struct WorkflowsView: View {
             } label: {
                 Label("Create a Workflow", systemImage: "plus")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.canopyPrimary)
             Spacer()
         }
         .padding()
@@ -131,8 +137,8 @@ struct WorkflowsView: View {
                     Label(scheduleLabel, systemImage: "clock.fill")
                         .font(.system(size: 10, weight: .semibold))
                         .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Color("CanopySage").opacity(0.18))
-                        .foregroundStyle(Color("CanopySage"))
+                        .background(Color.canopySage.opacity(0.18))
+                        .foregroundStyle(Color.canopySage)
                         .clipShape(Capsule())
                 }
             }
@@ -147,7 +153,7 @@ struct WorkflowsView: View {
                     .font(.caption2).foregroundStyle(.secondary)
             }
 
-            Divider()
+            rule
 
             HStack {
                 Button {
@@ -173,22 +179,19 @@ struct WorkflowsView: View {
                 if inProgress.contains(where: { $0.workflow.id == workflow.id }) {
                     Label("Running", systemImage: "circle.fill")
                         .font(.caption2).bold()
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(Color.accentColor)
                 } else {
                     Button {
                         Task { await engine.run(workflow) }
                     } label: {
                         Label("Run", systemImage: "play.fill")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.canopyPrimary)
                     .disabled(!appState.canRun(workflow) || workflow.steps.isEmpty)
                 }
             }
         }
-        .padding()
-        .background(Color(NSColor.controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08), lineWidth: 1))
+        .canopyCard(cornerRadius: 10)
     }
 
     // MARK: - Helpers
@@ -232,7 +235,7 @@ private struct RunningWorkflowBanner: View {
                 Button(role: .destructive) { engine.stop(session) } label: {
                     Label("Stop", systemImage: "stop.fill")
                 }
-                .buttonStyle(.bordered).tint(.red).controlSize(.small)
+                .buttonStyle(.bordered).tint(Color.canopyRust).controlSize(.small)
             }
             if let lastLine = session.lines.last {
                 Text(lastLine)
@@ -257,9 +260,9 @@ private struct RunningWorkflowBanner: View {
             }
             Spacer()
             Button("Stop") { session.resolveConfirmation(proceed: false) }
-                .buttonStyle(.bordered).controlSize(.small)
+                .buttonStyle(.canopySecondary).controlSize(.small)
             Button("Continue") { session.resolveConfirmation(proceed: true) }
-                .buttonStyle(.borderedProminent).controlSize(.small)
+                .buttonStyle(.canopyPrimary).controlSize(.small)
         }
         .padding(10)
         .background(Color.orange.opacity(0.12))

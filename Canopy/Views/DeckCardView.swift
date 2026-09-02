@@ -92,7 +92,7 @@ struct DeckContentPane: View {
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
-                Text(deck.name).font(.title3).bold()
+                Text(deck.name).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                 Text(deck.ipAddress).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -125,7 +125,7 @@ struct DeckContentPane: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.canopyPrimary)
             .disabled(liveStatus != .online || appState.busyDeckNames.contains(deck.name))
         }
     }
@@ -167,10 +167,10 @@ struct DeckContentPane: View {
     private func taskColor(_ phase: SyncTask.Phase) -> Color {
         switch phase {
         case .queued: .secondary
-        case .downloading: .blue
+        case .downloading: .accentColor
         case .converting: .orange
-        case .done: .green
-        case .error: .red
+        case .done: .canopySage
+        case .error: .canopyRust
         }
     }
 }
@@ -188,12 +188,12 @@ struct HyperDeckControls: View {
         HStack(spacing: 10) {
             if isRecording {
                 Circle()
-                    .fill(.red)
+                    .fill(Color.canopyRust)
                     .frame(width: 8, height: 8)
                     .symbolEffect(.pulse)
                 Text("REC")
                     .font(.caption).bold()
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.canopyRust)
             }
 
             Button {
@@ -206,7 +206,7 @@ struct HyperDeckControls: View {
                     Label("Stop", systemImage: "stop.circle.fill")
                 } else {
                     Label("Record", systemImage: "record.circle")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.canopyRust)
                 }
             }
             .buttonStyle(.bordered)

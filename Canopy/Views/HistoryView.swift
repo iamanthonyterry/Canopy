@@ -12,7 +12,7 @@ struct HistoryView: View {
             VStack(spacing: 0) {
                 HStack {
                     Text("Run History")
-                        .font(.title2).bold()
+                        .font(.canopyTitle).foregroundStyle(Color.canopyInk)
                     Spacer()
                     if !appState.workflowRunHistory.isEmpty {
                         Button(role: .destructive) {
@@ -22,18 +22,18 @@ struct HistoryView: View {
                             Label("Clear", systemImage: "trash")
                         }
                         .buttonStyle(.borderless)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.canopyRust)
                     }
                 }
                 .padding()
-                Divider()
+                Rectangle().fill(Color.canopyRule).frame(height: 1)
 
                 if appState.workflowRunHistory.isEmpty {
                     VStack(spacing: 12) {
                         Spacer()
                         Image(systemName: "clock.arrow.circlepath")
-                            .font(.system(size: 40)).foregroundStyle(.secondary)
-                        Text("No Runs Yet").font(.title3).bold()
+                            .font(.system(size: 40)).foregroundStyle(Color.canopySage)
+                        Text("No Runs Yet").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                         Text("Completed workflow runs appear here.")
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -57,13 +57,14 @@ struct HistoryView: View {
                     VStack(alignment: .leading, spacing: 20) {
                         Text("Select a run to view details")
                             .foregroundStyle(.secondary)
-                            .font(.title3).bold()
+                            .font(.canopyTitle2)
                     }
                     .padding()
                 }
                 .frame(minWidth: 400, maxWidth: .infinity)
             }
         }
+        .background(Color.canopyPaper)
     }
 }
 
@@ -75,7 +76,7 @@ struct RunRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Image(systemName: run.errors == 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .foregroundStyle(run.errors == 0 ? .green : .orange)
+                    .foregroundStyle(run.errors == 0 ? Color.canopySage : .orange)
                 Text(run.workflowName)
                     .font(.headline)
                 Spacer()
@@ -83,8 +84,8 @@ struct RunRow: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: 12) {
-                statChip("\(run.processed) processed", color: .green)
-                if run.errors > 0 { statChip("\(run.errors) errors", color: .red) }
+                CanopyPill(label: "\(run.processed) processed", color: .canopySage)
+                if run.errors > 0 { CanopyPill(label: "\(run.errors) errors", color: .canopyRust) }
             }
             HStack(spacing: 4) {
                 Text(run.startedAt, style: .date)
@@ -94,15 +95,6 @@ struct RunRow: View {
         }
         .font(.caption).foregroundStyle(.secondary)
         .padding(.vertical, 4)
-    }
-
-    private func statChip(_ label: String, color: Color) -> some View {
-        Text(label)
-            .font(.system(size: 10, weight: .medium))
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(color.opacity(0.12))
-            .foregroundStyle(color)
-            .clipShape(Capsule())
     }
 }
 
@@ -115,16 +107,16 @@ struct RunDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
 
-                Text(run.workflowName).font(.title3).bold()
+                Text(run.workflowName).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
 
                 // Header stats
                 HStack(spacing: 16) {
-                    statCard(value: "\(run.processed)", label: "Processed", color: .green)
-                    statCard(value: "\(run.errors)",    label: "Errors",    color: run.errors > 0 ? .red : .secondary)
+                    statCard(value: "\(run.processed)", label: "Processed", color: .canopySage)
+                    statCard(value: "\(run.errors)",    label: "Errors",    color: run.errors > 0 ? .canopyRust : .secondary)
                     statCard(value: run.durationFormatted, label: "Duration", color: .primary)
                 }
 
-                Divider()
+                Rectangle().fill(Color.canopyRule).frame(height: 1)
 
                 // Time info
                 Group {
@@ -133,7 +125,7 @@ struct RunDetailView: View {
                     labelRow("Decks",    run.decksProcessed.joined(separator: ", "))
                 }
 
-                Divider()
+                Rectangle().fill(Color.canopyRule).frame(height: 1)
 
                 // Log
                 DisclosureGroup(isExpanded: $showLog) {
@@ -149,8 +141,7 @@ struct RunDetailView: View {
                         .padding(8)
                     }
                     .frame(maxHeight: 320)
-                    .background(Color(NSColor.textBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .canopyCard(padding: 0, cornerRadius: 6)
                 } label: {
                     HStack {
                         Label("Run Log (\(run.log.count) lines)", systemImage: "doc.text")

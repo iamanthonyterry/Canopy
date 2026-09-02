@@ -20,12 +20,13 @@ struct CloudStoreVolumePickerSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
             content
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
             footer
         }
         .frame(width: 420, height: 360)
+        .background(Color.canopyPaper)
         .task { await load() }
     }
 
@@ -34,9 +35,9 @@ struct CloudStoreVolumePickerSheet: View {
     private var header: some View {
         HStack {
             Image(systemName: "externaldrive.badge.wifi")
-                .foregroundStyle(Color("CanopySage"))
+                .foregroundStyle(Color.canopySage)
             Text("Choose Volume")
-                .font(.title3).bold()
+                .font(.canopyTitle2).foregroundStyle(Color.canopyInk)
             Spacer()
             Button("Cancel") { dismiss() }
                 .keyboardShortcut(.cancelAction)
@@ -82,7 +83,7 @@ struct CloudStoreVolumePickerSheet: View {
             Button("Select") {
                 if let share = highlighted { select(share) }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.canopyPrimary)
             .disabled(highlighted == nil)
         }
         .padding(.horizontal, 16)

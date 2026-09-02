@@ -8,12 +8,12 @@ struct StatusBadge: View {
 
     var body: some View {
         let color: Color = switch status {
-            case .online: .green
-            case .offline: .red
+            case .online: .canopySage
+            case .offline: .canopyRust
             case .unauthorized: .orange
             case .pathNotFound: .orange
-            case .noMedia: .red
-            case .syncing: .blue
+            case .noMedia: .canopyRust
+            case .syncing: .accentColor
             case .transcoding: .orange
             case .unknown: .gray
         }
@@ -61,7 +61,7 @@ struct CloudStoreContentPane: View {
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
-                Text(store.name).font(.title3).bold()
+                Text(store.name).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                 Text(store.ipAddress).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -97,7 +97,7 @@ struct CloudStoreContentPane: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.canopyPrimary)
             .disabled(appState.busyDeckNames.contains(store.name))
         }
     }
@@ -123,14 +123,14 @@ struct LocalFolderContentPane: View {
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
-                Text(folder.name).font(.title3).bold()
+                Text(folder.name).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                 Text(folder.path).font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer()
             Label(folder.exists ? "Available" : "Not Found", systemImage: folder.exists ? "checkmark.circle.fill" : "xmark.circle.fill")
                 .font(.caption).bold()
-                .foregroundStyle(folder.exists ? .green : .red)
+                .foregroundStyle(folder.exists ? Color.canopySage : Color.canopyRust)
             if appState.isAdmin {
                 runWorkflowMenu
             }
@@ -153,7 +153,7 @@ struct LocalFolderContentPane: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.canopyPrimary)
             .disabled(!folder.exists || appState.busyDeckNames.contains(folder.name))
         }
     }
@@ -178,7 +178,7 @@ struct DiscoveredDeviceRow: View {
                 Text(ip).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Add") { onAdd() }.buttonStyle(.bordered).controlSize(.small)
+            Button("Add") { onAdd() }.buttonStyle(.canopySecondary).controlSize(.small)
         }
         .padding(.vertical, 4)
     }

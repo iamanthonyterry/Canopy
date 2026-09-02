@@ -17,14 +17,14 @@ struct EmailNotificationsView: View {
                 if let email = gmailAuth.connectedEmail {
                     HStack {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(Color.canopySage)
                         Text(email)
                             .font(.body)
                         Spacer()
                         Button("Disconnect") {
                             gmailAuth.signOut()
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.canopySecondary)
                         .controlSize(.small)
                     }
                 } else {
@@ -34,7 +34,7 @@ struct EmailNotificationsView: View {
                         } label: {
                             Label("Connect Gmail Account", systemImage: "envelope.badge")
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.canopyPrimary)
                         .controlSize(.small)
                         .disabled(gmailAuth.isConnecting)
 
@@ -45,7 +45,7 @@ struct EmailNotificationsView: View {
                     if let error = gmailAuth.lastError {
                         Text(error)
                             .font(.caption2)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Color.canopyRust)
                     }
                 }
 
@@ -56,5 +56,6 @@ struct EmailNotificationsView: View {
             .padding(.top, 8)
         }
         .padding(.horizontal)
+        .background(Color.canopyPaper)
     }
 }

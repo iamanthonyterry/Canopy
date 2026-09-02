@@ -15,7 +15,7 @@ struct MenuBarView: View {
             let last = appState.workflowRunHistory.first
             if let errored = appState.activeRuns.first(where: { $0.mountError != nil }) {
                 Label(errored.mountError ?? "Mount error", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.canopyRust)
             } else if let last {
                 Text("Last run: \(last.workflowName) · \(last.finishedAt.formatted(.relative(presentation: .named)))")
                     .foregroundStyle(.secondary)

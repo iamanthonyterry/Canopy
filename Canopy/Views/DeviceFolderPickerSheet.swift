@@ -42,14 +42,15 @@ struct DeviceFolderPickerSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
             breadcrumb
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
             content
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
             footer
         }
         .frame(width: 480, height: 380)
+        .background(Color.canopyPaper)
         .task { await load() }
     }
 
@@ -60,7 +61,7 @@ struct DeviceFolderPickerSheet: View {
             Image(systemName: "folder.badge.gearshape")
                 .foregroundStyle(.tint)
             Text("Move To…")
-                .font(.title3).bold()
+                .font(.canopyTitle2).foregroundStyle(Color.canopyInk)
             Spacer()
             Button("Cancel") { dismiss() }
                 .keyboardShortcut(.cancelAction)
@@ -112,7 +113,7 @@ struct DeviceFolderPickerSheet: View {
         } else if let loadError {
             VStack(spacing: 8) {
                 Spacer()
-                Image(systemName: "exclamationmark.triangle").font(.system(size: 36)).foregroundStyle(.red)
+                Image(systemName: "exclamationmark.triangle").font(.system(size: 36)).foregroundStyle(Color.canopyRust)
                 Text(loadError).font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).padding(.horizontal)
                 Spacer()
@@ -168,7 +169,7 @@ struct DeviceFolderPickerSheet: View {
                     finish(relativePath: currentRelativePath)
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.canopyPrimary)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

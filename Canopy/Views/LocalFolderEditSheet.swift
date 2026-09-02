@@ -24,15 +24,15 @@ struct LocalFolderEditSheet: View {
         VStack(spacing: 0) {
             HStack {
                 Text(existingFolder == nil ? "Add Local Folder" : "Edit Local Folder")
-                    .font(.title2).bold()
+                    .font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(existingFolder == nil ? "Add" : "Save") { save() }
-                    .buttonStyle(.borderedProminent).disabled(!canSave)
+                    .buttonStyle(.canopyPrimary).disabled(!canSave)
                     .keyboardShortcut(.defaultAction)
             }
             .padding()
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
 
             Form {
                 Section("Folder") {
@@ -60,6 +60,7 @@ struct LocalFolderEditSheet: View {
             .formStyle(.grouped)
         }
         .frame(width: 440)
+        .background(Color.canopyPaper)
     }
 
     private func choosePath() {

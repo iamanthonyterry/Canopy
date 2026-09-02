@@ -30,6 +30,7 @@ struct AlertSettingsView: View {
             .padding(.top, 8)
         }
         .padding(.horizontal)
+        .background(Color.canopyPaper)
         .sheet(isPresented: $showingAddRecipient) {
             AddRecipientSheet(isPresented: $showingAddRecipient) { name, email in
                 appState.alertSettings.emailRecipients.append(NotificationRecipient(name: name, email: email))
@@ -60,7 +61,7 @@ struct AlertSettingsView: View {
             } label: {
                 Label("Add", systemImage: "plus").font(.caption)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.canopySecondary)
             .controlSize(.small)
         }
     }
@@ -84,7 +85,7 @@ struct AlertSettingsView: View {
                     Button {
                         appState.alertSettings.emailRecipients.removeAll { $0.id == recipient.id }
                     } label: {
-                        Image(systemName: "trash").foregroundStyle(.red)
+                        Image(systemName: "trash").foregroundStyle(Color.canopyRust)
                     }
                     .buttonStyle(.borderless)
                 }

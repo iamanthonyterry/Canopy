@@ -138,10 +138,10 @@ struct DeviceFilesBrowser: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbar
-            Divider()
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
             if device.supportsFileBrowsing {
                 searchBar
-                Divider()
+                Rectangle().fill(Color.canopyRule).frame(height: 1)
             }
             content
         }
@@ -213,11 +213,11 @@ struct DeviceFilesBrowser: View {
                             deletePending = selectedNodes()
                         }
                         .controlSize(.small)
-                        .tint(.red)
+                        .tint(Color.canopyRust)
                         .disabled(selectedIDs.isEmpty || isProcessingOperation)
                     }
                     Button("Add to Queue") { addSelectionToQueue() }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.canopyPrimary)
                         .controlSize(.small)
                         .disabled(selectedIDs.isEmpty)
                     Button("Cancel") { isSelecting = false; selectedIDs.removeAll() }
@@ -301,7 +301,7 @@ struct DeviceFilesBrowser: View {
         } else if rootNodes.isEmpty {
             VStack(spacing: 8) {
                 Spacer()
-                Image(systemName: "tray").font(.system(size: 36)).foregroundStyle(.secondary)
+                Image(systemName: "tray").font(.system(size: 36)).foregroundStyle(Color.canopySage)
                 Text("No files found").foregroundStyle(.secondary)
                 Spacer()
             }
@@ -451,7 +451,7 @@ struct DeviceFilesBrowser: View {
     private var noFilesState: some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "externaldrive").font(.system(size: 40)).foregroundStyle(.secondary)
+            Image(systemName: "externaldrive").font(.system(size: 40)).foregroundStyle(Color.canopySage)
             Text("This device type doesn't expose a file system.")
                 .foregroundStyle(.secondary).multilineTextAlignment(.center)
             Spacer()
@@ -462,11 +462,11 @@ struct DeviceFilesBrowser: View {
     private func errorState(message: String) -> some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "exclamationmark.triangle").font(.system(size: 40)).foregroundStyle(.red)
+            Image(systemName: "exclamationmark.triangle").font(.system(size: 40)).foregroundStyle(Color.canopyRust)
             Text("Could not load files").font(.headline)
             Text(message).font(.caption).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center).padding(.horizontal)
-            Button("Retry", action: loadFiles).buttonStyle(.bordered)
+            Button("Retry", action: loadFiles).buttonStyle(.canopySecondary)
             Spacer()
         }
     }
