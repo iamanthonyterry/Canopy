@@ -37,7 +37,12 @@ struct DashboardView: View {
     var errorCount: Int   { inProgress.flatMap(\.tasks).filter { $0.phase == .error }.count }
 
 
-    var totalDevices: Int  { appState.hyperDecks.count + appState.cloudStores.count + appState.localFolders.count }
+    // Content Managers only work with storage (Cloud Stores, Local Folders) —
+    // HyperDecks are recording hardware, not something they manage — so the
+    // deck count is excluded from their view entirely.
+    var totalDevices: Int {
+        (appState.isAdmin ? appState.hyperDecks.count : 0) + appState.cloudStores.count + appState.localFolders.count
+    }
 
     private var hasDiscovered: Bool {
         !discovery.discoveredDecks.isEmpty || !discovery.discoveredCloudStores.isEmpty
@@ -122,7 +127,9 @@ struct DashboardView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Dashboard").font(.canopyTitle).foregroundStyle(Color.canopyInk)
-                    Text("\(appState.hyperDecks.count) decks · \(appState.cloudStores.count) network storage · \(appState.localFolders.count) local folders")
+                    Text(appState.isAdmin
+                        ? "\(appState.hyperDecks.count) decks · \(appState.cloudStores.count) network storage · \(appState.localFolders.count) local folders"
+                        : "\(appState.cloudStores.count) network storage · \(appState.localFolders.count) local folders")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -195,7 +202,7 @@ struct DashboardView: View {
     // MARK: - Left column: device list
     private var deviceList: some View {
         List(selection: $selection) {
-            if !appState.hyperDecks.isEmpty {
+            if appState.isAdmin && !appState.hyperDecks.isEmpty {
                 Section("HyperDecks") {
                     ForEach(appState.hyperDecks) { deck in
                         DeckListRow(deck: deck)
