@@ -80,7 +80,7 @@ struct FTPService {
         return parseFTPListing(from: output, basePath: path, deck: deck)
     }
 
-    // MARK: - List remote .mov files (legacy)
+    // MARK: - List remote convertible video files
     static func listMovFiles(on deck: HyperDeck) async -> [String] {
         let encoded = deck.remotePath
             .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? deck.remotePath
@@ -351,9 +351,10 @@ struct FTPService {
             .components(separatedBy: "\n")
             .compactMap { line -> String? in
                 let clean = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard clean.lowercased().contains(".mov") else { return nil }
+                guard !clean.isEmpty else { return nil }
                 let last = clean.components(separatedBy: " ").last ?? clean
-                return last.lowercased().hasSuffix(".mov") ? last : nil
+                let ext = (last as NSString).pathExtension.lowercased()
+                return ConversionService.convertibleExtensions.contains(ext) ? last : nil
             }
     }
 

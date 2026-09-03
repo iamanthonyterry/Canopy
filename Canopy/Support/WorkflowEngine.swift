@@ -549,17 +549,17 @@ final class WorkflowEngine: ObservableObject {
             return
         }
 
-        let movFiles = entries
-            .filter { $0.lastPathComponent.lowercased().hasSuffix(".mov") }
+        let convertibleFiles = entries
+            .filter { ConversionService.canConvert(url: $0) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
 
-        guard !movFiles.isEmpty else {
-            session.log("  \(name): no .mov files found")
+        guard !convertibleFiles.isEmpty else {
+            session.log("  \(name): no convertible files found")
             return
         }
-        session.log("  \(name): \(movFiles.count) file(s) found")
+        session.log("  \(name): \(convertibleFiles.count) file(s) found")
 
-        for fileURL in movFiles {
+        for fileURL in convertibleFiles {
             guard !session.isCancelled else { return }
 
             let fileName = fileURL.lastPathComponent

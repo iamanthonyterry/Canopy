@@ -127,10 +127,12 @@ struct ConversionService {
 
     // MARK: - Supported Input Check
 
+    /// File extensions AVFoundation can read as video.
+    static let convertibleExtensions: Set<String> = ["mov", "mp4", "m4v", "mxf", "avi", "m2ts", "mts", "ts"]
+
     /// Returns true if AVFoundation can read this file type.
     static func canConvert(url: URL) -> Bool {
-        let readable: Set<String> = ["mov", "mp4", "m4v", "mxf", "avi", "m2ts", "mts", "ts"]
-        return readable.contains(url.pathExtension.lowercased())
+        convertibleExtensions.contains(url.pathExtension.lowercased())
     }
 
     // MARK: - Export Preset Selection
