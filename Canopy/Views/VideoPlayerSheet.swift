@@ -426,7 +426,7 @@ struct VideoPlayerSheet: View {
         panel.canCreateDirectories = true
         switch device {
         case .cloudStore, .localFolder:
-            panel.directoryURL = sourceURL.flatMap { $0.deletingLastPathComponent() }
+            panel.directoryURL = sourceURL.deletingLastPathComponent()
         case .hyperDeck:
             break
         }

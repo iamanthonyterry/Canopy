@@ -6,6 +6,11 @@ import AppKit
 // folder browser's multi-select, or trimmed clips added from the video
 // player — and runs them all against one chosen destination folder.
 struct ExportQueueView: View {
+    /// When true, this renders as a full-pane page (e.g. the Dashboard's
+    /// Export Queue selection) instead of a fixed-size dismissible sheet —
+    /// no Close button, and it fills whatever space its container gives it.
+    var embedded: Bool = false
+
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var manager = ExportQueueManager.shared
 
@@ -21,7 +26,8 @@ struct ExportQueueView: View {
             rule
             footer
         }
-        .frame(minWidth: 480, minHeight: 420)
+        .frame(minWidth: embedded ? 0 : 480, minHeight: embedded ? 0 : 420)
+        .frame(maxWidth: embedded ? .infinity : nil, maxHeight: embedded ? .infinity : nil)
         .background(Color.canopyPaper)
     }
 
@@ -30,7 +36,9 @@ struct ExportQueueView: View {
             Image(systemName: "square.and.arrow.up.on.square.fill").foregroundStyle(.tint)
             Text("Export Queue").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
             Spacer()
-            Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+            if !embedded {
+                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+            }
         }
         .padding()
     }
