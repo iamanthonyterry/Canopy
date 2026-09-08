@@ -147,7 +147,7 @@ final class ExportQueueManager: ObservableObject {
         let suggestedName = item.isTrimmed ? "\(base)_clip.\(ext)" : "\(base).\(ext)"
         let outputURL = Self.uniqueURL(for: suggestedName, in: destination)
 
-        let ok = await ConversionService.exportClip(
+        let outcome = await ConversionService.exportClip(
             input: source, output: outputURL, timeRange: item.trimRange
         ) { [weak self] pct in
             Task { @MainActor in
@@ -160,13 +160,21 @@ final class ExportQueueManager: ObservableObject {
             try? FileManager.default.removeItem(at: downloadedTempURL)
         }
 
-        if ok {
+        switch outcome {
+        case .success:
             if let i = items.firstIndex(where: { $0.id == itemID }) {
                 items[i].phase = .done
                 items[i].progress = 1
             }
-        } else {
+        case .failure:
             markError(itemID: itemID, message: "Export failed")
+        case .diskFull:
+            markError(itemID: itemID, message: "Destination drive full")
+            isCancelled = true
+            NotificationService.sendDeviceAlert(
+                title: "Canopy: Destination Drive Full",
+                body: "The export queue was stopped because the destination drive ran out of space. Free up space and run it again."
+            )
         }
     }
 

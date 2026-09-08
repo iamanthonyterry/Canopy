@@ -26,10 +26,10 @@ struct ShowModeView: View {
                         activeRunsSection
                     }
                     if !appState.hyperDecks.isEmpty {
-                        deviceSection(title: "HyperDecks", ipAddresses: appState.hyperDecks.map { ($0.id, $0.name, $0.ipAddress, true) })
+                        hyperDeckSection
                     }
                     if !appState.cloudStores.isEmpty {
-                        deviceSection(title: "Cloud Stores", ipAddresses: appState.cloudStores.map { ($0.id, $0.name, $0.ipAddress, false) })
+                        deviceSection(title: "Cloud Stores", devices: appState.cloudStores.map { ($0.id, $0.name, $0.ipAddress) })
                     }
                     if appState.hyperDecks.isEmpty && appState.cloudStores.isEmpty {
                         emptyState
@@ -84,40 +84,47 @@ struct ShowModeView: View {
         }
     }
 
-    // MARK: - Device section
+    // MARK: - HyperDeck section
 
-    // `canRecord` distinguishes HyperDecks (which get a REC badge when
-    // ConnectionMonitor reports them recording) from cloud stores, which
-    // have no recording concept of their own.
+    // Each card owns a live HyperDeckService (same as the dashboard's
+    // DeckContentPane) so transport controls work directly from Show Mode,
+    // not just a read-only status glance.
+    private var hyperDeckSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("HyperDecks")
+                .font(.canopyDisplay(20, weight: .bold))
+                .foregroundStyle(Color.canopyInk)
+
+            LazyVGrid(columns: columns, spacing: 20) {
+                ForEach(appState.hyperDecks) { deck in
+                    ShowModeDeckCard(deck: deck)
+                }
+            }
+        }
+    }
+
+    // MARK: - Cloud store section
+
     @ViewBuilder
-    private func deviceSection(title: String, ipAddresses: [(UUID, String, String, Bool)]) -> some View {
+    private func deviceSection(title: String, devices: [(UUID, String, String)]) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title)
                 .font(.canopyDisplay(20, weight: .bold))
                 .foregroundStyle(Color.canopyInk)
 
             LazyVGrid(columns: columns, spacing: 20) {
-                ForEach(ipAddresses, id: \.0) { _, name, ip, canRecord in
-                    deviceCard(name: name, status: monitor.status(for: ip),
-                               isRecording: canRecord && monitor.isRecording(host: ip))
+                ForEach(devices, id: \.0) { _, name, ip in
+                    deviceCard(name: name, status: monitor.status(for: ip))
                 }
             }
         }
     }
 
-    private func deviceCard(name: String, status: DeckStatus, isRecording: Bool) -> some View {
+    private func deviceCard(name: String, status: DeckStatus) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(name)
-                    .font(.system(size: 22, weight: .semibold))
-                    .lineLimit(1)
-                Spacer()
-                if isRecording {
-                    Label("REC", systemImage: "circle.fill")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.red)
-                }
-            }
+            Text(name)
+                .font(.system(size: 22, weight: .semibold))
+                .lineLimit(1)
             HStack(spacing: 8) {
                 Circle().fill(statusColor(status)).frame(width: 12, height: 12)
                 Text(statusLabel(status))
@@ -129,10 +136,6 @@ struct ShowModeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.canopySageTint)
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(isRecording ? Color.red.opacity(0.5) : .clear, lineWidth: 2)
-        )
     }
 
     private var emptyState: some View {
@@ -149,29 +152,6 @@ struct ShowModeView: View {
     }
 
     // MARK: - Helpers
-
-    private func statusLabel(_ status: DeckStatus) -> String {
-        switch status {
-        case .online:       "Online"
-        case .offline:      "Offline"
-        case .unauthorized: "Login Issue"
-        case .pathNotFound: "Path Not Found"
-        case .noMedia:      "No Media"
-        case .syncing:      "Syncing"
-        case .transcoding:  "Converting"
-        case .unknown:      "Checking…"
-        }
-    }
-
-    private func statusColor(_ status: DeckStatus) -> Color {
-        switch status {
-        case .online:                                  .canopySage
-        case .offline, .noMedia:                        .canopyRust
-        case .unauthorized, .pathNotFound, .transcoding: .orange
-        case .syncing:                                   .accentColor
-        case .unknown:                                   .gray
-        }
-    }
 
     private func activeRunCard(_ session: WorkflowRunSession) -> some View {
         ActiveRunCard(session: session, engine: workflowEngine)
@@ -257,4 +237,98 @@ private func elapsedTimeString(_ elapsed: TimeInterval) -> String {
     let s = Int(elapsed) % 60
     if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
     return String(format: "%d:%02d", m, s)
+}
+
+/// Shared by ShowModeView's cloud store cards and ShowModeDeckCard.
+private func statusLabel(_ status: DeckStatus) -> String {
+    switch status {
+    case .online:       "Online"
+    case .offline:      "Offline"
+    case .unauthorized: "Login Issue"
+    case .pathNotFound: "Path Not Found"
+    case .noMedia:      "No Media"
+    case .syncing:      "Syncing"
+    case .transcoding:  "Converting"
+    case .unknown:      "Checking…"
+    }
+}
+
+private func statusColor(_ status: DeckStatus) -> Color {
+    switch status {
+    case .online:                                  .canopySage
+    case .offline, .noMedia:                        .canopyRust
+    case .unauthorized, .pathNotFound, .transcoding: .orange
+    case .syncing:                                   .accentColor
+    case .unknown:                                   .gray
+    }
+}
+
+// MARK: - Show Mode HyperDeck Card
+
+/// A HyperDeck's card in Show Mode: live status plus the same transport
+/// controls as the dashboard, so a recording can be started/stopped without
+/// leaving the show-mode screen. Owns its own HyperDeckService (mirroring
+/// DeckContentPane) since Show Mode has no per-deck state of its own.
+private struct ShowModeDeckCard: View {
+    let deck: HyperDeck
+    @EnvironmentObject var appState: AppState
+    @ObservedObject private var monitor = ConnectionMonitor.shared
+    @StateObject private var hyperDeck: HyperDeckService
+    @State private var showFormatConfirm = false
+
+    init(deck: HyperDeck) {
+        self.deck = deck
+        _hyperDeck = StateObject(wrappedValue: HyperDeckService(host: deck.ipAddress))
+    }
+
+    private var status: DeckStatus { monitor.status(for: deck.ipAddress) }
+    private var isRecording: Bool { hyperDeck.transport == .recording }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(deck.name)
+                    .font(.system(size: 22, weight: .semibold))
+                    .lineLimit(1)
+                Spacer()
+                if isRecording {
+                    Label("REC", systemImage: "circle.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.red)
+                }
+            }
+            HStack(spacing: 8) {
+                Circle().fill(statusColor(status)).frame(width: 12, height: 12)
+                Text(statusLabel(status))
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(statusColor(status))
+            }
+
+            if appState.isAdmin && status == .online {
+                HyperDeckControls(hyperDeck: hyperDeck, showFormatConfirm: $showFormatConfirm)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.canopySageTint)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(isRecording ? Color.red.opacity(0.5) : .clear, lineWidth: 2)
+        )
+        .onAppear { hyperDeck.startPolling() }
+        .onDisappear { hyperDeck.stopPolling() }
+        .confirmationDialog(
+            "Format Drive?",
+            isPresented: $showFormatConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Format", role: .destructive) {
+                Task { await hyperDeck.formatDrive() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will erase all media on \(deck.name). This cannot be undone.")
+        }
+    }
 }

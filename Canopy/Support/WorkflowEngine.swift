@@ -610,7 +610,7 @@ final class WorkflowEngine: ObservableObject {
         for batch in batches {
             guard !session.isCancelled else { break }
 
-            let results: [(input: URL, output: URL, ok: Bool)] = await withTaskGroup(of: (URL, URL, Bool).self) { group in
+            let results: [(input: URL, output: URL, outcome: ConversionOutcome)] = await withTaskGroup(of: (URL, URL, ConversionOutcome).self) { group in
                 for inputURL in batch {
                     group.addTask {
                         let fileName  = inputURL.lastPathComponent
@@ -625,7 +625,7 @@ final class WorkflowEngine: ObservableObject {
                             if let id = taskID { self.updateTask(id: id, phase: .converting, convertProgress: 0) }
                         }
 
-                        let ok = await ConversionService.convert(
+                        let outcome = await ConversionService.convert(
                             input: inputURL, output: outputURL, settings: settings
                         ) { pct in
                             if let id = taskID {
@@ -634,28 +634,50 @@ final class WorkflowEngine: ObservableObject {
                         }
 
                         await MainActor.run {
-                            if ok, let id = taskID { self.updateTask(id: id, phase: .done, convertProgress: 1) }
-                            if !ok, let id = taskID { self.updateTask(id: id, phase: .error, errorMessage: "Conversion failed") }
+                            switch outcome {
+                            case .success:
+                                if let id = taskID { self.updateTask(id: id, phase: .done, convertProgress: 1) }
+                            case .failure:
+                                if let id = taskID { self.updateTask(id: id, phase: .error, errorMessage: "Conversion failed") }
+                            case .diskFull:
+                                if let id = taskID { self.updateTask(id: id, phase: .error, errorMessage: "Destination drive full") }
+                            }
                         }
-                        return (inputURL, outputURL, ok)
+                        return (inputURL, outputURL, outcome)
                     }
                 }
-                var collected: [(URL, URL, Bool)] = []
+                var collected: [(URL, URL, ConversionOutcome)] = []
                 for await result in group { collected.append(result) }
                 return collected
             }
 
-            for (input, output, ok) in results {
-                if ok {
+            var diskFullDetected = false
+            for (input, output, outcome) in results {
+                switch outcome {
+                case .success:
                     session.log("  ✅ Converted → \(output.lastPathComponent) (\(deckName))")
                     session.converted += 1
                     convertedFiles.append(output)
                     if deleteOriginal { try? FileManager.default.removeItem(at: input) }
-                } else {
+                case .failure:
                     session.log("  ❌ Conversion failed: \(input.lastPathComponent) (\(deckName))")
                     session.errors += 1
                     if !deleteOriginal { convertedFiles.append(input) }
+                case .diskFull:
+                    session.log("  🛑 Destination drive is full — stopping (\(input.lastPathComponent), \(deckName))")
+                    session.errors += 1
+                    diskFullDetected = true
                 }
+            }
+
+            if diskFullDetected {
+                session.isCancelled = true
+                session.log("⏹ Workflow stopped — destination drive is full")
+                NotificationService.sendDeviceAlert(
+                    title: "Canopy: Destination Drive Full",
+                    body: "Sync to \(deckName) was stopped because the destination drive ran out of space. Free up space and run it again."
+                )
+                break
             }
         }
 

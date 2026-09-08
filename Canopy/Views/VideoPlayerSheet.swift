@@ -443,17 +443,20 @@ struct VideoPlayerSheet: View {
         exportProgress = 0
 
         Task {
-            let success = await ConversionService.exportClip(
+            let outcome = await ConversionService.exportClip(
                 input: sourceURL, output: destination, timeRange: range
             ) { pct in
                 Task { @MainActor in exportProgress = pct }
             }
 
             isExporting = false
-            if success {
+            switch outcome {
+            case .success:
                 NSWorkspace.shared.activateFileViewerSelecting([destination])
-            } else {
+            case .failure:
                 exportError = "Export failed. Try a shorter range or a different destination."
+            case .diskFull:
+                exportError = "The destination drive is full. Free up space and try again."
             }
         }
     }

@@ -52,6 +52,16 @@ enum StorageCapacityService {
         return StorageInfo(usedBytes: max(total - available, 0), totalBytes: total > 0 ? total : nil)
     }
 
+    /// Raw free space on the volume containing `path`. Used by long-running
+    /// writes (video conversion/export) to watch for a destination filling
+    /// up mid-write, since `capacity(forPath:)`'s used/total figures are
+    /// meant for display and a `nil` total makes "used" alone useless for
+    /// a low-space check.
+    static func availableBytes(forPath path: String) throws -> Int64 {
+        let values = try URL(fileURLWithPath: path).resourceValues(forKeys: [.volumeAvailableCapacityKey])
+        return Int64(values.volumeAvailableCapacity ?? 0)
+    }
+
     /// HyperDeck: the Ethernet protocol has no command that reports raw disk
     /// capacity — only an estimated recording-time-remaining figure — so
     /// "used" is the real total of every file's size from the deck's FTP
