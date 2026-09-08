@@ -812,17 +812,30 @@ final class WorkflowEngine: ObservableObject {
         let base = context.destDir
         session.log("  🧹 Cleaning \(context.device.name)'s destination folder — removing files older than \(retentionDays) day(s)...")
 
-        let deletedCount = await Task.detached(priority: .background) {
+        // destDir is often a Cloud Store's SMB mount, so an unbroken burst of
+        // per-file stat/delete calls over a large or slow tree can hammer the
+        // SMB client for minutes at a stretch. Check for Stop and yield
+        // periodically, and cap the whole walk with a hard deadline, so a bad
+        // share degrades this step instead of stalling it indefinitely.
+        let deadline = Date().addingTimeInterval(5 * 60)
+
+        let (deletedCount, cutShort): (Int, Bool) = await Task.detached(priority: .background) {
             let fm = FileManager.default
             guard let enumerator = fm.enumerator(
                 at: base,
                 includingPropertiesForKeys: [.contentModificationDateKey],
                 options: [.skipsHiddenFiles]
-            ) else { return 0 }
+            ) else { return (0, false) }
 
             var deleted = 0
-            let urls = enumerator.compactMap { $0 as? URL }
-            for url in urls {
+            var checked = 0
+            while let url = enumerator.nextObject() as? URL {
+                checked += 1
+                if checked % 20 == 0 {
+                    if await session.isCancelled { return (deleted, true) }
+                    if Date() > deadline { return (deleted, true) }
+                    await Task.yield()
+                }
                 guard !url.hasDirectoryPath else { continue }
                 if let mod = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
                    mod < cutoff {
@@ -830,10 +843,14 @@ final class WorkflowEngine: ObservableObject {
                     deleted += 1
                 }
             }
-            return deleted
+            return (deleted, false)
         }.value
 
-        session.log("  🗑 Cleanup removed \(deletedCount) old file(s)")
+        if cutShort {
+            session.log("  ⚠️ Cleanup stopped early after removing \(deletedCount) file(s) — destination folder may be slow to respond")
+        } else {
+            session.log("  🗑 Cleanup removed \(deletedCount) old file(s)")
+        }
     }
 
     // MARK: - Trigger Workflow step
