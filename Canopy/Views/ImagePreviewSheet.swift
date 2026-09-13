@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 // Presented by DeviceFilesBrowser when the user previews an image. Cloud
 // Store / Local Folder files live on an already-mounted volume and load
@@ -16,6 +17,8 @@ struct ImagePreviewSheet: View {
     @State private var downloadProgress: Double = 0
     @State private var errorMessage: String?
     @State private var downloadedFileURL: URL?
+    @State private var isSaving = false
+    @State private var saveError: String?
 
     @State private var scale: CGFloat = 1
     @State private var lastScale: CGFloat = 1
@@ -31,6 +34,17 @@ struct ImagePreviewSheet: View {
                     .lineLimit(1).truncationMode(.middle)
                 Spacer()
                 if image != nil {
+                    if isSaving {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button {
+                            saveAs()
+                        } label: {
+                            Image(systemName: "square.and.arrow.down")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Save a Copy…")
+                    }
                     Button {
                         withAnimation(.easeOut(duration: 0.2)) { resetZoom() }
                     } label: {
@@ -93,6 +107,58 @@ struct ImagePreviewSheet: View {
         .background(Color.canopyPaper)
         .task { await load() }
         .onDisappear { cleanUp() }
+        .alert("Couldn't Save Photo", isPresented: Binding(
+            get: { saveError != nil },
+            set: { if !$0 { saveError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(saveError ?? "")
+        }
+    }
+
+    // MARK: - Save
+
+    /// The already-available local copy of the source file — the volume URL
+    /// for Cloud Store/Local Folder, or the temp file downloaded by `load()`
+    /// for HyperDeck — so Save can just copy it rather than re-downloading.
+    private var sourceFileURL: URL? {
+        switch device {
+        case .cloudStore, .localFolder: return node.url
+        case .hyperDeck: return downloadedFileURL
+        }
+    }
+
+    private func saveAs() {
+        guard let source = sourceFileURL else { return }
+
+        let ext = (node.name as NSString).pathExtension
+        let panel = NSSavePanel()
+        panel.title = "Save Photo"
+        panel.nameFieldStringValue = node.name
+        if let type = UTType(filenameExtension: ext) {
+            panel.allowedContentTypes = [type]
+        }
+        panel.canCreateDirectories = true
+        if case .cloudStore = device { panel.directoryURL = source.deletingLastPathComponent() }
+        if case .localFolder = device { panel.directoryURL = source.deletingLastPathComponent() }
+
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+
+        isSaving = true
+        Task {
+            let outcome = ConversionService.copyFile(input: source, output: destination)
+
+            isSaving = false
+            switch outcome {
+            case .success:
+                NSWorkspace.shared.activateFileViewerSelecting([destination])
+            case .failure:
+                saveError = "The photo couldn't be saved to that location."
+            case .diskFull:
+                saveError = "The destination drive is full. Free up space and try again."
+            }
+        }
     }
 
     private func resetZoom() {

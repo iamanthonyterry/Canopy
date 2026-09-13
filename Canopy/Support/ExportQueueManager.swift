@@ -37,7 +37,7 @@ final class ExportQueueManager: ObservableObject {
     }
 
     func addMultiple(_ nodes: [FileNode], device: DeviceSource) {
-        for node in nodes where node.isVideo {
+        for node in nodes where node.isVideo || node.isImage {
             add(node: node, device: device)
         }
     }
@@ -147,12 +147,20 @@ final class ExportQueueManager: ObservableObject {
         let suggestedName = item.isTrimmed ? "\(base)_clip.\(ext)" : "\(base).\(ext)"
         let outputURL = Self.uniqueURL(for: suggestedName, in: destination)
 
-        let outcome = await ConversionService.exportClip(
-            input: source, output: outputURL, timeRange: item.trimRange
-        ) { [weak self] pct in
-            Task { @MainActor in
-                guard let self, let i = self.items.firstIndex(where: { $0.id == itemID }) else { return }
-                self.items[i].progress = pct
+        let outcome: ConversionOutcome
+        if node.isImage {
+            outcome = ConversionService.copyFile(input: source, output: outputURL)
+            if outcome == .success {
+                items[i].progress = 1
+            }
+        } else {
+            outcome = await ConversionService.exportClip(
+                input: source, output: outputURL, timeRange: item.trimRange
+            ) { [weak self] pct in
+                Task { @MainActor in
+                    guard let self, let i = self.items.firstIndex(where: { $0.id == itemID }) else { return }
+                    self.items[i].progress = pct
+                }
             }
         }
 

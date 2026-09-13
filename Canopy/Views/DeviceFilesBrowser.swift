@@ -501,7 +501,7 @@ struct DeviceFilesBrowser: View {
     // MARK: - Export Queue
 
     private func addSelectionToQueue() {
-        let nodes = selectedNodes().filter(\.isVideo)
+        let nodes = selectedNodes().filter { $0.isVideo || $0.isImage }
         exportQueue.addMultiple(nodes, device: device)
         isSelecting = false
         selectedIDs.removeAll()

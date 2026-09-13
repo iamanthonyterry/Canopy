@@ -52,8 +52,8 @@ struct ExportQueueView: View {
         VStack(spacing: 10) {
             Spacer()
             Image(systemName: "tray").font(.system(size: 36)).foregroundStyle(Color.canopySage)
-            Text("No clips queued").foregroundStyle(.secondary)
-            Text("Select clips in a folder and tap “Add to Queue”, or queue a trimmed clip from the video player.")
+            Text("Nothing queued").foregroundStyle(.secondary)
+            Text("Select clips or photos in a folder and tap “Add to Queue”, or queue a trimmed clip from the video player.")
                 .font(.caption).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 320)
@@ -83,7 +83,7 @@ struct ExportQueueView: View {
                 Spacer()
                 Button("Cancel") { manager.cancel() }
             } else {
-                Text("\(manager.items.count) clip\(manager.items.count == 1 ? "" : "s") queued")
+                Text("\(manager.items.count) item\(manager.items.count == 1 ? "" : "s") queued")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Clear Completed") { manager.clearCompleted() }

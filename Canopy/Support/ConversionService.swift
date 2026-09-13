@@ -192,6 +192,31 @@ struct ConversionService {
         return outcome
     }
 
+    // MARK: - Copy (non-video files, e.g. photos)
+
+    /// Copies `input` to `output` verbatim — used for file types (photos)
+    /// that AVFoundation can't process, so the export queue and image
+    /// preview's Save can share the same disk-space-aware destination
+    /// handling as the video export paths.
+    static func copyFile(input: URL, output: URL) -> ConversionOutcome {
+        try? FileManager.default.createDirectory(
+            at: output.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? FileManager.default.removeItem(at: output)
+
+        if isDestinationLowOnSpace(forPath: output.deletingLastPathComponent().path) {
+            return .diskFull
+        }
+
+        do {
+            try FileManager.default.copyItem(at: input, to: output)
+            return .success
+        } catch {
+            return .failure
+        }
+    }
+
     // MARK: - Supported Input Check
 
     /// File extensions AVFoundation can read as video.
