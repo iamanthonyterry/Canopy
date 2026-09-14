@@ -214,7 +214,7 @@ final class WorkflowEngine: ObservableObject {
             // Create Folder runs once for the whole workflow (like the
             // destination resolution above), not once per device — so it's
             // handled here rather than fanned out through `execute`.
-            if case .createFolder(let cloudStoreID, let parentPath, let nameTemplate) = step.action {
+            if case .createFolder(let cloudStoreID, let parentPath, let nameTemplate, let groupByDevice) = step.action {
                 do {
                     let folderURL = try await resolveCreateFolder(
                         cloudStoreID: cloudStoreID, parentPath: parentPath, nameTemplate: nameTemplate,
@@ -228,7 +228,13 @@ final class WorkflowEngine: ObservableObject {
                             // path as destDir — it never adopts a shared
                             // created folder.
                             guard context.device.hyperDeck != nil else { return context }
-                            context.destDir = folderURL
+                            let deviceDestDir = groupByDevice
+                                ? folderURL.appendingPathComponent(context.device.name)
+                                : folderURL
+                            if groupByDevice {
+                                try? FileManager.default.createDirectory(at: deviceDestDir, withIntermediateDirectories: true)
+                            }
+                            context.destDir = deviceDestDir
                             context.cloudStoreID = cloudStoreID
                             return context
                         }

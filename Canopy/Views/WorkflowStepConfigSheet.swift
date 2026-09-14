@@ -23,6 +23,7 @@ struct WorkflowStepConfigSheet: View {
     @State private var createFolderCloudStoreID: UUID? = nil   // nil = global destination
     @State private var createFolderParentPath = ""
     @State private var createFolderNameTemplate = ""
+    @State private var createFolderGroupByDevice = false
     @State private var showCreateFolderPathPicker = false
     @State private var preset: ConversionSettings.FFmpegPreset = .fast
     @State private var deleteOriginal = true
@@ -154,7 +155,7 @@ struct WorkflowStepConfigSheet: View {
     /// The folder name a Create Folder step will resolve to, for display in
     /// the Sync step's "use created folder" picker.
     private func folderStepLabel(_ folderStep: WorkflowStep) -> String {
-        if case .createFolder(_, _, let nameTemplate) = folderStep.action {
+        if case .createFolder(_, _, let nameTemplate, _) = folderStep.action {
             return FolderNameEngine.resolve(nameTemplate)
         }
         return "Folder"
@@ -279,6 +280,12 @@ struct WorkflowStepConfigSheet: View {
                     }
                 }
                 Text("Preview: \(FolderNameEngine.resolve(createFolderNameTemplate))")
+                    .font(.caption).foregroundStyle(.secondary)
+
+                Toggle("Create a subfolder for each device", isOn: $createFolderGroupByDevice)
+                Text(createFolderGroupByDevice
+                     ? "Each device in this workflow gets its own subfolder, named after the device (e.g. \"ISO 1\"), inside the created folder."
+                     : "All devices in this workflow share the created folder directly.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -680,10 +687,11 @@ struct WorkflowStepConfigSheet: View {
                 waitUnit = .minutes
                 waitValue = max(minutes, 1)
             }
-        case .createFolder(let cloudStoreID, let parentPath, let nameTemplate):
+        case .createFolder(let cloudStoreID, let parentPath, let nameTemplate, let groupByDevice):
             createFolderCloudStoreID = cloudStoreID
             createFolderParentPath = parentPath
             createFolderNameTemplate = nameTemplate
+            createFolderGroupByDevice = groupByDevice
         case .sync(let destination):
             switch destination {
             case .global:
@@ -731,7 +739,8 @@ struct WorkflowStepConfigSheet: View {
             step.action = .createFolder(
                 cloudStoreID: createFolderCloudStoreID,
                 parentPath: createFolderParentPath,
-                nameTemplate: createFolderNameTemplate.isEmpty ? "New Folder_\(FolderNameEngine.dateToken)" : createFolderNameTemplate
+                nameTemplate: createFolderNameTemplate.isEmpty ? "New Folder_\(FolderNameEngine.dateToken)" : createFolderNameTemplate,
+                groupByDevice: createFolderGroupByDevice
             )
         case .sync:
             let destination: SyncDestination

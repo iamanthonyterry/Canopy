@@ -146,7 +146,10 @@ enum StepAction: Hashable {
     /// `parentPath` is the subfolder within the chosen store (or the global
     /// destination) the new folder is created inside — empty = volume/base
     /// root. `nameTemplate` may contain `FolderNameEngine.dateToken`.
-    case createFolder(cloudStoreID: UUID?, parentPath: String, nameTemplate: String)
+    /// `groupByDevice`, when true, makes each target device write into its
+    /// own subfolder (named after the device) inside the created folder,
+    /// instead of every device sharing the folder directly.
+    case createFolder(cloudStoreID: UUID?, parentPath: String, nameTemplate: String, groupByDevice: Bool = false)
     case sync(destination: SyncDestination)
     case convert(preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool, maxParallelJobs: Int, convertInPlace: Bool = false)
     case rename(pattern: String)
@@ -174,7 +177,7 @@ enum StepAction: Hashable {
         switch kind {
         case .controlDeck:     return .controlDeck(command: .start, stopAfterMinutes: nil)
         case .wait:            return .wait(minutes: 60)
-        case .createFolder:    return .createFolder(cloudStoreID: nil, parentPath: "", nameTemplate: "New Folder_\(FolderNameEngine.dateToken)")
+        case .createFolder:    return .createFolder(cloudStoreID: nil, parentPath: "", nameTemplate: "New Folder_\(FolderNameEngine.dateToken)", groupByDevice: false)
         case .sync:            return .sync(destination: .global)
         case .convert:         return .convert(preset: .fast, deleteOriginal: true, maxParallelJobs: 2, convertInPlace: false)
         case .rename:          return .rename(pattern: "{device}_{date}_{index}")
@@ -213,11 +216,12 @@ enum StepAction: Hashable {
             }
         case .wait(let minutes):
             return "Waits \(WaitDurationFormatter.string(forMinutes: minutes)) before continuing"
-        case .createFolder(let cloudStoreID, let parentPath, let nameTemplate):
+        case .createFolder(let cloudStoreID, let parentPath, let nameTemplate, let groupByDevice):
             let resolved = FolderNameEngine.resolve(nameTemplate)
             let location = cloudStoreID == nil ? "the global destination" : "the selected cloud store"
             let folder = parentPath.isEmpty ? resolved : "\(parentPath)/\(resolved)"
-            return "Creates \"\(folder)\" in \(location)"
+            let grouping = groupByDevice ? " · one subfolder per device" : ""
+            return "Creates \"\(folder)\" in \(location)\(grouping)"
         case .sync(let destination):
             switch destination {
             case .global:
@@ -269,7 +273,7 @@ extension StepAction: Codable {
     }
 
     enum CreateFolderKeys: String, CodingKey {
-        case cloudStoreID, parentPath, nameTemplate
+        case cloudStoreID, parentPath, nameTemplate, groupByDevice
     }
 
     enum SyncKeys: String, CodingKey {
@@ -323,7 +327,9 @@ extension StepAction: Codable {
             let cloudStoreID = try nested.decodeIfPresent(UUID.self, forKey: .cloudStoreID)
             let parentPath = try nested.decodeIfPresent(String.self, forKey: .parentPath) ?? ""
             let nameTemplate = try nested.decode(String.self, forKey: .nameTemplate)
-            self = .createFolder(cloudStoreID: cloudStoreID, parentPath: parentPath, nameTemplate: nameTemplate)
+            // Pre-per-device-grouping workflows didn't store this — default to off.
+            let groupByDevice = try nested.decodeIfPresent(Bool.self, forKey: .groupByDevice) ?? false
+            self = .createFolder(cloudStoreID: cloudStoreID, parentPath: parentPath, nameTemplate: nameTemplate, groupByDevice: groupByDevice)
         } else if container.contains(.sync) {
             let nested = try container.nestedContainer(keyedBy: SyncKeys.self, forKey: .sync)
             if let destination = try nested.decodeIfPresent(SyncDestination.self, forKey: .destination) {
@@ -385,11 +391,12 @@ extension StepAction: Codable {
         case .wait(let minutes):
             var nested = container.nestedContainer(keyedBy: WaitKeys.self, forKey: .wait)
             try nested.encode(minutes, forKey: .minutes)
-        case .createFolder(let cloudStoreID, let parentPath, let nameTemplate):
+        case .createFolder(let cloudStoreID, let parentPath, let nameTemplate, let groupByDevice):
             var nested = container.nestedContainer(keyedBy: CreateFolderKeys.self, forKey: .createFolder)
             try nested.encode(cloudStoreID, forKey: .cloudStoreID)
             try nested.encode(parentPath, forKey: .parentPath)
             try nested.encode(nameTemplate, forKey: .nameTemplate)
+            try nested.encode(groupByDevice, forKey: .groupByDevice)
         case .sync(let destination):
             var nested = container.nestedContainer(keyedBy: SyncKeys.self, forKey: .sync)
             try nested.encode(destination, forKey: .destination)
