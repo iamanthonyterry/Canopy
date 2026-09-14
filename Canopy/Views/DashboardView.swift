@@ -407,6 +407,12 @@ struct DashboardView: View {
                     }
                     Spacer()
                     ElapsedTimeView(startTime: session.startedAt, compact: true, estimatedSecondsRemaining: session.estimatedSecondsRemaining)
+                    Button {
+                        session.isPaused ? session.resume() : session.pause()
+                    } label: {
+                        Label(session.isPaused ? "Resume" : "Pause", systemImage: session.isPaused ? "play.fill" : "pause.fill")
+                    }
+                    .buttonStyle(.bordered).controlSize(.small)
                     Button(role: .destructive) {
                         workflowEngine.stop(session)
                     } label: {

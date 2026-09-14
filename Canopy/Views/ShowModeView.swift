@@ -171,7 +171,7 @@ private struct ActiveRunCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 18) {
-                Circle().fill(Color.accentColor).frame(width: 16, height: 16)
+                Circle().fill(session.isPaused ? Color.orange : Color.accentColor).frame(width: 16, height: 16)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(session.workflow.name)
                         .font(.system(size: 24, weight: .semibold))
@@ -187,6 +187,14 @@ private struct ActiveRunCard: View {
                     Text(elapsedTimeString(context.date.timeIntervalSince(session.startedAt)))
                         .font(.system(size: 22, weight: .medium, design: .monospaced))
                 }
+                Button {
+                    session.isPaused ? session.resume() : session.pause()
+                } label: {
+                    Label(session.isPaused ? "Resume" : "Pause", systemImage: session.isPaused ? "play.fill" : "pause.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .padding(.horizontal, 4).padding(.vertical, 2)
+                }
+                .buttonStyle(.bordered).controlSize(.large)
                 Button(role: .destructive) {
                     engine.stop(session)
                 } label: {

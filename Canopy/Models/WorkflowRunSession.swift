@@ -29,6 +29,13 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
     @Published var pendingConfirmationStep: WorkflowStep? = nil
     private var confirmationContinuation: CheckedContinuation<Bool, Never>?
 
+    /// Set by the user's Pause button for *this* run only. Checked between
+    /// steps in the run loop (same boundary as `requiresConfirmation`), so
+    /// pausing never interrupts a step partway through — the current step
+    /// finishes for every device, then the run holds until resumed.
+    @Published var isPaused = false
+    private var pauseContinuation: CheckedContinuation<Void, Never>?
+
     var converted = 0
     var skipped = 0
     var errors = 0
@@ -87,5 +94,39 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
         confirmationContinuation = nil
         pendingConfirmationStep = nil
         continuation.resume(returning: proceed)
+    }
+
+    // MARK: - Pause / Resume
+
+    func pause() {
+        guard !isPaused else { return }
+        isPaused = true
+        log("⏸ Paused by user")
+    }
+
+    func resume() {
+        guard isPaused else { return }
+        isPaused = false
+        log("▶️ Resumed by user")
+        pauseContinuation?.resume()
+        pauseContinuation = nil
+    }
+
+    /// Suspends the caller while `isPaused` is true — called between steps
+    /// in the run loop, mirroring `waitForConfirmation`.
+    func waitWhilePaused() async {
+        guard isPaused else { return }
+        await withCheckedContinuation { continuation in
+            pauseContinuation = continuation
+        }
+    }
+
+    /// Releases a suspended pause without logging "Resumed" — used when a
+    /// paused run is stopped outright, so it doesn't hang forever waiting
+    /// for a resume that will never come.
+    func releasePause() {
+        isPaused = false
+        pauseContinuation?.resume()
+        pauseContinuation = nil
     }
 }

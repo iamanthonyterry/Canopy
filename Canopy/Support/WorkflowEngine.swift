@@ -194,6 +194,8 @@ final class WorkflowEngine: ObservableObject {
 
         for step in workflow.steps {
             guard !session.isCancelled else { break }
+            await session.waitWhilePaused()
+            guard !session.isCancelled else { break }
             if case .notify(_, _, _, let sendPerDrive) = step.action, !sendPerDrive {
                 continue
             }
@@ -308,9 +310,11 @@ final class WorkflowEngine: ObservableObject {
     func stop(_ session: WorkflowRunSession) {
         session.isCancelled = true
         session.log("⏹ Workflow stopped by user")
-        // Release a paused confirmation prompt, if any, so the run doesn't
-        // hang forever waiting for a response that will never come.
+        // Release a paused confirmation prompt or a user pause, if either is
+        // active, so the run doesn't hang forever waiting for a response
+        // that will never come.
         session.resolveConfirmation(proceed: false)
+        session.releasePause()
     }
 
     // MARK: - Retry failed tasks

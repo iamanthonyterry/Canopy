@@ -230,8 +230,15 @@ private struct RunningWorkflowBanner: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Running \"\(session.workflow.name)\"...").font(.subheadline).bold()
+                Text(session.isPaused ? "Paused \"\(session.workflow.name)\"" : "Running \"\(session.workflow.name)\"...")
+                    .font(.subheadline).bold()
                 Spacer()
+                Button {
+                    session.isPaused ? session.resume() : session.pause()
+                } label: {
+                    Label(session.isPaused ? "Resume" : "Pause", systemImage: session.isPaused ? "play.fill" : "pause.fill")
+                }
+                .buttonStyle(.bordered).controlSize(.small)
                 Button(role: .destructive) { engine.stop(session) } label: {
                     Label("Stop", systemImage: "stop.fill")
                 }
