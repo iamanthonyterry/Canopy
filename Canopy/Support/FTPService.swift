@@ -81,18 +81,12 @@ struct FTPService {
     }
 
     // MARK: - List remote convertible video files
-    static func listMovFiles(on deck: HyperDeck) async -> [String] {
-        let encoded = deck.remotePath
-            .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? deck.remotePath
-        let url = "ftp://\(deck.ipAddress)/\(encoded)/"
-
-        let (output, _) = await runProcessWithExitCode(
-            executable: "/usr/bin/curl",
-            args: ["--user", "\(deck.username):\(deck.password)",
-                   "--connect-timeout", "5", "--max-time", "15", "-s", url],
-            retryOn: retryableCurlExitCodes
-        )
-        return parseMovFiles(from: output)
+    // Returns full entries (not just names) so callers know each file's size
+    // up front — needed to estimate transfer speed and time remaining once
+    // the download starts.
+    static func listMovFiles(on deck: HyperDeck) async -> [FTPEntry] {
+        await listAllFiles(on: deck, path: deck.remotePath)
+            .filter { !$0.isDirectory && ConversionService.convertibleExtensions.contains(($0.name as NSString).pathExtension.lowercased()) }
     }
 
     // MARK: - Download result
@@ -342,19 +336,6 @@ struct FTPService {
                 let isDirectory = permissions.hasPrefix("d")
                 let size = Int64(fields[4]) ?? 0
                 return FTPEntry(name: name, isDirectory: isDirectory, size: size, modified: .distantPast)
-            }
-    }
-
-    static func parseMovFiles(from output: String) -> [String] {
-        output
-            .replacingOccurrences(of: "\r", with: "")
-            .components(separatedBy: "\n")
-            .compactMap { line -> String? in
-                let clean = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !clean.isEmpty else { return nil }
-                let last = clean.components(separatedBy: " ").last ?? clean
-                let ext = (last as NSString).pathExtension.lowercased()
-                return ConversionService.convertibleExtensions.contains(ext) ? last : nil
             }
     }
 

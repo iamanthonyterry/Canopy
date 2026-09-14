@@ -8,6 +8,11 @@ import SwiftUI
 struct ElapsedTimeView: View {
     let startTime: Date
     var compact: Bool = false
+    /// Estimated seconds left on the sync work, when known (see
+    /// `WorkflowRunSession.estimatedSecondsRemaining`). Nil falls back to
+    /// the old indeterminate shimmer — e.g. before any file has produced a
+    /// speed sample, or for a run with no sync step at all.
+    var estimatedSecondsRemaining: Double? = nil
 
     var body: some View {
         if compact {
@@ -27,7 +32,7 @@ struct ElapsedTimeView: View {
                     .font(.caption).bold()
                     .foregroundStyle(Color.accentColor)
                 Spacer()
-                Text(elapsedString(elapsed))
+                Text(trailingLabel(elapsed))
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
@@ -57,7 +62,7 @@ struct ElapsedTimeView: View {
             ProgressView(value: progressValue(elapsed))
                 .tint(Color.accentColor)
                 .frame(width: 80)
-            Text(elapsedString(elapsed))
+            Text(trailingLabel(elapsed))
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
@@ -65,12 +70,22 @@ struct ElapsedTimeView: View {
 
     // MARK: - Helpers
 
-    // Animate an indeterminate-style shimmer over 60 s cycles so the bar
-    // always appears "moving" even though there's no real percent-complete
-    // for an open-ended run.
+    // Once we have a real ETA, show actual percent-complete (elapsed vs.
+    // elapsed+remaining) instead of the shimmer. Before that — no speed
+    // sample yet, or a run with no sync step — fall back to an
+    // indeterminate-style shimmer over 60 s cycles so the bar still always
+    // appears "moving".
     private func progressValue(_ elapsed: TimeInterval) -> Double {
+        if let remaining = estimatedSecondsRemaining, elapsed + remaining > 0 {
+            return elapsed / (elapsed + remaining)
+        }
         let cycle: Double = 60
         return elapsed.truncatingRemainder(dividingBy: cycle) / cycle
+    }
+
+    private func trailingLabel(_ elapsed: TimeInterval) -> String {
+        guard let remaining = estimatedSecondsRemaining else { return elapsedString(elapsed) }
+        return "\(elapsedString(elapsed)) · ~\(TaskRow.formatDuration(remaining)) left"
     }
 
     private func elapsedString(_ elapsed: TimeInterval) -> String {

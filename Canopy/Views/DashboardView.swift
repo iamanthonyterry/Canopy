@@ -32,6 +32,14 @@ struct DashboardView: View {
     var inProgress: [WorkflowRunSession] { appState.activeRuns.filter { !$0.isFinished } }
     var erroredMounts: [WorkflowRunSession] { appState.activeRuns.filter { $0.mountError != nil } }
 
+    /// Combines every concurrent run's own estimate into one dashboard-wide
+    /// figure. Uses the slowest (max) rather than an average since the
+    /// dashboard's "Running" state doesn't clear until every run finishes.
+    var estimatedSecondsRemaining: Double? {
+        let estimates = inProgress.compactMap(\.estimatedSecondsRemaining)
+        return estimates.max()
+    }
+
     var activeCount: Int  { inProgress.flatMap(\.tasks).filter { $0.phase == .downloading || $0.phase == .converting }.count }
     var doneCount: Int    { inProgress.flatMap(\.tasks).filter { $0.phase == .done }.count }
     var errorCount: Int   { inProgress.flatMap(\.tasks).filter { $0.phase == .error }.count }
@@ -170,7 +178,7 @@ struct DashboardView: View {
             }
 
             if let earliest = inProgress.map(\.startedAt).min() {
-                ElapsedTimeView(startTime: earliest)
+                ElapsedTimeView(startTime: earliest, estimatedSecondsRemaining: estimatedSecondsRemaining)
             }
         }
         .padding()
@@ -398,7 +406,7 @@ struct DashboardView: View {
                         }
                     }
                     Spacer()
-                    ElapsedTimeView(startTime: session.startedAt, compact: true)
+                    ElapsedTimeView(startTime: session.startedAt, compact: true, estimatedSecondsRemaining: session.estimatedSecondsRemaining)
                     Button(role: .destructive) {
                         workflowEngine.stop(session)
                     } label: {

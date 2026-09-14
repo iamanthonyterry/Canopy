@@ -485,9 +485,14 @@ final class WorkflowEngine: ObservableObject {
         }
         session.log("  \(deck.name): \(remoteFiles.count) file(s) found")
 
-        for fileName in remoteFiles {
-            guard !session.isCancelled else { return }
-
+        // Queue every file needing a download up front (with its known size)
+        // before downloading any of them. Files download one at a time, but
+        // pre-queuing the rest lets the UI show what's still waiting and
+        // lets the run-level ETA account for the full remaining queue, not
+        // just whichever file happens to be downloading right now.
+        var queue: [(entry: FTPService.FTPEntry, destURL: URL, taskID: UUID)] = []
+        for entry in remoteFiles {
+            let fileName = entry.name
             let destURL = context.destDir.appendingPathComponent(fileName)
             let convertedDir = convertInPlace ? context.destDir : context.destDir.appendingPathComponent("Converted")
             let convertedURL = convertedDir
@@ -502,29 +507,36 @@ final class WorkflowEngine: ObservableObject {
             let task = addTask(
                 fileName: fileName, deckName: deck.name,
                 destDir: context.destDir, cloudStoreID: context.cloudStoreID,
+                fileSizeBytes: entry.size,
                 in: session
             )
-            updateTask(id: task.id, phase: .downloading, syncProgress: 0)
-            session.log("  ⬇ Downloading \(fileName)...")
+            queue.append((entry, destURL, task.id))
+        }
+
+        for (entry, destURL, taskID) in queue {
+            guard !session.isCancelled else { return }
+
+            updateTask(id: taskID, phase: .downloading, syncProgress: 0)
+            session.log("  ⬇ Downloading \(entry.name)...")
 
             // FTPService.downloadFile already retries transient failures
             // internally (dropped connection, stalled transfer), cleaning up
             // any partial file between attempts — so a single call here
             // already reflects the outcome after those retries.
             let result = await FTPService.downloadFile(
-                named: fileName, from: deck, to: destURL
-            ) { [weak self] pct in Task { @MainActor in self?.updateTask(id: task.id, syncProgress: pct) } }
+                named: entry.name, from: deck, to: destURL
+            ) { [weak self] pct in Task { @MainActor in self?.updateTask(id: taskID, syncProgress: pct) } }
 
             guard result.success else {
                 let reason = result.failureReason ?? "unknown error"
-                updateTask(id: task.id, phase: .error, errorMessage: "Download failed after retries: \(reason)")
-                session.log("  ❌ Download failed: \(fileName) — \(reason)")
+                updateTask(id: taskID, phase: .error, errorMessage: "Download failed after retries: \(reason)")
+                session.log("  ❌ Download failed: \(entry.name) — \(reason)")
                 session.errors += 1
                 continue
             }
 
-            updateTask(id: task.id, phase: .done, syncProgress: 1)
-            session.log("  ✅ Downloaded \(fileName)")
+            updateTask(id: taskID, phase: .done, syncProgress: 1)
+            session.log("  ✅ Downloaded \(entry.name)")
             context.files.append(destURL)
         }
     }
@@ -573,9 +585,11 @@ final class WorkflowEngine: ObservableObject {
                 continue
             }
 
+            let fileSize = try? fm.attributesOfItem(atPath: fileURL.path)[.size] as? Int64
             let task = addTask(
                 fileName: fileName, deckName: name,
                 destDir: context.destDir, cloudStoreID: context.cloudStoreID,
+                fileSizeBytes: fileSize ?? 0,
                 in: session
             )
             // The file is already local — there's no download phase.
@@ -1148,9 +1162,10 @@ final class WorkflowEngine: ObservableObject {
     private func addTask(
         fileName: String, deckName: String, destDir: URL,
         cloudStoreID: UUID? = nil,
+        fileSizeBytes: Int64 = 0,
         in session: WorkflowRunSession
     ) -> SyncTask {
-        let t = SyncTask(fileName: fileName, deckName: deckName, destDir: destDir, cloudStoreID: cloudStoreID)
+        let t = SyncTask(fileName: fileName, deckName: deckName, destDir: destDir, cloudStoreID: cloudStoreID, fileSizeBytes: fileSizeBytes)
         session.tasks.append(t)
         return t
     }
@@ -1179,11 +1194,39 @@ final class WorkflowEngine: ObservableObject {
         for session in appState.activeRuns {
             guard let i = session.tasks.firstIndex(where: { $0.id == id }) else { continue }
             if let v = phase           { session.tasks[i].phase           = v }
-            if let v = syncProgress    { session.tasks[i].syncProgress    = v }
+            if let v = syncProgress    {
+                updateTransferSpeed(&session.tasks[i], newProgress: v)
+                session.tasks[i].syncProgress = v
+            }
             if let v = convertProgress { session.tasks[i].convertProgress = v }
             if let v = errorMessage    { session.tasks[i].errorMessage    = v }
             return
         }
+    }
+
+    /// Feeds a new `syncProgress` sample into the task's rolling speed
+    /// estimate. Curl's `--progress-bar` reports in coarse (~1%) steps
+    /// rather than a steady stream, so a single sample-to-sample rate would
+    /// be noisy — this smooths it with a simple exponential moving average
+    /// instead of reacting fully to every tick.
+    private func updateTransferSpeed(_ task: inout SyncTask, newProgress: Double) {
+        defer {
+            task.lastProgressAt = Date()
+            task.lastProgressValue = newProgress
+        }
+        guard task.fileSizeBytes > 0,
+              let lastAt = task.lastProgressAt,
+              newProgress > task.lastProgressValue else { return }
+
+        let elapsed = Date().timeIntervalSince(lastAt)
+        guard elapsed > 0 else { return }
+
+        let deltaBytes = Double(task.fileSizeBytes) * (newProgress - task.lastProgressValue)
+        let instantSpeed = deltaBytes / elapsed
+        let smoothing = 0.3
+        task.bytesPerSecond = task.bytesPerSecond == 0
+            ? instantSpeed
+            : (smoothing * instantSpeed + (1 - smoothing) * task.bytesPerSecond)
     }
 
     /// Clears a task back to its initial state before a retry attempt.
@@ -1194,6 +1237,9 @@ final class WorkflowEngine: ObservableObject {
             session.tasks[i].syncProgress    = 0
             session.tasks[i].convertProgress = 0
             session.tasks[i].errorMessage    = nil
+            session.tasks[i].bytesPerSecond  = 0
+            session.tasks[i].lastProgressAt    = nil
+            session.tasks[i].lastProgressValue = 0
             return
         }
     }

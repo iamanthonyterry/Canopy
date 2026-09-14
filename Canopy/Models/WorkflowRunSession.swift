@@ -40,6 +40,30 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
 
     var failedTasks: [SyncTask] { tasks.filter { $0.phase == .error } }
 
+    /// Estimated seconds remaining for this run's sync work, based on files
+    /// still queued or downloading and the current transfer speed. Files are
+    /// downloaded one at a time, so this is normally just "time left on the
+    /// current file" plus "size of everything still queued behind it" at
+    /// that same speed. Nil until we have both a known size and a speed
+    /// sample to work from.
+    var estimatedSecondsRemaining: Double? {
+        let pending = tasks.filter { $0.phase == .queued || $0.phase == .downloading }
+        guard !pending.isEmpty else { return nil }
+
+        let remainingBytes = pending.reduce(0.0) { total, task in
+            guard task.fileSizeBytes > 0 else { return total }
+            let doneFraction = task.phase == .downloading ? task.syncProgress : 0
+            return total + Double(task.fileSizeBytes) * (1 - doneFraction)
+        }
+
+        let speeds = pending.map(\.bytesPerSecond).filter { $0 > 0 }
+        guard !speeds.isEmpty else { return nil }
+        let avgSpeed = speeds.reduce(0, +) / Double(speeds.count)
+        guard avgSpeed > 0 else { return nil }
+
+        return remainingBytes / avgSpeed
+    }
+
     func log(_ message: String) {
         let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         lines.append("[\(ts)] \(message)")

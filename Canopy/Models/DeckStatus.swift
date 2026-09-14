@@ -172,6 +172,25 @@ struct SyncTask: Identifiable {
     /// sure that store is (re)mounted before a retry writes into destDir.
     var cloudStoreID: UUID? = nil
 
+    /// Size of the source file, when known up front (FTP listings and local
+    /// folders both report this; 0 means "unknown" — e.g. a cloud store
+    /// entry that didn't surface a size). Needed, together with
+    /// `bytesPerSecond`, to estimate time remaining.
+    var fileSizeBytes: Int64 = 0
+    /// Rolling (exponentially-smoothed) transfer speed in bytes/sec,
+    /// updated as `syncProgress` advances. Zero until the first sample.
+    var bytesPerSecond: Double = 0
+    var lastProgressAt: Date? = nil
+    var lastProgressValue: Double = 0
+
+    /// Estimated seconds remaining on the download, or nil if we don't yet
+    /// have enough information (unknown file size, or no speed sample yet).
+    var etaSeconds: Double? {
+        guard phase == .downloading, fileSizeBytes > 0, bytesPerSecond > 0 else { return nil }
+        let remainingBytes = Double(fileSizeBytes) * (1 - syncProgress)
+        return remainingBytes / bytesPerSecond
+    }
+
     enum Phase: String {
         case queued, downloading, converting, done, error
         var label: String { rawValue.capitalized }
