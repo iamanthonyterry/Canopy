@@ -32,6 +32,14 @@ final class WorkflowEngine: ObservableObject {
             }
         }
 
+        var resourceKey: String {
+            switch self {
+            case .hyperDeck(let d):   return AppState.resourceKey(d)
+            case .localFolder(let f): return AppState.resourceKey(f)
+            case .cloudStore(let s, let path): return AppState.resourceKey(s, path: path)
+            }
+        }
+
         /// Non-nil only for a HyperDeck target — used to guard steps
         /// (Control HyperDeck, Format) that only make sense for a real
         /// device, and by retry to decide whether there's anything to
@@ -83,7 +91,11 @@ final class WorkflowEngine: ObservableObject {
         // instant someone taps Run manually.
         guard appState.canRun(workflow) else { return }
 
-        let session = appState.beginRun(for: workflow, deckNames: Set(targets.map(\.name)))
+        let session = appState.beginRun(
+            for: workflow,
+            deckNames: Set(targets.map(\.name)),
+            resourceKeys: Set(targets.map(\.resourceKey))
+        )
         session.log("▶ Workflow started: \(workflow.name)")
 
         guard !targets.isEmpty else {

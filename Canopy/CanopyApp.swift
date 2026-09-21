@@ -14,6 +14,7 @@ struct CanopyApp: App {
                     scheduler.sync()
                     ConnectionMonitor.shared.start()
                     AlertingService.shared.start()
+                    PeerPresenceService.shared.start()
                     RemoteControlEngine.shared.applySettings()
                 }
                 .onOpenURL { url in

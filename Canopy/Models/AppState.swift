@@ -98,9 +98,60 @@ class AppState: ObservableObject {
     }
 
     /// False only if running this workflow right now would touch a device
-    /// that's already busy in another in-progress run.
+    /// that's already busy in another in-progress run — on this computer
+    /// or on another Canopy instance on the network.
     func canRun(_ workflow: Workflow) -> Bool {
         busyDeckNames.isDisjoint(with: targetDeviceNames(for: workflow))
+            && remoteConflicts(for: workflow).isEmpty
+    }
+
+    // MARK: - Other computers
+    // Snapshots of other Canopy instances on the network, kept current by
+    // `PeerPresenceService`.
+    @Published var peerSnapshots: [PeerSnapshot] = []
+
+    /// Every workflow run in progress on another computer.
+    var remoteRuns: [(computer: String, run: PeerRun)] {
+        peerSnapshots.flatMap { peer in peer.runs.map { (peer.computerName, $0) } }
+    }
+
+    /// Runs on other computers that are using a device this workflow would.
+    func remoteConflicts(for workflow: Workflow) -> [(computer: String, run: PeerRun)] {
+        let keys = targetResourceKeys(for: workflow)
+        guard !keys.isEmpty else { return [] }
+        return remoteRuns.filter { !keys.isDisjoint(with: $0.run.resourceKeys) }
+    }
+
+    // Identifies a device in a way that means the same thing on every
+    // computer — device *names* are chosen locally, so they can't be
+    // compared across machines, but an IP address or a share path can.
+    static func resourceKey(_ deck: HyperDeck) -> String {
+        "deck:\(deck.ipAddress.lowercased())"
+    }
+    static func resourceKey(_ store: CloudStore, path: String = "") -> String {
+        let base = "store:\(store.ipAddress.lowercased())/\(store.volumeName.lowercased())"
+        return path.isEmpty ? base : "\(base)/\(path)"
+    }
+    static func resourceKey(_ folder: LocalFolder) -> String {
+        "folder:\(folder.path)"
+    }
+
+    func targetResourceKeys(for workflow: Workflow) -> Set<String> {
+        guard !workflow.targets.isEmpty else {
+            return Set(hyperDecks.map { Self.resourceKey($0) } + localFolders.map { Self.resourceKey($0) })
+        }
+        var keys: Set<String> = []
+        for target in workflow.targets {
+            switch target {
+            case .hyperDeck(let id):
+                if let deck = hyperDecks.first(where: { $0.id == id }) { keys.insert(Self.resourceKey(deck)) }
+            case .localFolder(let id):
+                if let folder = localFolders.first(where: { $0.id == id }) { keys.insert(Self.resourceKey(folder)) }
+            case .cloudStore(let id, let path):
+                if let store = cloudStores.first(where: { $0.id == id }) { keys.insert(Self.resourceKey(store, path: path)) }
+            }
+        }
+        return keys
     }
 
     // MARK: - System log
@@ -220,9 +271,9 @@ class AppState: ObservableObject {
     /// Starts tracking a new run, clearing out any old finished session for
     /// this same workflow first so its previous results don't linger
     /// alongside the new ones.
-    func beginRun(for workflow: Workflow, deckNames: Set<String>) -> WorkflowRunSession {
+    func beginRun(for workflow: Workflow, deckNames: Set<String>, resourceKeys: Set<String> = []) -> WorkflowRunSession {
         activeRuns.removeAll { $0.workflow.id == workflow.id && $0.isFinished }
-        let session = WorkflowRunSession(workflow: workflow, deckNames: deckNames)
+        let session = WorkflowRunSession(workflow: workflow, deckNames: deckNames, resourceKeys: resourceKeys)
         activeRuns.append(session)
         return session
     }

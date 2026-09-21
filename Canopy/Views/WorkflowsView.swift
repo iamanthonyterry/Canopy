@@ -17,6 +17,8 @@ struct WorkflowsView: View {
             header
             rule
 
+            RemoteRunsBanner()
+
             if !inProgress.isEmpty {
                 ForEach(inProgress) { session in
                     RunningWorkflowBanner(session: session, engine: engine)
@@ -188,6 +190,7 @@ struct WorkflowsView: View {
                     }
                     .buttonStyle(.canopyPrimary)
                     .disabled(!appState.canRun(workflow) || workflow.steps.isEmpty)
+                    .help(runBlockedReason(for: workflow) ?? "")
                 }
             }
         }
@@ -195,6 +198,12 @@ struct WorkflowsView: View {
     }
 
     // MARK: - Helpers
+
+    /// Tooltip explaining a disabled Run button when the cause is another computer.
+    private func runBlockedReason(for workflow: Workflow) -> String? {
+        guard let conflict = appState.remoteConflicts(for: workflow).first else { return nil }
+        return "\"\(conflict.run.workflowName)\" is already running on \(conflict.computer) using the same devices"
+    }
 
     private func targetDeviceLabel(_ workflow: Workflow) -> String {
         if workflow.targets.isEmpty { return "All devices" }
@@ -222,6 +231,37 @@ struct WorkflowsView: View {
 /// session directly — that's what lets the confirmation prompt below
 /// appear the instant a step pauses, without waiting on some unrelated
 /// redraw elsewhere in the app.
+/// Lists workflows running on other Canopy computers on the network, so it's
+/// clear why a Run button is disabled and who to talk to. Hidden when
+/// nothing is running elsewhere.
+private struct RemoteRunsBanner: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        let runs = appState.remoteRuns
+        if !runs.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(runs, id: \.run.id) { item in
+                    HStack(spacing: 8) {
+                        Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("\"\(item.run.workflowName)\" \(item.run.isPaused ? "paused" : "running") on \(item.computer)")
+                                .font(.subheadline).bold()
+                            Text("\(item.run.deviceNames.joined(separator: ", ")) · step \(min(item.run.completedSteps + 1, item.run.totalSteps)) of \(item.run.totalSteps)")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                }
+            }
+            .padding(.horizontal).padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.canopyRust.opacity(0.08))
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
+        }
+    }
+}
+
 private struct RunningWorkflowBanner: View {
     @ObservedObject var session: WorkflowRunSession
     let engine: WorkflowEngine

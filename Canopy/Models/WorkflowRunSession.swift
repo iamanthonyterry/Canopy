@@ -13,6 +13,10 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
     /// Names of every device this run touches — used both for display and
     /// to detect conflicts with other runs that want the same device.
     let deckNames: Set<String>
+    /// Machine-independent identifiers for those devices (see
+    /// `AppState.resourceKey`), shared with other Canopy computers on the
+    /// network so they can tell when a run would clash with this one.
+    let resourceKeys: Set<String>
     let startedAt = Date()
 
     @Published var tasks: [SyncTask] = []
@@ -44,9 +48,10 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
     /// step's state at a glance — not just whichever one is active.
     @Published private(set) var stepRuns: [StepRun]
 
-    init(workflow: Workflow, deckNames: Set<String>) {
+    init(workflow: Workflow, deckNames: Set<String>, resourceKeys: Set<String> = []) {
         self.workflow = workflow
         self.deckNames = deckNames
+        self.resourceKeys = resourceKeys
         self.stepRuns = workflow.steps.map { StepRun(step: $0) }
     }
 

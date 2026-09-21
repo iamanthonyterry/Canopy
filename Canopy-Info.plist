@@ -21,6 +21,7 @@
 	<array>
 		<string>_ftp._tcp</string>
 		<string>_smb._tcp</string>
+		<string>_canopy._tcp</string>
 	</array>
 	<key>NSServices</key>
 	<array>
