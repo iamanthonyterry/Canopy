@@ -202,6 +202,7 @@ final class WorkflowEngine: ObservableObject {
 
             if step.requiresConfirmation {
                 session.log("⏸ Paused — waiting for confirmation on \"\(step.kind.title)\"")
+                session.markAwaitingConfirmation(step.id)
                 let shouldContinue = await session.waitForConfirmation(on: step)
                 guard shouldContinue else {
                     if !session.isCancelled {
@@ -212,6 +213,8 @@ final class WorkflowEngine: ObservableObject {
                 }
                 session.log("▶️ Confirmed \"\(step.kind.title)\" — continuing")
             }
+
+            session.beginStep(step.id)
 
             // Create Folder runs once for the whole workflow (like the
             // destination resolution above), not once per device — so it's
@@ -245,6 +248,7 @@ final class WorkflowEngine: ObservableObject {
                     session.log("❌ Failed to create folder: \(error.localizedDescription)")
                     session.errors += 1
                 }
+                session.endStep(step.id)
                 continue
             }
 
@@ -255,6 +259,7 @@ final class WorkflowEngine: ObservableObject {
                     workflowID: workflowID, waitForCompletion: waitForCompletion,
                     session: session, triggerChain: triggerChain
                 )
+                session.endStep(step.id)
                 continue
             }
 
@@ -270,6 +275,7 @@ final class WorkflowEngine: ObservableObject {
                 for await context in group { updated.append(context) }
                 return updated
             }
+            session.endStep(step.id)
         }
 
         let allProcessedFiles = contexts.flatMap(\.files)
@@ -291,7 +297,9 @@ final class WorkflowEngine: ObservableObject {
             )
             for step in workflowWideNotifySteps {
                 if case .notify(let header, let message, let recipients, _) = step.action {
+                    session.beginStep(step.id)
                     await runNotify(context: &workflowContext, header: header, message: message, recipients: recipients)
+                    session.endStep(step.id)
                 }
             }
         }
@@ -1026,6 +1034,7 @@ final class WorkflowEngine: ObservableObject {
     // MARK: - Finish
 
     private func finishRun(workflow: Workflow, session: WorkflowRunSession) {
+        session.finalizeSteps()
         let c = session.converted
         let e = session.errors
         session.log("✅ Workflow finished — \(c) processed, \(e) errors")

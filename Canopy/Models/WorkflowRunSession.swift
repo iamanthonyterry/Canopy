@@ -40,9 +40,133 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
     var skipped = 0
     var errors = 0
 
+    /// One entry per workflow step, in run order, so the UI can show every
+    /// step's state at a glance — not just whichever one is active.
+    @Published private(set) var stepRuns: [StepRun]
+
     init(workflow: Workflow, deckNames: Set<String>) {
         self.workflow = workflow
         self.deckNames = deckNames
+        self.stepRuns = workflow.steps.map { StepRun(step: $0) }
+    }
+
+    // MARK: - Step tracking
+
+    struct StepRun: Identifiable {
+        enum Status { case pending, awaitingConfirmation, running, done, skipped, cancelled }
+
+        let step: WorkflowStep
+        var status: Status = .pending
+        var startedAt: Date? = nil
+        var finishedAt: Date? = nil
+        /// Errors logged while this step was the active one.
+        var errors = 0
+        fileprivate var errorsAtStart = 0
+
+        var id: UUID { step.id }
+    }
+
+    var currentStepIndex: Int? {
+        stepRuns.firstIndex { $0.status == .running || $0.status == .awaitingConfirmation }
+    }
+
+    var completedStepCount: Int {
+        stepRuns.filter { $0.status == .done || $0.status == .skipped }.count
+    }
+
+    private func updateStep(_ id: UUID, _ change: (inout StepRun) -> Void) {
+        guard let i = stepRuns.firstIndex(where: { $0.id == id }) else { return }
+        change(&stepRuns[i])
+    }
+
+    func markAwaitingConfirmation(_ id: UUID) {
+        updateStep(id) { $0.status = .awaitingConfirmation }
+    }
+
+    func beginStep(_ id: UUID) {
+        let errorsNow = errors
+        updateStep(id) {
+            $0.status = .running
+            $0.startedAt = Date()
+            $0.errorsAtStart = errorsNow
+        }
+    }
+
+    func endStep(_ id: UUID) {
+        let errorsNow = errors
+        updateStep(id) {
+            $0.status = .done
+            $0.finishedAt = Date()
+            $0.errors = errorsNow - $0.errorsAtStart
+        }
+    }
+
+    /// Called once the run is over: anything that never got to run is
+    /// either skipped (per-drive notify handled elsewhere) or cancelled.
+    func finalizeSteps() {
+        let now = Date()
+        for i in stepRuns.indices {
+            switch stepRuns[i].status {
+            case .pending:
+                stepRuns[i].status = isCancelled ? .cancelled : .skipped
+            case .running, .awaitingConfirmation:
+                stepRuns[i].status = .cancelled
+                stepRuns[i].finishedAt = now
+            default: break
+            }
+        }
+    }
+
+    /// Fraction complete (0...1) for a step, or nil when the step has no
+    /// measurable progress (it's shown as indeterminate while running).
+    func progress(for run: StepRun) -> Double? {
+        switch run.step.action {
+        case .sync:
+            guard !tasks.isEmpty else { return nil }
+            let total = tasks.reduce(0.0) { sum, t in
+                switch t.phase {
+                case .queued:                       return sum
+                case .downloading:                  return sum + t.syncProgress
+                case .converting, .done, .error:    return sum + 1
+                }
+            }
+            return total / Double(tasks.count)
+        case .convert:
+            guard !tasks.isEmpty else { return nil }
+            let total = tasks.reduce(0.0) { sum, t in
+                switch t.phase {
+                case .converting:       return sum + t.convertProgress
+                case .done, .error:     return sum + 1
+                default:                return sum
+                }
+            }
+            return total / Double(tasks.count)
+        case .wait(let minutes):
+            guard let start = run.startedAt, minutes > 0 else { return nil }
+            return min(1, Date().timeIntervalSince(start) / Double(minutes * 60))
+        default:
+            return nil
+        }
+    }
+
+    /// Short live description of what a step is doing right now.
+    func detail(for run: StepRun) -> String? {
+        switch run.step.action {
+        case .sync, .convert:
+            guard !tasks.isEmpty else { return nil }
+            let isSync: Bool = { if case .sync = run.step.action { return true } else { return false } }()
+            let finished = tasks.filter {
+                isSync ? ($0.phase == .converting || $0.phase == .done || $0.phase == .error)
+                       : ($0.phase == .done || $0.phase == .error)
+            }.count
+            var text = "\(finished) of \(tasks.count) files"
+            if run.status == .running, isSync, let eta = estimatedSecondsRemaining {
+                text += " · \(Int(eta.rounded(.up)) / 60)m \(Int(eta.rounded(.up)) % 60)s left"
+            }
+            return text
+        default:
+            return nil
+        }
     }
 
     var failedTasks: [SyncTask] { tasks.filter { $0.phase == .error } }

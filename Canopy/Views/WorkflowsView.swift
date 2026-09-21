@@ -227,11 +227,15 @@ private struct RunningWorkflowBanner: View {
     let engine: WorkflowEngine
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text(session.isPaused ? "Paused \"\(session.workflow.name)\"" : "Running \"\(session.workflow.name)\"...")
-                    .font(.subheadline).bold()
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(session.isPaused ? "Paused \"\(session.workflow.name)\"" : "Running \"\(session.workflow.name)\"...")
+                        .font(.subheadline).bold()
+                    Text(summary)
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button {
                     session.isPaused ? session.resume() : session.pause()
@@ -244,6 +248,28 @@ private struct RunningWorkflowBanner: View {
                 }
                 .buttonStyle(.bordered).tint(Color.canopyRust).controlSize(.small)
             }
+
+            ProgressView(value: Double(session.completedStepCount), total: Double(max(session.stepRuns.count, 1)))
+                .tint(Color.canopySage)
+
+            // Re-evaluated every second so elapsed times and Wait-step
+            // progress keep moving even when no other state changes.
+            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(session.stepRuns.enumerated()), id: \.element.id) { index, run in
+                        StepRunRow(
+                            index: index + 1,
+                            run: run,
+                            isLast: index == session.stepRuns.count - 1,
+                            progress: session.progress(for: run),
+                            detail: session.detail(for: run),
+                            isPaused: session.isPaused,
+                            now: timeline.date
+                        )
+                    }
+                }
+            }
+
             if let lastLine = session.lines.last {
                 Text(lastLine)
                     .font(.system(size: 11, design: .monospaced))
@@ -255,6 +281,14 @@ private struct RunningWorkflowBanner: View {
             }
         }
         .padding()
+    }
+
+    private var summary: String {
+        let total = session.stepRuns.count
+        guard let current = session.currentStepIndex else {
+            return "\(session.completedStepCount) of \(total) steps complete"
+        }
+        return "Step \(current + 1) of \(total) · \(session.stepRuns[current].step.action.shortLabel)"
     }
 
     private func confirmationPrompt(for step: WorkflowStep) -> some View {
@@ -274,5 +308,109 @@ private struct RunningWorkflowBanner: View {
         .padding(10)
         .background(Color.orange.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+// MARK: - Step Run Row
+
+/// One step in the running-workflow timeline: status marker on a connecting
+/// line, the step's name, and — while active — a progress bar and detail.
+private struct StepRunRow: View {
+    let index: Int
+    let run: WorkflowRunSession.StepRun
+    let isLast: Bool
+    let progress: Double?
+    let detail: String?
+    let isPaused: Bool
+    let now: Date
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(spacing: 0) {
+                marker.frame(width: 22, height: 22)
+                if !isLast {
+                    Rectangle()
+                        .fill(run.status == .done ? Color.canopySage.opacity(0.5) : Color.canopyRule)
+                        .frame(width: 2)
+                        .frame(maxHeight: .infinity)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Image(systemName: run.step.kind.icon)
+                        .font(.caption)
+                        .foregroundStyle(run.step.kind.color)
+                    Text("\(index). \(run.step.action.shortLabel)")
+                        .font(.subheadline.weight(isActive ? .semibold : .regular))
+                        .foregroundStyle(isDimmed ? .secondary : Color.canopyInk)
+                    Spacer()
+                    Text(trailingText)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(run.errors > 0 ? Color.canopyRust : .secondary)
+                }
+
+                if run.status == .running {
+                    if let progress {
+                        ProgressView(value: progress).tint(Color.canopySage)
+                    } else {
+                        ProgressView().progressViewStyle(.linear)
+                    }
+                }
+                if run.status == .awaitingConfirmation {
+                    Text("Waiting for your confirmation")
+                        .font(.caption).foregroundStyle(.orange)
+                } else if isActive, let detail {
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.bottom, isLast ? 0 : 10)
+        }
+    }
+
+    private var isActive: Bool { run.status == .running || run.status == .awaitingConfirmation }
+    private var isDimmed: Bool { run.status == .pending || run.status == .skipped || run.status == .cancelled }
+
+    @ViewBuilder private var marker: some View {
+        switch run.status {
+        case .pending:
+            Image(systemName: "circle").foregroundStyle(.tertiary)
+        case .awaitingConfirmation:
+            Image(systemName: "hand.raised.circle.fill").foregroundStyle(.orange)
+        case .running:
+            Image(systemName: isPaused ? "pause.circle.fill" : "circle.dotted.circle")
+                .foregroundStyle(Color.accentColor)
+                .symbolEffect(.pulse, isActive: !isPaused)
+        case .done:
+            Image(systemName: run.errors > 0 ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
+                .foregroundStyle(run.errors > 0 ? Color.canopyRust : Color.canopySage)
+        case .skipped:
+            Image(systemName: "arrow.uturn.right.circle").foregroundStyle(.tertiary)
+        case .cancelled:
+            Image(systemName: "stop.circle").foregroundStyle(.tertiary)
+        }
+    }
+
+    private var trailingText: String {
+        switch run.status {
+        case .pending:  return "Queued"
+        case .skipped:  return "Skipped"
+        case .cancelled: return "Stopped"
+        case .awaitingConfirmation: return "Paused"
+        case .running:
+            let elapsed = Self.format(now.timeIntervalSince(run.startedAt ?? now))
+            if let progress { return "\(Int(progress * 100))% · \(elapsed)" }
+            return elapsed
+        case .done:
+            let elapsed = Self.format((run.finishedAt ?? now).timeIntervalSince(run.startedAt ?? now))
+            return run.errors > 0 ? "\(run.errors) error\(run.errors == 1 ? "" : "s") · \(elapsed)" : elapsed
+        }
+    }
+
+    private static func format(_ seconds: TimeInterval) -> String {
+        let s = max(0, Int(seconds))
+        return s >= 3600
+            ? String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+            : String(format: "%d:%02d", s / 60, s % 60)
     }
 }
