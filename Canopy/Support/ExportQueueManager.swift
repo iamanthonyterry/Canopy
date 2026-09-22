@@ -61,7 +61,7 @@ final class ExportQueueManager: ObservableObject {
     /// time. Items already `.done` or `.error` from a previous run are left
     /// untouched, so a retry after fixing an error only reprocesses what's
     /// still `.queued`.
-    func start(destination: URL) async {
+    func start(destination: URL, mode: ExportPreset.Mode = .original) async {
         guard !isRunning else { return }
         let pendingIDs = items.filter { $0.phase == .queued }.map(\.id)
         guard !pendingIDs.isEmpty else { return }
@@ -77,7 +77,7 @@ final class ExportQueueManager: ObservableObject {
             guard !isCancelled else { break }
             await withTaskGroup(of: Void.self) { group in
                 for id in batch {
-                    group.addTask { await self.export(itemID: id, destination: destination) }
+                    group.addTask { await self.export(itemID: id, destination: destination, mode: mode) }
                 }
                 for await _ in group {}
             }
@@ -92,7 +92,7 @@ final class ExportQueueManager: ObservableObject {
 
     // MARK: - Per-item export
 
-    private func export(itemID: ExportQueueItem.ID, destination: URL) async {
+    private func export(itemID: ExportQueueItem.ID, destination: URL, mode: ExportPreset.Mode) async {
         guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
         guard !isCancelled else { return }
 
@@ -143,7 +143,10 @@ final class ExportQueueManager: ObservableObject {
         items[i].progress = 0
 
         let base = (node.name as NSString).deletingPathExtension
-        let ext = (node.name as NSString).pathExtension.isEmpty ? "mov" : (node.name as NSString).pathExtension
+        let sourceExt = (node.name as NSString).pathExtension.isEmpty ? "mov" : (node.name as NSString).pathExtension
+        let isCompressed: Bool
+        if case .compressed = mode { isCompressed = true } else { isCompressed = false }
+        let ext = isCompressed ? "mp4" : sourceExt
         let suggestedName = item.isTrimmed ? "\(base)_clip.\(ext)" : "\(base).\(ext)"
         let outputURL = Self.uniqueURL(for: suggestedName, in: destination)
 
@@ -152,6 +155,16 @@ final class ExportQueueManager: ObservableObject {
             outcome = ConversionService.copyFile(input: source, output: outputURL)
             if outcome == .success {
                 items[i].progress = 1
+            }
+        } else if case .compressed(let preset) = mode {
+            outcome = await ConversionService.convert(
+                input: source, output: outputURL,
+                settings: ConversionSettings(preset: preset), timeRange: item.trimRange
+            ) { [weak self] pct in
+                Task { @MainActor in
+                    guard let self, let i = self.items.firstIndex(where: { $0.id == itemID }) else { return }
+                    self.items[i].progress = pct
+                }
             }
         } else {
             outcome = await ConversionService.exportClip(

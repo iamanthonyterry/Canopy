@@ -23,8 +23,40 @@ enum DeviceSource: Identifiable, Hashable, Equatable {
         }
     }
 
+    var name: String {
+        switch self {
+        case .hyperDeck(let d):   return d.name
+        case .cloudStore(let s):  return s.name
+        case .localFolder(let f): return f.name
+        }
+    }
+
+    /// Looks up the live device matching a `DeviceSource.id` string
+    /// ("deck-<uuid>" / "store-<uuid>" / "folder-<uuid>") in `appState` —
+    /// used to reopen a clip (e.g. from the Starred view) without having
+    /// carried the original `DeviceSource` value around.
+    static func resolve(id: String, in appState: AppState) -> DeviceSource? {
+        if let uuidString = id.dropPrefix("deck-"), let uuid = UUID(uuidString: uuidString) {
+            return appState.hyperDecks.first { $0.id == uuid }.map { .hyperDeck($0) }
+        }
+        if let uuidString = id.dropPrefix("store-"), let uuid = UUID(uuidString: uuidString) {
+            return appState.cloudStores.first { $0.id == uuid }.map { .cloudStore($0) }
+        }
+        if let uuidString = id.dropPrefix("folder-"), let uuid = UUID(uuidString: uuidString) {
+            return appState.localFolders.first { $0.id == uuid }.map { .localFolder($0) }
+        }
+        return nil
+    }
+
     static func == (lhs: DeviceSource, rhs: DeviceSource) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+private extension String {
+    /// Returns the remainder of the string if it starts with `prefix`, else nil.
+    func dropPrefix(_ prefix: String) -> String? {
+        hasPrefix(prefix) ? String(dropFirst(prefix.count)) : nil
+    }
 }
 
 // MARK: - File Node
@@ -109,6 +141,8 @@ struct DeviceFilesBrowser: View {
     @State private var selectedFile: FileNode?
     @State private var searchText = ""
     @State private var sortOrder: SortOrder = .name
+    @State private var starredOnly = false
+    @ObservedObject private var clipMetadata = ClipMetadataStore.shared
     @AppStorage("dashboardFilesViewMode") private var viewMode: ViewMode = .list
     @State private var galleryPathIDs: [String] = []
     @State private var playbackTarget: PlaybackTarget?
@@ -223,6 +257,11 @@ struct DeviceFilesBrowser: View {
                     Button("Cancel") { isSelecting = false; selectedIDs.removeAll() }
                         .controlSize(.small)
                 } else {
+                    ViewModeButton(icon: starredOnly ? "star.fill" : "star", selected: starredOnly) {
+                        starredOnly.toggle()
+                    }
+                    .help("Starred Only")
+
                     HStack(spacing: 0) {
                         ViewModeButton(icon: "list.bullet", selected: viewMode == .list) {
                             viewMode = .list
@@ -318,7 +357,7 @@ struct DeviceFilesBrowser: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(filteredNodes) { node in
                     FileNodeView(
-                        node: node, depth: 0, selectedFile: $selectedFile,
+                        node: node, device: device, depth: 0, selectedFile: $selectedFile,
                         onToggle: toggleNode,
                         onPlay: { selected in
                             playbackTarget = PlaybackTarget(node: selected, device: device)
@@ -346,7 +385,7 @@ struct DeviceFilesBrowser: View {
     // list's inline tree), with a breadcrumb bar for drilling in and out.
 
     private var galleryNodes: [FileNode] {
-        guard searchText.isEmpty else { return filteredNodes }
+        guard !starredOnly, searchText.isEmpty else { return filteredNodes }
         if let current = galleryCurrentNode {
             return sortedNodes(current.children ?? [])
         }
@@ -389,6 +428,7 @@ struct DeviceFilesBrowser: View {
                     ForEach(galleryNodes) { node in
                         FileGalleryTile(
                             node: node,
+                            device: device,
                             isSelected: selectedFile?.id == node.id,
                             isSelecting: isSelecting,
                             isChecked: selectedIDs.contains(node.id),
@@ -473,9 +513,23 @@ struct DeviceFilesBrowser: View {
 
     // MARK: - Filtering / Sorting
 
+    /// "Starred Only" narrows to a flat list of starred clips found among
+    /// whatever's already loaded (expanded folders in list mode, browsed
+    /// folders in gallery mode) — it doesn't eagerly load the whole tree.
+    /// The Starred tab (StarredView) is the reliable, complete cross-device
+    /// view; this is a lightweight "narrow what I'm looking at" filter.
     private var filteredNodes: [FileNode] {
+        if starredOnly {
+            let starred = flatten(rootNodes).filter { !$0.isDirectory && clipMetadata.isStarred($0.id) }
+            let matching = searchText.isEmpty ? starred : starred.filter { matchesSearch($0, query: searchText.lowercased()) }
+            return sortedNodes(matching)
+        }
         guard !searchText.isEmpty else { return sortedNodes(rootNodes) }
         return flatFilter(rootNodes, query: searchText.lowercased())
+    }
+
+    private func matchesSearch(_ node: FileNode, query: String) -> Bool {
+        node.name.lowercased().contains(query) || clipMetadata.note(for: node.id).lowercased().contains(query)
     }
 
     private func sortedNodes(_ nodes: [FileNode]) -> [FileNode] {
@@ -492,7 +546,7 @@ struct DeviceFilesBrowser: View {
     private func flatFilter(_ nodes: [FileNode], query: String) -> [FileNode] {
         var result: [FileNode] = []
         for node in nodes {
-            if node.name.lowercased().contains(query) { result.append(node) }
+            if matchesSearch(node, query: query) { result.append(node) }
             if let children = node.children { result += flatFilter(children, query: query) }
         }
         return result
@@ -851,6 +905,7 @@ struct DeviceFilesBrowser: View {
 
 struct FileNodeView: View {
     let node: FileNode
+    let device: DeviceSource
     let depth: Int
     @Binding var selectedFile: FileNode?
     let onToggle: (String) -> Void
@@ -890,6 +945,10 @@ struct FileNodeView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
+                if !isSelecting && (node.isVideo || node.isImage) {
+                    ClipNoteButton(node: node, device: device, size: .callout)
+                    ClipStarButton(node: node, device: device, size: .callout)
+                }
                 if node.isVideo && !isSelecting {
                     Button { onPlay(node) } label: {
                         Image(systemName: "play.circle.fill")
@@ -938,7 +997,7 @@ struct FileNodeView: View {
         if node.isExpanded, let children = node.children {
             ForEach(children) { child in
                 FileNodeView(
-                    node: child, depth: depth + 1, selectedFile: $selectedFile,
+                    node: child, device: device, depth: depth + 1, selectedFile: $selectedFile,
                     onToggle: onToggle, onPlay: onPlay, onPreviewImage: onPreviewImage,
                     isSelecting: isSelecting, selectedIDs: selectedIDs,
                     canManage: canManage, onDeleteRequest: onDeleteRequest, onMoveRequest: onMoveRequest
@@ -989,6 +1048,7 @@ private struct ViewModeButton: View {
 
 struct FileGalleryTile: View {
     let node: FileNode
+    let device: DeviceSource
     let isSelected: Bool
     var isSelecting: Bool = false
     var isChecked: Bool = false
@@ -998,6 +1058,8 @@ struct FileGalleryTile: View {
     var onPreviewImage: () -> Void = {}
     var onDeleteRequest: (FileNode) -> Void = { _ in }
     var onMoveRequest: (FileNode) -> Void = { _ in }
+
+    private var isClip: Bool { !node.isDirectory && (node.isVideo || node.isImage) }
 
     var body: some View {
         VStack(spacing: 6) {
@@ -1026,6 +1088,22 @@ struct FileGalleryTile: View {
                     }
                     .buttonStyle(.borderless)
                     .padding(4)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if isClip && !isSelecting {
+                    ClipStarButton(node: node, device: device, size: .caption)
+                        .padding(4)
+                        .background(.black.opacity(0.35), in: Circle())
+                        .padding(4)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if isClip && !isSelecting {
+                    ClipNoteButton(node: node, device: device, size: .caption)
+                        .padding(4)
+                        .background(.black.opacity(0.35), in: Circle())
+                        .padding(4)
                 }
             }
             .overlay(

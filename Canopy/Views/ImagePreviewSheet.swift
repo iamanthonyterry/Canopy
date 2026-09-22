@@ -28,11 +28,14 @@ struct ImagePreviewSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
+                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
                 Image(systemName: "photo.fill").foregroundStyle(.tint)
                 Text(node.name)
                     .font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer()
+                ClipNoteButton(node: node, device: device)
+                ClipStarButton(node: node, device: device)
                 if image != nil {
                     if isSaving {
                         ProgressView().controlSize(.small)
@@ -54,7 +57,6 @@ struct ImagePreviewSheet: View {
                     .help("Reset Zoom")
                     .disabled(scale == 1 && offset == .zero)
                 }
-                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             .padding()
             Rectangle().fill(Color.canopyRule).frame(height: 1)

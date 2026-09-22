@@ -56,6 +56,9 @@ class AppState: ObservableObject {
     @Published var alertSettings: AlertSettings = AlertSettings() {
         didSet { save(alertSettings, key: "alertSettings") }
     }
+    @Published var exportPresets: [ExportPreset] = [] {
+        didSet { save(exportPresets, key: "exportPresets") }
+    }
 
     // MARK: - Live Pipeline State
     // Every in-progress (or just-finished-with-something-to-show) workflow
@@ -182,6 +185,7 @@ class AppState: ObservableObject {
         remoteControlSettings     = load(RemoteControlSettings.self, key: "remoteControlSettings") ?? RemoteControlSettings()
         remoteMappings            = load([RemoteMapping].self,      key: "remoteMappings")         ?? []
         alertSettings             = load(AlertSettings.self,        key: "alertSettings")          ?? AlertSettings()
+        exportPresets             = load([ExportPreset].self,       key: "exportPresets")           ?? []
     }
 
     // MARK: - HyperDeck CRUD
@@ -266,6 +270,16 @@ class AppState: ObservableObject {
         remoteMappings.move(fromOffsets: from, toOffset: to)
         for i in remoteMappings.indices { remoteMappings[i].sortOrder = i }
     }
+
+    // MARK: - Export Preset CRUD
+    func addExportPreset(_ preset: ExportPreset) {
+        exportPresets.append(preset)
+    }
+    func updateExportPreset(_ preset: ExportPreset) {
+        guard let i = exportPresets.firstIndex(where: { $0.id == preset.id }) else { return }
+        exportPresets[i] = preset
+    }
+    func deleteExportPreset(id: UUID) { exportPresets.removeAll { $0.id == id } }
 
     // MARK: - Run lifecycle
     /// Starts tracking a new run, clearing out any old finished session for

@@ -3,10 +3,12 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject private var exportQueue = ExportQueueManager.shared
+    @ObservedObject private var clipMetadata = ClipMetadataStore.shared
     @State private var selection: NavItem? = .dashboard
 
     enum NavItem: String, Hashable, CaseIterable {
         case dashboard    = "Dashboard"
+        case starred      = "Starred"
         case exportQueue  = "Export Queue"
         case workflows    = "Workflows"
         case history      = "History"
@@ -15,6 +17,7 @@ struct ContentView: View {
         var icon: String {
             switch self {
             case .dashboard:    return "play.tv"
+            case .starred:      return "star.fill"
             case .exportQueue:  return "square.and.arrow.up.on.square"
             case .workflows:    return "flowchart"
             case .history:      return "clock.arrow.circlepath"
@@ -23,10 +26,11 @@ struct ContentView: View {
         }
     }
 
-    // Content Managers export clips as their core job, so Export Queue joins
-    // Dashboard for them even though the rest of the admin nav is hidden.
+    // Content Managers export clips as their core job, and starring/noting
+    // clips is core to deciding what to export, so both join Dashboard for
+    // them even though the rest of the admin nav is hidden.
     private var visibleNavItems: [NavItem] {
-        appState.isAdmin ? NavItem.allCases : [.dashboard, .exportQueue]
+        appState.isAdmin ? NavItem.allCases : [.dashboard, .starred, .exportQueue]
     }
 
     var body: some View {
@@ -40,7 +44,7 @@ struct ContentView: View {
                     } icon: {
                         Image(systemName: item.icon)
                     }
-                    .badge(item == .exportQueue && exportQueue.items.count > 0 ? exportQueue.items.count : 0)
+                    .badge(badgeCount(for: item))
                 }
                 .listStyle(.sidebar)
                 .scrollContentBackground(.hidden)
@@ -69,6 +73,7 @@ struct ContentView: View {
                 WorkflowConfirmationBanner()
 
                 switch selection {
+                case .starred:                              StarredView()
                 case .exportQueue:                        ExportQueueView(embedded: true)
                 case .workflows where appState.isAdmin:    WorkflowsView()
                 case .history where appState.isAdmin:      HistoryView()
@@ -130,6 +135,14 @@ struct ContentView: View {
         .menuStyle(.borderlessButton)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    private func badgeCount(for item: NavItem) -> Int {
+        switch item {
+        case .exportQueue: return exportQueue.items.count
+        case .starred:     return clipMetadata.starredEntries.count
+        default:           return 0
+        }
     }
 
     private var scheduledWorkflows: [Workflow] {

@@ -12,7 +12,9 @@ struct ExportQueueView: View {
     var embedded: Bool = false
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var appState: AppState
     @ObservedObject private var manager = ExportQueueManager.shared
+    @State private var showManagePresets = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -88,12 +90,32 @@ struct ExportQueueView: View {
                 Spacer()
                 Button("Clear Completed") { manager.clearCompleted() }
                     .disabled(!manager.items.contains { $0.phase == .done || $0.phase == .error })
-                Button("Export All…") { chooseDestinationAndStart() }
-                    .buttonStyle(.canopyPrimary)
-                    .disabled(manager.pendingCount == 0)
+                exportMenu
             }
         }
         .padding()
+        .sheet(isPresented: $showManagePresets) {
+            ExportPresetsListView()
+        }
+    }
+
+    private var exportMenu: some View {
+        Menu {
+            ForEach(appState.exportPresets) { preset in
+                Button(preset.name) {
+                    Task { await manager.start(destination: preset.destinationURL, mode: preset.mode) }
+                }
+            }
+            if !appState.exportPresets.isEmpty { Divider() }
+            Button("Choose Folder…") { chooseDestinationAndStart() }
+            Button("Manage Presets…") { showManagePresets = true }
+        } label: {
+            Text("Export All…")
+        }
+        .menuStyle(.button)
+        .buttonStyle(.canopyPrimary)
+        .fixedSize()
+        .disabled(manager.pendingCount == 0)
     }
 
     private func chooseDestinationAndStart() {

@@ -50,6 +50,7 @@ struct ConversionService {
         input: URL,
         output: URL,
         settings: ConversionSettings,
+        timeRange: CMTimeRange? = nil,
         progress: @escaping @Sendable (Double) -> Void
     ) async -> ConversionOutcome {
         // Create destination directory if needed
@@ -77,6 +78,7 @@ struct ConversionService {
         guard let session = AVAssetExportSession(asset: asset, presetName: preset) else {
             return .failure
         }
+        if let timeRange { session.timeRange = timeRange }
 
         session.shouldOptimizeForNetworkUse = true  // faststart equivalent
 
