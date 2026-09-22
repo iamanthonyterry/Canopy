@@ -316,9 +316,11 @@ private struct RunningWorkflowBanner: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            if let step = session.pendingConfirmationStep {
-                confirmationPrompt(for: step)
-            }
+            // The confirmation prompt itself is shown by the global
+            // `WorkflowConfirmationBanner` in ContentView, above the page
+            // content — that way it's visible (and answerable) from every
+            // tab, not just this one. This banner's own step list still
+            // marks the paused step `.awaitingConfirmation` below.
         }
         .padding()
     }
@@ -329,25 +331,6 @@ private struct RunningWorkflowBanner: View {
             return "\(session.completedStepCount) of \(total) steps complete"
         }
         return "Step \(current + 1) of \(total) · \(session.stepRuns[current].step.action.shortLabel)"
-    }
-
-    private func confirmationPrompt(for step: WorkflowStep) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "hand.raised.fill")
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Confirm \"\(step.kind.title)\"?").font(.subheadline).bold()
-                Text(step.action.summary).font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button("Stop") { session.resolveConfirmation(proceed: false) }
-                .buttonStyle(.canopySecondary).controlSize(.small)
-            Button("Continue") { session.resolveConfirmation(proceed: true) }
-                .buttonStyle(.canopyPrimary).controlSize(.small)
-        }
-        .padding(10)
-        .background(Color.orange.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 

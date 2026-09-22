@@ -205,36 +205,14 @@ private struct ActiveRunCard: View {
                 .buttonStyle(.bordered).tint(Color.canopyRust).controlSize(.large)
             }
 
-            if let step = session.pendingConfirmationStep {
-                confirmationPrompt(for: step)
-            }
+            // The confirmation prompt itself is shown by the global
+            // `WorkflowConfirmationBanner` in ContentView, above whatever
+            // page (including Show Mode) is on screen — no need to repeat
+            // it here.
         }
         .padding(20)
         .background(Color.accentColor.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 16))
-    }
-
-    private func confirmationPrompt(for step: WorkflowStep) -> some View {
-        HStack(spacing: 16) {
-            Image(systemName: "hand.raised.fill")
-                .font(.system(size: 20))
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Confirm \"\(step.kind.title)\"?")
-                    .font(.system(size: 17, weight: .semibold))
-                Text(step.action.summary)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button("Stop") { session.resolveConfirmation(proceed: false) }
-                .buttonStyle(.canopySecondary).controlSize(.large)
-            Button("Continue") { session.resolveConfirmation(proceed: true) }
-                .buttonStyle(.canopyPrimary).controlSize(.large)
-        }
-        .padding(16)
-        .background(Color.orange.opacity(0.15))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 

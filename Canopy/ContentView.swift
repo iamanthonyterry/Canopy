@@ -65,12 +65,16 @@ struct ContentView: View {
             }
             .background(Color.canopyPaper)
         } detail: {
-            switch selection {
-            case .exportQueue:                        ExportQueueView(embedded: true)
-            case .workflows where appState.isAdmin:    WorkflowsView()
-            case .history where appState.isAdmin:      HistoryView()
-            case .settings where appState.isAdmin:      SettingsView()
-            default:                                    DashboardView()
+            VStack(spacing: 0) {
+                WorkflowConfirmationBanner()
+
+                switch selection {
+                case .exportQueue:                        ExportQueueView(embedded: true)
+                case .workflows where appState.isAdmin:    WorkflowsView()
+                case .history where appState.isAdmin:      HistoryView()
+                case .settings where appState.isAdmin:      SettingsView()
+                default:                                    DashboardView()
+                }
             }
         }
         .toolbar(removing: .title)
