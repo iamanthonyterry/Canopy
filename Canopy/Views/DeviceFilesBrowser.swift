@@ -613,15 +613,19 @@ struct DeviceFilesBrowser: View {
         guard device.supportsFileBrowsing else { return }
         isLoadingFiles = true
         loadError = nil
-        rootNodes = []
         selectedFile = nil
-        galleryPathIDs = []
+        let previouslyExpandedIDs = expandedNodeIDs(in: rootNodes)
+        let previousGalleryPathIDs = galleryPathIDs
 
         Task {
             do {
-                let nodes = try await fetchNodes(for: device)
+                let freshNodes = try await fetchNodes(for: device)
+                let nodes = previouslyExpandedIDs.isEmpty
+                    ? freshNodes
+                    : await restoringExpansion(freshNodes, expandedIDs: previouslyExpandedIDs)
                 await MainActor.run {
                     rootNodes = nodes
+                    galleryPathIDs = validGalleryPath(previousGalleryPathIDs, in: nodes)
                     isLoadingFiles = false
                 }
             } catch {
@@ -631,6 +635,52 @@ struct DeviceFilesBrowser: View {
                 }
             }
         }
+    }
+
+    /// IDs of every directory currently expanded (list mode) or open (gallery
+    /// mode — navigating into a folder marks it expanded too), so a reload can
+    /// restore the user's place instead of snapping back to the collapsed root.
+    private func expandedNodeIDs(in nodes: [FileNode]) -> Set<String> {
+        var result: Set<String> = []
+        for node in nodes {
+            if node.isExpanded {
+                result.insert(node.id)
+            }
+            if let children = node.children {
+                result.formUnion(expandedNodeIDs(in: children))
+            }
+        }
+        return result
+    }
+
+    /// Re-fetches children for every directory whose id is in `expandedIDs` so
+    /// a freshly-loaded root listing ends up with the same folders open as
+    /// before. Node ids are stable (derived from path), so ids from the old
+    /// tree line up with the same folders in the new one; a folder that was
+    /// deleted simply won't be present to match against.
+    private func restoringExpansion(_ nodes: [FileNode], expandedIDs: Set<String>) async -> [FileNode] {
+        var result: [FileNode] = []
+        for var node in nodes {
+            if node.isDirectory, expandedIDs.contains(node.id) {
+                let children = await loadChildren(for: node)
+                node.children = await restoringExpansion(children, expandedIDs: expandedIDs)
+                node.isExpanded = true
+            }
+            result.append(node)
+        }
+        return result
+    }
+
+    /// Trims a gallery breadcrumb path down to the deepest ancestor that still
+    /// exists in `nodes`, so deleting the folder currently open in gallery
+    /// mode falls back to its nearest surviving parent instead of the root.
+    private func validGalleryPath(_ ids: [String], in nodes: [FileNode]) -> [String] {
+        var result: [String] = []
+        for id in ids {
+            guard findNode(id: id, in: nodes) != nil else { break }
+            result.append(id)
+        }
+        return result
     }
 
     private func fetchNodes(for device: DeviceSource) async throws -> [FileNode] {
