@@ -204,11 +204,52 @@ final class WorkflowEngine: ObservableObject {
             return nil
         }.first ?? false
 
-        for step in workflow.steps {
+        var stepIndex = 0
+        while stepIndex < workflow.steps.count {
+            let step = workflow.steps[stepIndex]
             guard !session.isCancelled else { break }
             await session.waitWhilePaused()
             guard !session.isCancelled else { break }
             if case .notify(_, _, _, let sendPerDrive) = step.action, !sendPerDrive {
+                stepIndex += 1
+                continue
+            }
+
+            // Pipeline a Sync step immediately followed by its Convert step
+            // — each device starts converting a file the instant it's
+            // downloaded rather than waiting for its whole batch (or for
+            // other devices) to finish syncing first. Skipped whenever
+            // either step is gated by a confirmation checkpoint, since that
+            // checkpoint is a deliberate whole-run pause a person needs to
+            // see and approve before conversion starts — pipelining ahead
+            // of it would silently bypass that. See `runSyncAndConvert`.
+            if case .sync = step.action,
+               stepIndex + 1 < workflow.steps.count,
+               case .convert(let preset, let deleteOriginal, let maxParallelJobs, let pairConvertInPlace) = workflow.steps[stepIndex + 1].action,
+               !step.requiresConfirmation, !workflow.steps[stepIndex + 1].requiresConfirmation {
+                let convertStep = workflow.steps[stepIndex + 1]
+                session.beginStep(step.id)
+                session.beginStep(convertStep.id)
+
+                contexts = await withTaskGroup(of: StepContext.self) { group in
+                    for context in contexts {
+                        group.addTask {
+                            var context = context
+                            await self.runSyncAndConvert(
+                                context: &context, preset: preset, deleteOriginal: deleteOriginal,
+                                maxParallelJobs: maxParallelJobs, convertInPlace: pairConvertInPlace
+                            )
+                            return context
+                        }
+                    }
+                    var updated: [StepContext] = []
+                    for await context in group { updated.append(context) }
+                    return updated
+                }
+
+                session.endStep(step.id)
+                session.endStep(convertStep.id)
+                stepIndex += 2
                 continue
             }
 
@@ -261,6 +302,7 @@ final class WorkflowEngine: ObservableObject {
                     session.errors += 1
                 }
                 session.endStep(step.id)
+                stepIndex += 1
                 continue
             }
 
@@ -272,6 +314,7 @@ final class WorkflowEngine: ObservableObject {
                     session: session, triggerChain: triggerChain
                 )
                 session.endStep(step.id)
+                stepIndex += 1
                 continue
             }
 
@@ -288,6 +331,7 @@ final class WorkflowEngine: ObservableObject {
                 return updated
             }
             session.endStep(step.id)
+            stepIndex += 1
         }
 
         let allProcessedFiles = contexts.flatMap(\.files)
@@ -736,6 +780,226 @@ final class WorkflowEngine: ObservableObject {
         }
 
         context.files = convertedFiles
+    }
+
+    // MARK: - Pipelined Sync + Convert
+    //
+    // Used when a workflow's Sync step is immediately followed by its
+    // Convert step with neither gated by a confirmation checkpoint (see the
+    // run loop in `start`). A Cloud Store Folder / Local Folder source has
+    // no download phase to overlap with anything, so it just lists what's
+    // already there and converts it with the same batched `runConvert`
+    // logic as before — it only gains the cross-device barrier removal, for
+    // free, by being inside the same combined task group as every other
+    // device. A HyperDeck source gets the full pipeline below.
+    private func runSyncAndConvert(
+        context: inout StepContext,
+        preset: ConversionSettings.FFmpegPreset,
+        deleteOriginal: Bool,
+        maxParallelJobs: Int,
+        convertInPlace: Bool
+    ) async {
+        switch context.device {
+        case .hyperDeck(let deck):
+            await runPipelinedDeckSyncAndConvert(
+                context: &context, deck: deck, preset: preset, deleteOriginal: deleteOriginal,
+                maxParallelJobs: maxParallelJobs, convertInPlace: convertInPlace
+            )
+        case .localFolder, .cloudStore:
+            await runSyncInPlace(context: &context, convertInPlace: convertInPlace)
+            await runConvert(
+                context: &context, preset: preset, deleteOriginal: deleteOriginal,
+                maxParallelJobs: maxParallelJobs, convertInPlace: convertInPlace
+            )
+        }
+    }
+
+    /// One file queued for the pipeline below, carrying its original
+    /// position so `context.files` can be reassembled in source order
+    /// afterward — task-group completion order doesn't match spawn order,
+    /// and `runRename` numbers files by their position in `context.files`.
+    private struct PipelineDownload: Sendable {
+        let index: Int
+        let entry: FTPService.FTPEntry
+        let destURL: URL
+        let taskID: UUID
+    }
+
+    private enum PipelineFileOutcome {
+        case converted(index: Int, url: URL)
+        case keptOriginal(index: Int, url: URL)
+        case droppedAfterFailure
+        case diskFull
+    }
+
+    /// Downloads a HyperDeck's queued files one at a time — still a single
+    /// FTP connection, same as always — but hands each off to conversion
+    /// the moment it lands instead of waiting for the rest of the batch.
+    /// Conversion is bounded both by this device's own `maxParallelJobs`
+    /// and by the app-wide `ConversionSlotLimiter` shared across every
+    /// device converting in this run.
+    private func runPipelinedDeckSyncAndConvert(
+        context: inout StepContext,
+        deck: HyperDeck,
+        preset: ConversionSettings.FFmpegPreset,
+        deleteOriginal: Bool,
+        maxParallelJobs: Int,
+        convertInPlace: Bool
+    ) async {
+        let session = context.session
+        session.log("  📡 Scanning \(deck.name) (\(deck.ipAddress))...")
+
+        let remoteFiles = await FTPService.listMovFiles(on: deck)
+        guard !remoteFiles.isEmpty else {
+            session.log("  \(deck.name): no .mov files found")
+            return
+        }
+        session.log("  \(deck.name): \(remoteFiles.count) file(s) found")
+
+        let convertedDir = convertInPlace ? context.destDir : context.destDir.appendingPathComponent("Converted")
+        try? FileManager.default.createDirectory(at: convertedDir, withIntermediateDirectories: true)
+
+        var downloads: [PipelineDownload] = []
+        for entry in remoteFiles {
+            let fileName = entry.name
+            let destURL = context.destDir.appendingPathComponent(fileName)
+            let convertedURL = convertedDir.appendingPathComponent((fileName as NSString).deletingPathExtension + ".mp4")
+
+            if FileManager.default.fileExists(atPath: convertedURL.path) {
+                session.log("  ⏭ \(fileName) already processed")
+                session.skipped += 1
+                continue
+            }
+
+            let task = addTask(
+                fileName: fileName, deckName: deck.name,
+                destDir: context.destDir, cloudStoreID: context.cloudStoreID,
+                fileSizeBytes: entry.size,
+                in: session
+            )
+            downloads.append(PipelineDownload(index: downloads.count, entry: entry, destURL: destURL, taskID: task.id))
+        }
+        guard !downloads.isEmpty else { return }
+
+        // Copied to an immutable local — `downloads` itself is never
+        // mutated again, but the producer closure below needs to capture
+        // something Swift's concurrency checker can prove isn't still
+        // reachable from this MainActor-isolated method after that.
+        let downloadQueue = downloads
+        let queue = PipelineQueue<PipelineDownload>()
+        let deckName = deck.name
+        let settings = ConversionSettings(preset: preset)
+
+        let outcomes: [PipelineFileOutcome] = await withTaskGroup(of: [PipelineFileOutcome].self) { group in
+            // Producer: downloads each file in order, pushing it to the
+            // convert queue as soon as it succeeds. A download failure is
+            // logged and skipped, same as the non-pipelined path.
+            group.addTask {
+                for item in downloadQueue {
+                    let cancelled = await MainActor.run { session.isCancelled }
+                    guard !cancelled else { break }
+
+                    await MainActor.run {
+                        self.updateTask(id: item.taskID, phase: .downloading, syncProgress: 0)
+                        session.log("  ⬇ Downloading \(item.entry.name)...")
+                    }
+
+                    let result = await FTPService.downloadFile(
+                        named: item.entry.name, from: deck, to: item.destURL
+                    ) { pct in Task { @MainActor in self.updateTask(id: item.taskID, syncProgress: pct) } }
+
+                    guard result.success else {
+                        let reason = result.failureReason ?? "unknown error"
+                        await MainActor.run {
+                            self.updateTask(id: item.taskID, phase: .error, errorMessage: "Download failed after retries: \(reason)")
+                            session.log("  ❌ Download failed: \(item.entry.name) — \(reason)")
+                            session.errors += 1
+                        }
+                        continue
+                    }
+
+                    await MainActor.run {
+                        self.updateTask(id: item.taskID, syncProgress: 1)
+                        session.log("  ✅ Downloaded \(item.entry.name)")
+                    }
+                    await queue.push(item)
+                }
+                await queue.finish()
+                return []
+            }
+
+            // Consumers: up to maxParallelJobs, each pulling the next
+            // downloaded file and converting it.
+            for _ in 0..<max(1, maxParallelJobs) {
+                group.addTask {
+                    var results: [PipelineFileOutcome] = []
+                    while let item = await queue.next() {
+                        let cancelled = await MainActor.run { session.isCancelled }
+                        guard !cancelled else { break }
+
+                        let outputURL = convertedDir.appendingPathComponent(
+                            (item.entry.name as NSString).deletingPathExtension + ".mp4"
+                        )
+
+                        await ConversionSlotLimiter.shared.acquire()
+                        await MainActor.run {
+                            session.log("  🎬 Converting \(item.entry.name) (\(deckName))...")
+                            self.updateTask(id: item.taskID, phase: .converting, convertProgress: 0)
+                        }
+
+                        let outcome = await ConversionService.convert(
+                            input: item.destURL, output: outputURL, settings: settings
+                        ) { pct in Task { @MainActor in self.updateTask(id: item.taskID, convertProgress: pct) } }
+                        await ConversionSlotLimiter.shared.release()
+
+                        await MainActor.run {
+                            switch outcome {
+                            case .success:
+                                self.updateTask(id: item.taskID, phase: .done, convertProgress: 1)
+                                session.log("  ✅ Converted → \(outputURL.lastPathComponent) (\(deckName))")
+                                session.converted += 1
+                                if deleteOriginal { try? FileManager.default.removeItem(at: item.destURL) }
+                                results.append(.converted(index: item.index, url: outputURL))
+                            case .failure:
+                                self.updateTask(id: item.taskID, phase: .error, errorMessage: "Conversion failed")
+                                session.log("  ❌ Conversion failed: \(item.entry.name) (\(deckName))")
+                                session.errors += 1
+                                results.append(deleteOriginal ? .droppedAfterFailure : .keptOriginal(index: item.index, url: item.destURL))
+                            case .diskFull:
+                                self.updateTask(id: item.taskID, phase: .error, errorMessage: "Destination drive full")
+                                session.log("  🛑 Destination drive is full — stopping (\(item.entry.name), \(deckName))")
+                                session.errors += 1
+                                results.append(.diskFull)
+                                if !session.isCancelled {
+                                    session.isCancelled = true
+                                    session.log("⏹ Workflow stopped — destination drive is full")
+                                    NotificationService.sendDeviceAlert(
+                                        title: "Canopy: Destination Drive Full",
+                                        body: "Sync to \(deckName) was stopped because the destination drive ran out of space. Free up space and run it again."
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    return results
+                }
+            }
+
+            var collected: [PipelineFileOutcome] = []
+            for await results in group { collected += results }
+            return collected
+        }
+
+        context.files = outcomes
+            .compactMap { outcome -> (index: Int, url: URL)? in
+                switch outcome {
+                case .converted(let index, let url):   return (index, url)
+                case .keptOriginal(let index, let url): return (index, url)
+                case .droppedAfterFailure, .diskFull:   return nil
+                }
+            }
+            .sorted { $0.index < $1.index }
+            .map(\.url)
     }
 
     // MARK: - Rename step
