@@ -664,6 +664,15 @@ final class WorkflowEngine: ObservableObject {
                         let taskID = await MainActor.run {
                             self.taskID(forFileName: fileName, deckName: deckName)
                         }
+
+                        // Waits for a global slot (shared across every
+                        // device converting in this run, not just this
+                        // one's own maxParallelJobs) before actually
+                        // starting the encode — see ConversionSlotLimiter.
+                        // The "Converting" status only appears once the
+                        // slot is granted, so it reflects a task actually
+                        // running rather than one still queued behind it.
+                        await ConversionSlotLimiter.shared.acquire()
                         await MainActor.run {
                             session.log("  🎬 Converting \(fileName) (\(deckName))...")
                             if let id = taskID { self.updateTask(id: id, phase: .converting, convertProgress: 0) }
@@ -676,6 +685,7 @@ final class WorkflowEngine: ObservableObject {
                                 Task { @MainActor in self.updateTask(id: id, convertProgress: pct) }
                             }
                         }
+                        await ConversionSlotLimiter.shared.release()
 
                         await MainActor.run {
                             switch outcome {

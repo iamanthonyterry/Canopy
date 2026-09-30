@@ -13,6 +13,7 @@ struct SettingsView: View {
                 //cloudStoreSection
                 emailSection
                 AlertSettingsView()
+                PerformanceSettingsView()
                 RemoteControlSettingsView()
                 DataBackupView()
                 //systemSection

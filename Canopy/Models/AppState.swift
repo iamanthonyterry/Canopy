@@ -59,6 +59,15 @@ class AppState: ObservableObject {
     @Published var exportPresets: [ExportPreset] = [] {
         didSet { save(exportPresets, key: "exportPresets") }
     }
+    /// How many hardware video encodes may run at once across the whole
+    /// app — see ConversionSlotLimiter. Kept here (not per-workflow) since
+    /// it's a property of this Mac's hardware, not of any one workflow.
+    @Published var maxConcurrentConversions: Int = 2 {
+        didSet {
+            save(maxConcurrentConversions, key: "maxConcurrentConversions")
+            Task { await ConversionSlotLimiter.shared.setLimit(maxConcurrentConversions) }
+        }
+    }
 
     // MARK: - Live Pipeline State
     // Every in-progress (or just-finished-with-something-to-show) workflow
@@ -186,6 +195,7 @@ class AppState: ObservableObject {
         remoteMappings            = load([RemoteMapping].self,      key: "remoteMappings")         ?? []
         alertSettings             = load(AlertSettings.self,        key: "alertSettings")          ?? AlertSettings()
         exportPresets             = load([ExportPreset].self,       key: "exportPresets")           ?? []
+        maxConcurrentConversions  = load(Int.self,                  key: "maxConcurrentConversions") ?? 2
     }
 
     // MARK: - HyperDeck CRUD
