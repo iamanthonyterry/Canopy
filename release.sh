@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # Canopy release script
-# Usage: ./release.sh 0.0.38-alpha
+# Usage: ./release.sh 0.0.39-alpha
 # Github Release push:
-#  gh release create v0.0.38-alpha build/Canopy-0.0.38-alpha.zip build/appcast.xml --title "0.0.38-alpha" --notes "Thirty-eighth alpha release"
+#  gh release create v0.0.39-alpha build/Canopy-0.0.39-alpha.zip build/appcast.xml --title "0.0.39-alpha" --notes "Thirty-ninth alpha release"
 # Bumps MARKETING_VERSION, archives, exports, notarizes, staples, zips,
 # and generates the Sparkle appcast — ready to upload to a GitHub Release.
 
