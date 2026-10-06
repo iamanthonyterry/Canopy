@@ -11,6 +11,9 @@ struct ImagePreviewSheet: View {
 
     let node: FileNode
     let device: DeviceSource
+    /// Called with -1 / +1 when the user presses the left / right arrow key to
+    /// step to the neighbouring clip. nil disables arrow-key navigation.
+    var onNavigate: ((Int) -> Void)? = nil
 
     @State private var image: NSImage?
     @State private var isDownloading = false
@@ -105,6 +108,7 @@ struct ImagePreviewSheet: View {
             }
             .clipped()
         }
+        .clipNavigationShortcuts(onNavigate)
         .frame(minWidth: 680, minHeight: 460)
         .background(Color.canopyPaper)
         .task { await load() }

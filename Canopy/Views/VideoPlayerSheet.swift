@@ -18,6 +18,9 @@ struct VideoPlayerSheet: View {
 
     let node: FileNode
     let device: DeviceSource
+    /// Called with -1 / +1 when the user presses the left / right arrow key to
+    /// step to the neighbouring clip. nil disables arrow-key navigation.
+    var onNavigate: ((Int) -> Void)? = nil
 
     @State private var player: AVPlayer?
     @State private var isDownloading = false
@@ -94,6 +97,7 @@ struct VideoPlayerSheet: View {
             }
         }
         .frame(minWidth: 680, minHeight: 460)
+        .clipNavigationShortcuts(onNavigate)
         .background(Color.canopyPaper)
         .task { await load() }
         .onDisappear { cleanUp() }

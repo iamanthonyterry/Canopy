@@ -185,10 +185,14 @@ struct DeviceFilesBrowser: View {
             await storage
         }
         .sheet(item: $playbackTarget) { target in
-            VideoPlayerSheet(node: target.node, device: target.device)
+            VideoPlayerSheet(node: target.node, device: target.device,
+                             onNavigate: { stepPreview(from: target.node, by: $0) })
+                .id(target.id)
         }
         .sheet(item: $imagePreviewTarget) { target in
-            ImagePreviewSheet(node: target.node, device: target.device)
+            ImagePreviewSheet(node: target.node, device: target.device,
+                              onNavigate: { stepPreview(from: target.node, by: $0) })
+                .id(target.id)
         }
         .sheet(isPresented: $showExportQueue) {
             ExportQueueView()
@@ -564,6 +568,36 @@ struct DeviceFilesBrowser: View {
 
     private func selectedNodes() -> [FileNode] {
         flatten(rootNodes).filter { selectedIDs.contains($0.id) }
+    }
+
+    /// Clips (videos and images) in the same folder as `node`, in display order.
+    private func siblingClips(of node: FileNode) -> [FileNode] {
+        func parentChildren(of id: String, in nodes: [FileNode]) -> [FileNode]? {
+            if nodes.contains(where: { $0.id == id }) { return nodes }
+            for n in nodes {
+                if let found = parentChildren(of: id, in: n.children ?? []) { return found }
+            }
+            return nil
+        }
+        let siblings = parentChildren(of: node.id, in: rootNodes) ?? [node]
+        return sortedNodes(siblings).filter { !$0.isDirectory && ($0.isVideo || $0.isImage) }
+    }
+
+    /// Moves the open preview to the previous (-1) / next (+1) clip in its folder.
+    private func stepPreview(from node: FileNode, by offset: Int) {
+        let clips = siblingClips(of: node)
+        guard let index = clips.firstIndex(where: { $0.id == node.id }) else { return }
+        let next = index + offset
+        guard clips.indices.contains(next) else { return }
+        let target = PlaybackTarget(node: clips[next], device: device)
+        selectedFile = clips[next]
+        if clips[next].isVideo {
+            imagePreviewTarget = nil
+            playbackTarget = target
+        } else {
+            playbackTarget = nil
+            imagePreviewTarget = target
+        }
     }
 
     private func flatten(_ nodes: [FileNode]) -> [FileNode] {

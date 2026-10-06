@@ -27,10 +27,14 @@ struct StarredView: View {
         }
         .background(Color.canopyPaper)
         .sheet(item: $playbackTarget) { target in
-            VideoPlayerSheet(node: target.node, device: target.device)
+            VideoPlayerSheet(node: target.node, device: target.device,
+                             onNavigate: { stepPreview(from: target.node.id, by: $0) })
+                .id(target.id)
         }
         .sheet(item: $imagePreviewTarget) { target in
-            ImagePreviewSheet(node: target.node, device: target.device)
+            ImagePreviewSheet(node: target.node, device: target.device,
+                              onNavigate: { stepPreview(from: target.node.id, by: $0) })
+                .id(target.id)
         }
         .sheet(isPresented: $showExportQueue) {
             ExportQueueView()
@@ -101,10 +105,23 @@ struct StarredView: View {
         guard let device = DeviceSource.resolve(id: entry.metadata.deviceID, in: appState) else { return }
         let target = PlaybackTarget(node: node(for: entry), device: device)
         if entry.metadata.isVideo {
+            imagePreviewTarget = nil
             playbackTarget = target
         } else if entry.metadata.isImage {
+            playbackTarget = nil
             imagePreviewTarget = target
         }
+    }
+
+    /// Steps the open preview to the previous / next starred clip.
+    private func stepPreview(from id: String, by offset: Int) {
+        let entries = store.starredEntries.filter {
+            ($0.metadata.isVideo || $0.metadata.isImage)
+                && DeviceSource.resolve(id: $0.metadata.deviceID, in: appState) != nil
+        }
+        guard let index = entries.firstIndex(where: { $0.id == id }),
+              entries.indices.contains(index + offset) else { return }
+        open(entries[index + offset])
     }
 
     private func queue(_ entry: Entry) {
