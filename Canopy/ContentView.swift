@@ -9,9 +9,9 @@ struct ContentView: View {
 
     enum NavItem: String, Hashable, CaseIterable {
         case dashboard    = "Dashboard"
+        case workflows    = "Workflows"
         case starred      = "Starred"
         case exportQueue  = "Export Queue"
-        case workflows    = "Workflows"
         case history      = "History"
         case settings     = "Settings"
 
@@ -31,7 +31,11 @@ struct ContentView: View {
     // clips is core to deciding what to export, so both join Dashboard for
     // them even though the rest of the admin nav is hidden.
     private var visibleNavItems: [NavItem] {
-        appState.isAdmin ? NavItem.allCases : [.dashboard, .starred, .exportQueue]
+        appState.isAdmin ? [.dashboard, .workflows, .starred, .exportQueue] : [.dashboard, .starred, .exportQueue]
+    }
+
+    private func isReachable(_ item: NavItem) -> Bool {
+        appState.isAdmin || visibleNavItems.contains(item)
     }
 
     var body: some View {
@@ -66,7 +70,14 @@ struct ContentView: View {
                 }
 
                 Rectangle().fill(Color.canopyRule).frame(height: 1)
-                roleSwitcher
+                HStack(spacing: 0) {
+                    roleSwitcher
+                    if appState.isAdmin {
+                        bottomIconButton(.history, help: "History")
+                        bottomIconButton(.settings, help: "Settings")
+                            .padding(.trailing, 8)
+                    }
+                }
             }
             .background(Color.canopyPaper)
         } detail: {
@@ -100,11 +111,11 @@ struct ContentView: View {
         }
         .onChange(of: palette.pendingNav) {
             guard let nav = palette.pendingNav else { return }
-            if visibleNavItems.contains(nav) { selection = nav }
+            if isReachable(nav) { selection = nav }
             palette.pendingNav = nil
         }
         .onChange(of: appState.userRole) {
-            if !visibleNavItems.contains(selection ?? .dashboard) {
+            if !isReachable(selection ?? .dashboard) {
                 selection = .dashboard
             }
         }
@@ -155,6 +166,21 @@ struct ContentView: View {
         .menuStyle(.borderlessButton)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    private func bottomIconButton(_ item: NavItem, help: String) -> some View {
+        Button {
+            selection = item
+        } label: {
+            Image(systemName: item.icon)
+                .font(.system(size: 13))
+                .foregroundStyle(selection == item ? Color.canopySage : .secondary)
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
     }
 
     private func badgeCount(for item: NavItem) -> Int {
