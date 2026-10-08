@@ -213,8 +213,9 @@ private struct StarredClipCard: View {
             FileThumbnailView(node: FileNode(
                 id: id, name: metadata.clipName, url: metadata.localURL, ftpPath: metadata.ftpPath,
                 isDirectory: false, size: metadata.size, modified: metadata.modified, children: []
-            ))
-            .frame(width: 64, height: 64)
+            ), size: 88)
+            .frame(width: 88, height: 88)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             .onTapGesture { if deviceAvailable { onPlay() } }
 
             VStack(alignment: .leading, spacing: 4) {
