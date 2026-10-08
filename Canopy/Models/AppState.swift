@@ -56,6 +56,9 @@ class AppState: ObservableObject {
     @Published var alertSettings: AlertSettings = AlertSettings() {
         didSet { save(alertSettings, key: "alertSettings") }
     }
+    @Published var shoot: ShootProject = ShootProject() {
+        didSet { save(shoot, key: "shoot") }
+    }
     @Published var exportPresets: [ExportPreset] = [] {
         didSet { save(exportPresets, key: "exportPresets") }
     }
@@ -194,6 +197,7 @@ class AppState: ObservableObject {
         remoteControlSettings     = load(RemoteControlSettings.self, key: "remoteControlSettings") ?? RemoteControlSettings()
         remoteMappings            = load([RemoteMapping].self,      key: "remoteMappings")         ?? []
         alertSettings             = load(AlertSettings.self,        key: "alertSettings")          ?? AlertSettings()
+        shoot                     = load(ShootProject.self,         key: "shoot")                   ?? ShootProject()
         exportPresets             = load([ExportPreset].self,       key: "exportPresets")           ?? []
         maxConcurrentConversions  = load(Int.self,                  key: "maxConcurrentConversions") ?? 2
     }

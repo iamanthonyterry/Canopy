@@ -44,7 +44,7 @@ struct TaskRow: View {
                 }
             case .converting:
                 progressBar(label: "Download", value: 1.0, color: .accentColor.opacity(0.4))
-                progressBar(label: "Convert",  value: task.convertProgress, color: .orange)
+                progressBar(label: "Proxy",  value: task.convertProgress, color: .orange)
             case .done:
                 ProgressView(value: 1.0).tint(.canopySage)
             case .error:

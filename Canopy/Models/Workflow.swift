@@ -28,8 +28,8 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .controlDeck:     return "Control HyperDeck"
         case .wait:            return "Wait"
         case .createFolder:    return "Create Folder"
-        case .sync:            return "Sync"
-        case .convert:         return "Convert"
+        case .sync:            return "Offload"
+        case .convert:         return "Make Proxies"
         case .rename:          return "Rename"
         case .format:          return "Format Drive"
         case .cleanup:         return "Cleanup"
@@ -43,8 +43,8 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .controlDeck:     return "Start or stop recording on the device"
         case .wait:            return "Pause before moving to the next step"
         case .createFolder:    return "Create a new folder, optionally named with today's date"
-        case .sync:            return "Download new files from the device"
-        case .convert:         return "Transcode files to MP4"
+        case .sync:            return "Offload new clips from the device, optionally verified"
+        case .convert:         return "Transcode clips to MP4 proxies"
         case .rename:          return "Rename files using a pattern"
         case .format:          return "Permanently erase the device's drive"
         case .cleanup:         return "Delete files older than N days in the destination folder"
@@ -441,6 +441,8 @@ enum RenameToken: String, CaseIterable {
     case date   = "{date}"
     case time   = "{time}"
     case index  = "{index}"
+    case project = "{project}"
+    case cam    = "{cam}"
 
     var label: String {
         switch self {
@@ -449,6 +451,8 @@ enum RenameToken: String, CaseIterable {
         case .date:   return "Date (yyyyMMdd)"
         case .time:   return "Time (HHmmss)"
         case .index:  return "File number"
+        case .project: return "Project / shoot name (Settings ▸ Shoot)"
+        case .cam:    return "Camera label for the device (Settings ▸ Shoot)"
         }
     }
 }
@@ -462,7 +466,9 @@ enum RenamePatternEngine {
         originalName: String,
         deviceName: String,
         index: Int,
-        date: Date = Date()
+        date: Date = Date(),
+        projectName: String = "",
+        cameraLabel: String = ""
     ) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd"
@@ -476,9 +482,28 @@ enum RenamePatternEngine {
             .replacingOccurrences(of: RenameToken.date.rawValue, with: dateString)
             .replacingOccurrences(of: RenameToken.time.rawValue, with: timeString)
             .replacingOccurrences(of: RenameToken.index.rawValue, with: String(format: "%03d", index))
+            .replacingOccurrences(of: RenameToken.project.rawValue, with: fileSafe(projectName))
+            .replacingOccurrences(of: RenameToken.cam.rawValue, with: fileSafe(cameraLabel))
 
         return result.isEmpty ? originalName : result
     }
+
+    /// Keeps user-typed names from introducing path separators.
+    static func fileSafe(_ text: String) -> String {
+        text.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespaces)
+    }
+}
+
+// MARK: - Shoot
+// Names the production the footage belongs to, and labels each device with
+// a camera letter, for the {project} and {cam} rename tokens.
+struct ShootProject: Codable, Equatable {
+    var name: String = ""
+    /// Device name → camera label (e.g. "Stage Left" → "A").
+    var cameraLabels: [String: String] = [:]
+
+    func cameraLabel(for deviceName: String) -> String { cameraLabels[deviceName] ?? "" }
 }
 
 // MARK: - Workflow Step

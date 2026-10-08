@@ -472,7 +472,9 @@ struct WorkflowStepConfigSheet: View {
                     pattern: pattern.isEmpty ? "{name}" : pattern,
                     originalName: (original as NSString).deletingPathExtension,
                     deviceName: "Stage Camera",
-                    index: index
+                    index: index,
+                    projectName: appState.shoot.name.isEmpty ? "MyShoot" : appState.shoot.name,
+                    cameraLabel: appState.shoot.cameraLabels.values.first ?? "A"
                 )
                 HStack(spacing: 6) {
                     Text(original)

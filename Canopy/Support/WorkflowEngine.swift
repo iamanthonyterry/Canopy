@@ -1039,7 +1039,9 @@ final class WorkflowEngine: ObservableObject {
                 pattern: pattern,
                 originalName: originalName,
                 deviceName: context.device.name,
-                index: index + 1
+                index: index + 1,
+                projectName: appState.shoot.name,
+                cameraLabel: appState.shoot.cameraLabel(for: context.device.name)
             )
             let newURL = url.deletingLastPathComponent().appendingPathComponent("\(newName).\(ext)")
 

@@ -125,3 +125,18 @@ struct OffloadReportTests {
         #expect(OffloadReportBuilder.html(for: decoded).contains("No per-file details"))
     }
 }
+
+@MainActor
+struct RenameTokenTests {
+    @Test func projectAndCameraTokensExpand() {
+        let name = RenamePatternEngine.apply(
+            pattern: "{project}_{cam}_{index}", originalName: "Clip0001", deviceName: "Stage Left",
+            index: 3, projectName: "Spring/Campaign", cameraLabel: "A")
+        #expect(name == "Spring-Campaign_A_003")
+    }
+
+    @Test func emptyProjectLeavesPatternUsable() {
+        let name = RenamePatternEngine.apply(pattern: "{device}_{index}", originalName: "x", deviceName: "D", index: 1)
+        #expect(name == "D_001")
+    }
+}
