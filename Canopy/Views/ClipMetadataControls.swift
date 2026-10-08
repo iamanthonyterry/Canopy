@@ -79,3 +79,36 @@ private struct ClipNoteEditor: View {
         .padding(12)
     }
 }
+
+/// Color-label picker (red…gray, or none), shown in sheets and context menus.
+struct ClipLabelMenu: View {
+    let node: FileNode
+    let device: DeviceSource
+
+    @ObservedObject private var store = ClipMetadataStore.shared
+
+    var body: some View {
+        let current = store.label(for: node.id)
+        Menu {
+            ForEach(ClipLabel.allCases) { label in
+                Button {
+                    store.setLabel(current == label ? nil : label, node: node, device: device)
+                } label: {
+                    Label(label.title, systemImage: current == label ? "checkmark.circle.fill" : "circle.fill")
+                        .foregroundStyle(label.color)
+                }
+            }
+            if current != nil {
+                Divider()
+                Button("Clear Label") { store.setLabel(nil, node: node, device: device) }
+            }
+        } label: {
+            Image(systemName: "tag.fill")
+                .foregroundStyle(current?.color ?? Color.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Color Label")
+    }
+}

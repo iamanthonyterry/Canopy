@@ -62,12 +62,13 @@ struct VideoPlayerSheet: View {
         VStack(spacing: 0) {
             // MARK: Header
             HStack {
-                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+                CanopyCloseButton()
                 Image(systemName: "film.fill").foregroundStyle(.tint)
                 Text(node.name)
                     .font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer()
+                ClipLabelMenu(node: node, device: device)
                 ClipNoteButton(node: node, device: device)
                 ClipStarButton(node: node, device: device)
             }

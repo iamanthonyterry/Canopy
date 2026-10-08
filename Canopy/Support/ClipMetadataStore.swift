@@ -57,6 +57,37 @@ final class ClipMetadataStore: ObservableObject {
         store(metadata, for: node.id)
     }
 
+    func label(for nodeID: String) -> ClipLabel? {
+        entries[nodeID]?.label
+    }
+
+    func keywords(for nodeID: String) -> [String] {
+        entries[nodeID]?.keywords ?? []
+    }
+
+    func setLabel(_ label: ClipLabel?, node: FileNode, device: DeviceSource) {
+        var metadata = snapshot(for: node, device: device)
+        metadata.label = label
+        metadata.updatedAt = Date()
+        store(metadata, for: node.id)
+    }
+
+    /// Accepts a free-form comma/newline separated string; trims, drops
+    /// blanks and case-insensitive duplicates.
+    func setKeywords(_ raw: String, node: FileNode, device: DeviceSource) {
+        var metadata = snapshot(for: node, device: device)
+        metadata.keywords = Self.parseKeywords(raw)
+        metadata.updatedAt = Date()
+        store(metadata, for: node.id)
+    }
+
+    static func parseKeywords(_ raw: String) -> [String] {
+        var seen = Set<String>()
+        return raw.split(whereSeparator: { $0 == "," || $0 == "\n" })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
+    }
+
     func markers(for nodeID: String) -> [ClipMarker] {
         (entries[nodeID]?.markers ?? []).sorted { $0.time < $1.time }
     }

@@ -39,7 +39,7 @@ struct ExportQueueView: View {
             Text("Export Queue").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
             Spacer()
             if !embedded {
-                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+                CanopyCloseButton()
             }
         }
         .padding()

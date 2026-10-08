@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 // MARK: - Clip Metadata
 // A star and/or note attached to a single clip, keyed by `FileNode.id` (see
@@ -20,10 +21,32 @@ struct ClipMarker: Codable, Equatable, Identifiable {
     var label: String
 }
 
+/// NLE-style color label for sorting clips into selects/rejects/etc.
+enum ClipLabel: String, Codable, CaseIterable, Identifiable {
+    case red, orange, yellow, green, blue, purple, gray
+
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+
+    var color: Color {
+        switch self {
+        case .red:    return .red
+        case .orange: return .orange
+        case .yellow: return .yellow
+        case .green:  return .green
+        case .blue:   return .blue
+        case .purple: return .purple
+        case .gray:   return .gray
+        }
+    }
+}
+
 struct ClipMetadata: Codable, Equatable {
     var starred: Bool = false
     var note: String = ""
     var markers: [ClipMarker] = []
+    var label: ClipLabel? = nil
+    var keywords: [String] = []
 
     var clipName: String
     var deviceID: String
@@ -36,15 +59,18 @@ struct ClipMetadata: Codable, Equatable {
     var modified: Date
     var updatedAt: Date
 
-    var isEmpty: Bool { !starred && note.isEmpty && markers.isEmpty }
+    var isEmpty: Bool { !starred && note.isEmpty && markers.isEmpty && label == nil && keywords.isEmpty }
 
     init(starred: Bool = false, note: String = "", markers: [ClipMarker] = [],
+         label: ClipLabel? = nil, keywords: [String] = [],
          clipName: String, deviceID: String, deviceLabel: String,
          ftpPath: String?, localURL: URL?, isVideo: Bool, isImage: Bool,
          size: Int64, modified: Date, updatedAt: Date) {
         self.starred = starred
         self.note = note
         self.markers = markers
+        self.label = label
+        self.keywords = keywords
         self.clipName = clipName
         self.deviceID = deviceID
         self.deviceLabel = deviceLabel
@@ -63,6 +89,8 @@ struct ClipMetadata: Codable, Equatable {
         starred = try c.decodeIfPresent(Bool.self, forKey: .starred) ?? false
         note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
         markers = try c.decodeIfPresent([ClipMarker].self, forKey: .markers) ?? []
+        label = try c.decodeIfPresent(ClipLabel.self, forKey: .label)
+        keywords = try c.decodeIfPresent([String].self, forKey: .keywords) ?? []
         clipName = try c.decode(String.self, forKey: .clipName)
         deviceID = try c.decode(String.self, forKey: .deviceID)
         deviceLabel = try c.decode(String.self, forKey: .deviceLabel)

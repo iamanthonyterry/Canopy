@@ -145,3 +145,22 @@ struct CanopyPhaseIndicator: View {
         .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.6), value: isDone)
     }
 }
+
+// MARK: - Close button
+// Icon-only dismiss control for sheets; Esc still closes via `.cancelAction`.
+struct CanopyCloseButton: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        Button { dismiss() } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 22, height: 22)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.borderless)
+        .keyboardShortcut(.cancelAction)
+        .help("Close")
+        .accessibilityLabel("Close")
+    }
+}

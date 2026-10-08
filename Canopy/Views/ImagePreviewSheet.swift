@@ -31,12 +31,13 @@ struct ImagePreviewSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+                CanopyCloseButton()
                 Image(systemName: "photo.fill").foregroundStyle(.tint)
                 Text(node.name)
                     .font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer()
+                ClipLabelMenu(node: node, device: device)
                 ClipNoteButton(node: node, device: device)
                 ClipStarButton(node: node, device: device)
                 if image != nil {

@@ -145,6 +145,11 @@ struct DeviceFilesBrowser: View {
     @ObservedObject private var clipMetadata = ClipMetadataStore.shared
     @AppStorage("dashboardFilesViewMode") private var viewMode: ViewMode = .list
     @State private var galleryPathIDs: [String] = []
+    @AppStorage("galleryTileSize") private var tileSize: Double = 96
+    @AppStorage("galleryGroupByDay") private var groupByDay = false
+    @State private var labelFilter: ClipLabel?
+    @State private var keywordTarget: FileNode?
+    @State private var keywordDraft = ""
     @State private var playbackTarget: PlaybackTarget?
     @State private var imagePreviewTarget: PlaybackTarget?
     @State private var storageInfo: StorageInfo?
@@ -222,6 +227,26 @@ struct DeviceFilesBrowser: View {
         } message: {
             Text(operationError ?? "")
         }
+        .alert(
+            "Keywords",
+            isPresented: Binding(get: { keywordTarget != nil }, set: { if !$0 { keywordTarget = nil } })
+        ) {
+            TextField("interview, b-roll, hero", text: $keywordDraft)
+            Button("Cancel", role: .cancel) { keywordTarget = nil }
+            Button("Save") {
+                if let target = keywordTarget {
+                    clipMetadata.setKeywords(keywordDraft, node: target, device: device)
+                }
+                keywordTarget = nil
+            }
+        } message: {
+            Text("Comma-separated. Keywords are searchable.")
+        }
+    }
+
+    private func editKeywords(_ node: FileNode) {
+        keywordDraft = clipMetadata.keywords(for: node.id).joined(separator: ", ")
+        keywordTarget = node
     }
 
     // MARK: - Toolbar
@@ -266,6 +291,30 @@ struct DeviceFilesBrowser: View {
                     }
                     .help("Starred Only")
 
+                    Menu {
+                        Button {
+                            labelFilter = nil
+                        } label: {
+                            Label("All Labels", systemImage: labelFilter == nil ? "checkmark" : "")
+                        }
+                        Divider()
+                        ForEach(ClipLabel.allCases) { label in
+                            Button {
+                                labelFilter = label
+                            } label: {
+                                Label(label.title, systemImage: labelFilter == label ? "checkmark.circle.fill" : "circle.fill")
+                                    .foregroundStyle(label.color)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "tag.fill")
+                            .foregroundStyle(labelFilter?.color ?? Color.secondary)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Filter by Label")
+
                     HStack(spacing: 0) {
                         ViewModeButton(icon: "list.bullet", selected: viewMode == .list) {
                             viewMode = .list
@@ -273,6 +322,14 @@ struct DeviceFilesBrowser: View {
                         ViewModeButton(icon: "square.grid.2x2", selected: viewMode == .gallery) {
                             viewMode = .gallery
                         }
+                    }
+                    if viewMode == .gallery {
+                        ViewModeButton(icon: "calendar", selected: groupByDay) { groupByDay.toggle() }
+                            .help("Group by Day")
+                        Slider(value: $tileSize, in: 80...220)
+                            .frame(width: 80)
+                            .controlSize(.mini)
+                            .help("Thumbnail Size")
                     }
                     HStack(spacing: 0) {
                         ForEach(SortOrder.allCases, id: \.self) { order in
@@ -376,7 +433,8 @@ struct DeviceFilesBrowser: View {
                         onMoveRequest: { target in
                             moveNodes = [target]
                             showMoveSheet = true
-                        }
+                        },
+                        onEditKeywords: { editKeywords($0) }
                     )
                 }
             }
@@ -389,7 +447,7 @@ struct DeviceFilesBrowser: View {
     // list's inline tree), with a breadcrumb bar for drilling in and out.
 
     private var galleryNodes: [FileNode] {
-        guard !starredOnly, searchText.isEmpty else { return filteredNodes }
+        guard !starredOnly, labelFilter == nil, searchText.isEmpty else { return filteredNodes }
         if let current = galleryCurrentNode {
             return sortedNodes(current.children ?? [])
         }
@@ -428,40 +486,63 @@ struct DeviceFilesBrowser: View {
                 Divider()
             }
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 110, maximum: 140), spacing: 16)], spacing: 20) {
-                    ForEach(galleryNodes) { node in
-                        FileGalleryTile(
-                            node: node,
-                            device: device,
-                            isSelected: selectedFile?.id == node.id,
-                            isSelecting: isSelecting,
-                            isChecked: selectedIDs.contains(node.id),
-                            canManage: appState.isAdmin,
-                            onOpen: {
-                                if isSelecting {
-                                    if selectedIDs.contains(node.id) { selectedIDs.remove(node.id) }
-                                    else { selectedIDs.insert(node.id) }
-                                } else if node.isDirectory {
-                                    navigateGallery(into: node)
-                                } else {
-                                    selectedFile = node
-                                    if node.isVideo {
-                                        playbackTarget = PlaybackTarget(node: node, device: device)
-                                    } else if node.isImage {
-                                        imagePreviewTarget = PlaybackTarget(node: node, device: device)
-                                    }
-                                }
-                            },
-                            onPlay: { playbackTarget = PlaybackTarget(node: node, device: device) },
-                            onPreviewImage: { imagePreviewTarget = PlaybackTarget(node: node, device: device) },
-                            onDeleteRequest: { target in deletePending = [target] },
-                            onMoveRequest: { target in moveNodes = [target]; showMoveSheet = true }
-                        )
+                let columns = [GridItem(.adaptive(minimum: tileSize + 14, maximum: tileSize + 44), spacing: 16)]
+                if groupByDay {
+                    LazyVGrid(columns: columns, spacing: 20, pinnedViews: [.sectionHeaders]) {
+                        ForEach(ClipGrouping.groups(for: galleryNodes)) { group in
+                            Section {
+                                ForEach(group.nodes) { tile(for: $0) }
+                            } header: {
+                                Text(group.title)
+                                    .font(.canopyTitle2)
+                                    .foregroundStyle(Color.canopyInk)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 6)
+                                    .background(Color.canopyPaper)
+                            }
+                        }
                     }
+                    .padding(16)
+                } else {
+                    LazyVGrid(columns: columns, spacing: 20) {
+                        ForEach(galleryNodes) { tile(for: $0) }
+                    }
+                    .padding(16)
                 }
-                .padding(16)
             }
         }
+    }
+
+    private func tile(for node: FileNode) -> some View {
+        FileGalleryTile(
+            node: node,
+            device: device,
+            isSelected: selectedFile?.id == node.id,
+            isSelecting: isSelecting,
+            isChecked: selectedIDs.contains(node.id),
+            canManage: appState.isAdmin,
+            tileSize: tileSize,
+            onOpen: {
+                if isSelecting {
+                    if selectedIDs.contains(node.id) { selectedIDs.remove(node.id) }
+                    else { selectedIDs.insert(node.id) }
+                } else if node.isDirectory {
+                    navigateGallery(into: node)
+                } else {
+                    selectedFile = node
+                    if node.isVideo {
+                        playbackTarget = PlaybackTarget(node: node, device: device)
+                    } else if node.isImage {
+                        imagePreviewTarget = PlaybackTarget(node: node, device: device)
+                    }
+                }
+            },
+            onPlay: { playbackTarget = PlaybackTarget(node: node, device: device) },
+            onPreviewImage: { imagePreviewTarget = PlaybackTarget(node: node, device: device) },
+            onDeleteRequest: { target in deletePending = [target] },
+            onMoveRequest: { target in moveNodes = [target]; showMoveSheet = true },
+            onEditKeywords: { editKeywords($0) }
+        )
     }
 
     private var galleryBreadcrumbBar: some View {
@@ -523,9 +604,13 @@ struct DeviceFilesBrowser: View {
     /// The Starred tab (StarredView) is the reliable, complete cross-device
     /// view; this is a lightweight "narrow what I'm looking at" filter.
     private var filteredNodes: [FileNode] {
-        if starredOnly {
-            let starred = flatten(rootNodes).filter { !$0.isDirectory && clipMetadata.isStarred($0.id) }
-            let matching = searchText.isEmpty ? starred : starred.filter { matchesSearch($0, query: searchText.lowercased()) }
+        if starredOnly || labelFilter != nil {
+            let clips = flatten(rootNodes).filter { node in
+                !node.isDirectory
+                    && (!starredOnly || clipMetadata.isStarred(node.id))
+                    && (labelFilter == nil || clipMetadata.label(for: node.id) == labelFilter)
+            }
+            let matching = searchText.isEmpty ? clips : clips.filter { matchesSearch($0, query: searchText.lowercased()) }
             return sortedNodes(matching)
         }
         guard !searchText.isEmpty else { return sortedNodes(rootNodes) }
@@ -533,7 +618,9 @@ struct DeviceFilesBrowser: View {
     }
 
     private func matchesSearch(_ node: FileNode, query: String) -> Bool {
-        node.name.lowercased().contains(query) || clipMetadata.note(for: node.id).lowercased().contains(query)
+        node.name.lowercased().contains(query)
+            || clipMetadata.note(for: node.id).lowercased().contains(query)
+            || clipMetadata.keywords(for: node.id).contains { $0.lowercased().contains(query) }
     }
 
     private func sortedNodes(_ nodes: [FileNode]) -> [FileNode] {
@@ -950,6 +1037,9 @@ struct FileNodeView: View {
     var canManage: Bool = false
     var onDeleteRequest: (FileNode) -> Void = { _ in }
     var onMoveRequest: (FileNode) -> Void = { _ in }
+    var onEditKeywords: (FileNode) -> Void = { _ in }
+
+    @ObservedObject private var clipStore = ClipMetadataStore.shared
 
     private var isSelected: Bool { selectedFile?.id == node.id }
     private var isCheckedForQueue: Bool { selectedIDs.wrappedValue.contains(node.id) }
@@ -980,6 +1070,9 @@ struct FileNodeView: View {
                     .truncationMode(.middle)
                 Spacer()
                 if !isSelecting && (node.isVideo || node.isImage) {
+                    if let label = clipStore.label(for: node.id) {
+                        Circle().fill(label.color).frame(width: 8, height: 8)
+                    }
                     ClipNoteButton(node: node, device: device, size: .callout)
                     ClipStarButton(node: node, device: device, size: .callout)
                 }
@@ -1022,6 +1115,9 @@ struct FileNodeView: View {
             }
             .clipDragSource(node)
             .contextMenu {
+                if !isSelecting && (node.isVideo || node.isImage) {
+                    clipContextItems(node: node, device: device, onEditKeywords: onEditKeywords)
+                }
                 if !isSelecting && canManage {
                     Button("Move…") { onMoveRequest(node) }
                     Button("Delete", role: .destructive) { onDeleteRequest(node) }
@@ -1035,7 +1131,8 @@ struct FileNodeView: View {
                     node: child, device: device, depth: depth + 1, selectedFile: $selectedFile,
                     onToggle: onToggle, onPlay: onPlay, onPreviewImage: onPreviewImage,
                     isSelecting: isSelecting, selectedIDs: selectedIDs,
-                    canManage: canManage, onDeleteRequest: onDeleteRequest, onMoveRequest: onMoveRequest
+                    canManage: canManage, onDeleteRequest: onDeleteRequest, onMoveRequest: onMoveRequest,
+                    onEditKeywords: onEditKeywords
                 )
             }
         }
@@ -1088,19 +1185,25 @@ struct FileGalleryTile: View {
     var isSelecting: Bool = false
     var isChecked: Bool = false
     var canManage: Bool = false
+    var tileSize: Double = 96
     let onOpen: () -> Void
     let onPlay: () -> Void
     var onPreviewImage: () -> Void = {}
     var onDeleteRequest: (FileNode) -> Void = { _ in }
     var onMoveRequest: (FileNode) -> Void = { _ in }
+    var onEditKeywords: (FileNode) -> Void = { _ in }
+
+    @ObservedObject private var clipStore = ClipMetadataStore.shared
+    @State private var info: ClipInfo?
 
     private var isClip: Bool { !node.isDirectory && (node.isVideo || node.isImage) }
 
     var body: some View {
         VStack(spacing: 6) {
             ZStack(alignment: .topTrailing) {
-                FileThumbnailView(node: node)
-                    .frame(width: 96, height: 96)
+                FileThumbnailView(node: node, size: tileSize)
+                    .frame(width: tileSize, height: tileSize)
+                    .hoverScrub(node: node, size: tileSize)
 
                 if isSelecting {
                     Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
@@ -1133,6 +1236,24 @@ struct FileGalleryTile: View {
                         .padding(4)
                 }
             }
+            .overlay(alignment: .bottom) {
+                if let label = clipStore.label(for: node.id) {
+                    Rectangle().fill(label.color).frame(height: 4)
+                        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 8, bottomTrailingRadius: 8))
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay(alignment: .bottomLeading) {
+                if let info, node.isVideo {
+                    Text(info.durationLabel)
+                        .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(.black.opacity(0.6), in: Capsule())
+                        .padding(6)
+                        .allowsHitTesting(false)
+                }
+            }
             .overlay(alignment: .bottomTrailing) {
                 if isClip && !isSelecting {
                     ClipNoteButton(node: node, device: device, size: .caption)
@@ -1151,13 +1272,23 @@ struct FileGalleryTile: View {
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .truncationMode(.middle)
+            if let info, !info.summary.isEmpty {
+                Text(info.summary)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.tail)
+            }
             if !node.sizeFormatted.isEmpty {
                 Text(node.sizeFormatted)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
         }
-        .frame(width: 110)
+        .frame(width: tileSize + 14)
+        .task(id: node.id) {
+            guard node.isVideo, let url = node.url else { info = nil; return }
+            info = await ClipInfoService.shared.info(for: url)
+        }
         .padding(6)
         .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -1165,6 +1296,9 @@ struct FileGalleryTile: View {
         .onTapGesture(perform: onOpen)
         .clipDragSource(node)
         .contextMenu {
+            if !isSelecting && isClip {
+                clipContextItems(node: node, device: device, onEditKeywords: onEditKeywords)
+            }
             if !isSelecting && canManage {
                 Button("Move…") { onMoveRequest(node) }
                 Button("Delete", role: .destructive) { onDeleteRequest(node) }
@@ -1180,6 +1314,7 @@ struct FileGalleryTile: View {
 
 struct FileThumbnailView: View {
     let node: FileNode
+    var size: CGFloat = 96
     @State private var image: NSImage?
 
     var body: some View {
@@ -1190,7 +1325,7 @@ struct FileThumbnailView: View {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(width: 96, height: 96)
+                    .frame(width: size, height: size)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 Image(systemName: node.icon)
@@ -1198,7 +1333,7 @@ struct FileThumbnailView: View {
                     .foregroundStyle(node.iconColor)
             }
         }
-        .task(id: node.id) {
+        .task(id: "\(node.id)-\(Int(size))") {
             await loadThumbnail()
         }
     }
@@ -1208,19 +1343,26 @@ struct FileThumbnailView: View {
     ]
 
     private func loadThumbnail() async {
+        guard !node.isDirectory, let url = node.url else { image = nil; return }
+        guard Self.thumbnailableExtensions.contains(url.pathExtension.lowercased()) else { image = nil; return }
+
+        // Quantize so dragging the size slider doesn't regenerate every step.
+        let bucket = max(96, Int((size / 32).rounded(.up)) * 32)
+        let cacheKey = "\(node.id)|\(bucket)|\(node.modified.timeIntervalSince1970)"
+        if let cached = ThumbnailCache.shared.image(forKey: cacheKey) { image = cached; return }
         image = nil
-        guard !node.isDirectory, let url = node.url else { return }
-        guard Self.thumbnailableExtensions.contains(url.pathExtension.lowercased()) else { return }
 
         let scale = await MainActor.run { NSScreen.main?.backingScaleFactor ?? 2 }
         let request = QLThumbnailGenerator.Request(
             fileAt: url,
-            size: CGSize(width: 96, height: 96),
+            size: CGSize(width: CGFloat(bucket), height: CGFloat(bucket)),
             scale: scale,
             representationTypes: .thumbnail
         )
         if let representation = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) {
-            await MainActor.run { image = representation.nsImage }
+            let thumb = representation.nsImage
+            ThumbnailCache.shared.set(thumb, forKey: cacheKey)
+            await MainActor.run { image = thumb }
         }
     }
 }
@@ -1262,4 +1404,24 @@ extension View {
             self
         }
     }
+}
+
+// MARK: - Clip context menu items
+// Label and keyword actions shared by list rows and gallery tiles.
+@ViewBuilder
+func clipContextItems(node: FileNode, device: DeviceSource,
+                      onEditKeywords: @escaping (FileNode) -> Void) -> some View {
+    Menu("Label") {
+        ForEach(ClipLabel.allCases) { label in
+            Button {
+                let store = ClipMetadataStore.shared
+                store.setLabel(store.label(for: node.id) == label ? nil : label, node: node, device: device)
+            } label: {
+                Label(label.title, systemImage: "circle.fill").foregroundStyle(label.color)
+            }
+        }
+        Button("Clear Label") { ClipMetadataStore.shared.setLabel(nil, node: node, device: device) }
+    }
+    Button("Keywords…") { onEditKeywords(node) }
+    Divider()
 }

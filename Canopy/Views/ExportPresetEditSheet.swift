@@ -16,7 +16,7 @@ struct ExportPresetsListView: View {
             HStack {
                 Text("Export Presets").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                 Spacer()
-                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+                CanopyCloseButton()
             }
             .padding()
             Rectangle().fill(Color.canopyRule).frame(height: 1)
