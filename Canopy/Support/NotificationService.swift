@@ -47,6 +47,30 @@ struct NotificationService {
         UNUserNotificationCenter.current().add(request)
     }
 
+    // Fired when a workflow step is paused waiting on the operator.
+    // Identified by run so it can be cleared once answered. No delegate is
+    // set, so macOS only shows the banner while Canopy is in the background
+    // — the in-app banner and floating panel cover the foreground case.
+    static func sendConfirmationNeeded(runID: UUID, workflow: String, step: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "Confirmation needed"
+        content.body = "\"\(workflow)\" is paused — confirm \"\(step)\" to continue."
+        content.sound = .default
+        content.interruptionLevel = .timeSensitive
+
+        let request = UNNotificationRequest(
+            identifier: "confirm-\(runID.uuidString)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    static func clearConfirmationNeeded(runID: UUID) {
+        let id = "confirm-\(runID.uuidString)"
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id])
+    }
+
     // Fired when a scheduled run is about to start (one-minute warning)
     static func sendScheduledWarning(at date: Date) {
         let content = UNMutableNotificationContent()

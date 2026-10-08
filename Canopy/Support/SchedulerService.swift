@@ -20,8 +20,8 @@ class SchedulerService: ObservableObject {
     func sync() {
         timer?.invalidate()
         guard hasAnyScheduleEnabled else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
-            Task { @MainActor [weak self] in self?.tick() }
+        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tick() }
         }
         timer?.tolerance = 10
         RunLoop.main.add(timer!, forMode: .common)

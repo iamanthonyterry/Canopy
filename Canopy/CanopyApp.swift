@@ -16,6 +16,7 @@ struct CanopyApp: App {
                     AlertingService.shared.start()
                     PeerPresenceService.shared.start()
                     RemoteControlEngine.shared.applySettings()
+                    WorkflowConfirmationPanelController.shared.start(appState: appState)
                 }
                 .onOpenURL { url in
                     GmailAuthService.shared.handleRedirect(url: url)
