@@ -140,9 +140,11 @@ private struct ExportQueueRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Image(systemName: item.phase.icon)
-                    .foregroundStyle(phaseColor)
-                    .frame(width: 16)
+                CanopyPhaseIndicator(
+                    progress: (item.phase == .downloading || item.phase == .exporting) ? item.progress : nil,
+                    isDone: item.phase == .done,
+                    icon: item.phase.icon, color: phaseColor
+                )
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 4) {
                         Text(item.node.name)

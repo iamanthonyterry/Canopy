@@ -27,6 +27,7 @@ struct DashboardView: View {
     @State private var addCloudStoreKind: CloudStore.Kind = .blackmagicCloudStore
     @State private var showingAddLocalFolder = false
     @State private var selection: DashboardSelection?
+    @ObservedObject private var palette = CommandPaletteModel.shared
     @State private var showMode = false
 
     var inProgress: [WorkflowRunSession] { appState.activeRuns.filter { !$0.isFinished } }
@@ -57,11 +58,22 @@ struct DashboardView: View {
     }
 
     var body: some View {
-        if showMode {
-            ShowModeView(onExit: { showMode = false })
-        } else {
-            normalDashboard
+        Group {
+            if showMode {
+                ShowModeView(onExit: { showMode = false })
+            } else {
+                normalDashboard
+            }
         }
+        .onAppear(perform: consumePaletteDevice)
+        .onChange(of: palette.pendingDevice) { consumePaletteDevice() }
+    }
+
+    /// Applies a device chosen in the command palette, then clears the request.
+    private func consumePaletteDevice() {
+        guard let target = palette.pendingDevice else { return }
+        selection = target
+        palette.pendingDevice = nil
     }
 
     private var normalDashboard: some View {

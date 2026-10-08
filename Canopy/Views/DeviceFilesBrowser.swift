@@ -1020,6 +1020,7 @@ struct FileNodeView: View {
                     else if node.isImage { onPreviewImage(node) }
                 }
             }
+            .clipDragSource(node)
             .contextMenu {
                 if !isSelecting && canManage {
                     Button("Move…") { onMoveRequest(node) }
@@ -1162,6 +1163,7 @@ struct FileGalleryTile: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
+        .clipDragSource(node)
         .contextMenu {
             if !isSelecting && canManage {
                 Button("Move…") { onMoveRequest(node) }
@@ -1243,6 +1245,21 @@ struct StorageSummaryView: View {
             } else if isLoading {
                 ProgressView().controlSize(.small)
             }
+        }
+    }
+}
+
+// MARK: - Drag-out
+// Lets a clip on a mounted volume (Cloud Store / Local Folder) be dragged
+// straight into Finder or an NLE bin. HyperDeck clips only exist over FTP,
+// so they have no file to hand over and aren't draggable.
+extension View {
+    @ViewBuilder
+    func clipDragSource(_ node: FileNode) -> some View {
+        if !node.isDirectory, let url = node.url {
+            onDrag { NSItemProvider(contentsOf: url) ?? NSItemProvider() }
+        } else {
+            self
         }
     }
 }

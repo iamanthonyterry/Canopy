@@ -7,9 +7,8 @@ struct TaskRow: View {
         VStack(alignment: .leading, spacing: 6) {
             // File name + phase badge
             HStack(spacing: 6) {
-                Image(systemName: phaseIcon)
-                    .foregroundStyle(phaseColor)
-                    .frame(width: 14)
+                CanopyPhaseIndicator(progress: ringProgress, isDone: task.phase == .done,
+                                     icon: phaseIcon, color: phaseColor, size: 14)
                 Text(task.deckName)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
@@ -88,6 +87,14 @@ struct TaskRow: View {
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .frame(width: 28, alignment: .trailing)
+        }
+    }
+
+    private var ringProgress: Double? {
+        switch task.phase {
+        case .downloading: return task.syncProgress
+        case .converting:  return task.convertProgress
+        default:           return nil
         }
     }
 

@@ -119,7 +119,8 @@ struct ImagePreviewSheet: View {
             .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
         }
         .frame(minWidth: 680, minHeight: 460)
-        .background(Color.canopyPaper)
+        .background(Color.canopyViewerGray)
+        .preferredColorScheme(.dark)
         .task { await load() }
         .onDisappear { cleanUp() }
         .alert("Couldn't Save Photo", isPresented: Binding(

@@ -8,6 +8,7 @@ import SwiftUI
 struct StarredView: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject private var store = ClipMetadataStore.shared
+    @ObservedObject private var palette = CommandPaletteModel.shared
 
     @State private var playbackTarget: PlaybackTarget?
     @State private var imagePreviewTarget: PlaybackTarget?
@@ -26,6 +27,8 @@ struct StarredView: View {
             }
         }
         .background(Color.canopyPaper)
+        .onAppear(perform: consumePaletteClip)
+        .onChange(of: palette.pendingClipID) { consumePaletteClip() }
         .sheet(item: $playbackTarget) { target in
             VideoPlayerSheet(node: target.node, device: target.device,
                              onNavigate: { stepPreview(from: target.node.id, by: $0) })
@@ -111,6 +114,13 @@ struct StarredView: View {
             playbackTarget = nil
             imagePreviewTarget = target
         }
+    }
+
+    /// Opens a clip picked in the command palette, then clears the request.
+    private func consumePaletteClip() {
+        guard let id = palette.pendingClipID else { return }
+        palette.pendingClipID = nil
+        if let metadata = store.entries[id] { open((id: id, metadata: metadata)) }
     }
 
     /// Steps the open preview to the previous / next starred clip.

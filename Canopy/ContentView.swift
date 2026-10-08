@@ -4,6 +4,7 @@ struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject private var exportQueue = ExportQueueManager.shared
     @ObservedObject private var clipMetadata = ClipMetadataStore.shared
+    @ObservedObject private var palette = CommandPaletteModel.shared
     @State private var selection: NavItem? = .dashboard
 
     enum NavItem: String, Hashable, CaseIterable {
@@ -83,6 +84,25 @@ struct ContentView: View {
             }
         }
         .toolbar(removing: .title)
+        .background {
+            Button("Command Palette") {
+                withAnimation(.easeOut(duration: 0.12)) { palette.toggle() }
+            }
+            .keyboardShortcut("k", modifiers: .command)
+            .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
+        }
+        .overlay {
+            if palette.isPresented {
+                CommandPaletteView()
+                    .environmentObject(appState)
+                    .transition(.opacity)
+            }
+        }
+        .onChange(of: palette.pendingNav) {
+            guard let nav = palette.pendingNav else { return }
+            if visibleNavItems.contains(nav) { selection = nav }
+            palette.pendingNav = nil
+        }
         .onChange(of: appState.userRole) {
             if !visibleNavItems.contains(selection ?? .dashboard) {
                 selection = .dashboard

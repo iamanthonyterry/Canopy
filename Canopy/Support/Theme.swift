@@ -13,6 +13,13 @@ import SwiftUI
 // by Xcode from the matching colorsets in Assets.xcassets — no extension
 // needed here.
 
+/// Neutral, low-chroma surround for media viewers. The warm paper palette
+/// would tint how footage reads while reviewing, so preview sheets sit on
+/// this instead (and force dark appearance).
+extension Color {
+    static let canopyViewerGray = Color(white: 0.09)
+}
+
 // MARK: Typography
 extension Font {
     /// Serif display type (renders as New York on macOS) for headings and
@@ -98,4 +105,43 @@ extension ButtonStyle where Self == CanopyPrimaryButtonStyle {
 
 extension ButtonStyle where Self == CanopySecondaryButtonStyle {
     static var canopySecondary: CanopySecondaryButtonStyle { .init() }
+}
+
+// MARK: - Phase indicator
+// A small ring that fills as work progresses and resolves to a sage
+// checkmark with a short spring when it completes. Idle/error phases show
+// their plain icon. Honors Reduce Motion by skipping the bounce.
+struct CanopyPhaseIndicator: View {
+    /// 0...1 while in flight; nil when there's no meaningful fraction.
+    var progress: Double?
+    var isDone: Bool
+    var icon: String
+    var color: Color
+    var size: CGFloat = 16
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            if isDone {
+                Image(systemName: "checkmark.circle.fill")
+                    .resizable().scaledToFit()
+                    .foregroundStyle(Color.canopySage)
+                    .transition(reduceMotion ? .opacity : .scale(scale: 0.4).combined(with: .opacity))
+            } else if let progress {
+                Circle().stroke(color.opacity(0.2), lineWidth: 2.5)
+                Circle()
+                    .trim(from: 0, to: max(0.03, min(progress, 1)))
+                    .stroke(color, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: progress)
+            } else {
+                Image(systemName: icon)
+                    .resizable().scaledToFit()
+                    .foregroundStyle(color)
+            }
+        }
+        .frame(width: size, height: size)
+        .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.6), value: isDone)
+    }
 }

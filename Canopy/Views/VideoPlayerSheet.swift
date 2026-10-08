@@ -117,7 +117,8 @@ struct VideoPlayerSheet: View {
             clearRange: { inPoint = 0; outPoint = duration },
             addMarker: { addMarker() }
         ))
-        .background(Color.canopyPaper)
+        .background(Color.canopyViewerGray)
+        .preferredColorScheme(.dark)
         .task { await load() }
         .onDisappear { cleanUp() }
     }
