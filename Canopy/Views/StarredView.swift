@@ -13,6 +13,8 @@ struct StarredView: View {
     @State private var playbackTarget: PlaybackTarget?
     @State private var imagePreviewTarget: PlaybackTarget?
     @State private var showExportQueue = false
+    @State private var isExportingNLE = false
+    @State private var nleMessage: String?
 
     private typealias Entry = (id: String, metadata: ClipMetadata)
 
@@ -54,8 +56,60 @@ struct StarredView: View {
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer()
+            if isExportingNLE {
+                ProgressView().controlSize(.small)
+            } else if !store.starredEntries.isEmpty {
+                Menu {
+                    Button("Final Cut Pro XML (.fcpxml)") { exportToResolve(.fcpxml) }
+                    Button("EDL (.edl)") { exportToResolve(.edl) }
+                } label: {
+                    Label("Export for Resolve", systemImage: "square.and.arrow.up")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Send starred clips to DaVinci Resolve with their markers, notes and keywords")
+            }
         }
         .padding()
+        .alert("Export for Resolve", isPresented: Binding(get: { nleMessage != nil }, set: { if !$0 { nleMessage = nil } })) {
+            Button("OK") { nleMessage = nil }
+        } message: {
+            Text(nleMessage ?? "")
+        }
+    }
+
+    private enum NLEFormat { case fcpxml, edl }
+
+    /// Exports every starred clip on mounted storage as a timeline Resolve
+    /// can import (File ▸ Import ▸ Timeline), carrying markers, keywords,
+    /// notes and color labels along.
+    private func exportToResolve(_ format: NLEFormat) {
+        isExportingNLE = true
+        Task {
+            let gathered = await NLEExportService.gather(store.starredEntries)
+            isExportingNLE = false
+            guard !gathered.clips.isEmpty else {
+                nleMessage = "None of the starred clips are on mounted storage, so there's nothing to export. HyperDeck clips need to be offloaded first."
+                return
+            }
+            let panel = NSSavePanel()
+            panel.title = "Export for DaVinci Resolve"
+            panel.nameFieldStringValue = "Canopy Selects.\(format == .fcpxml ? "fcpxml" : "edl")"
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+
+            let text = format == .fcpxml
+                ? FCPXMLBuilder.xml(projectName: "Canopy Selects", clips: gathered.clips)
+                : EDLBuilder.edl(title: "Canopy Selects", clips: gathered.clips)
+            do {
+                try text.write(to: url, atomically: true, encoding: .utf8)
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+                if !gathered.skipped.isEmpty {
+                    nleMessage = "Exported \(gathered.clips.count) clip\(gathered.clips.count == 1 ? "" : "s"). Left out (not on mounted storage): \(gathered.skipped.joined(separator: ", "))."
+                }
+            } catch {
+                nleMessage = "Couldn't save the file: \(error.localizedDescription)"
+            }
+        }
     }
 
     private var emptyState: some View {

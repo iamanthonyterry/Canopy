@@ -102,12 +102,30 @@ struct RunRow: View {
 struct RunDetailView: View {
     let run: WorkflowRun
     @State private var showLog = false
+    @State private var isBuildingReport = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
 
-                Text(run.workflowName).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
+                HStack {
+                    Text(run.workflowName).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
+                    Spacer()
+                    if isBuildingReport {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button {
+                            exportReport()
+                        } label: {
+                            Label("Offload Report…", systemImage: "doc.richtext")
+                        }
+                        .buttonStyle(.canopySecondary)
+                        .disabled((run.fileRecords ?? []).isEmpty)
+                        .help((run.fileRecords ?? []).isEmpty
+                              ? "This run was recorded before per-file details were kept."
+                              : "Save a shareable summary of this run")
+                    }
+                }
 
                 // Header stats
                 HStack(spacing: 16) {
@@ -158,6 +176,22 @@ struct RunDetailView: View {
                 }
             }
             .padding()
+        }
+    }
+
+    private func exportReport() {
+        let panel = NSSavePanel()
+        panel.title = "Save Offload Report"
+        panel.nameFieldStringValue = "Offload Report – \(run.workflowName).html"
+        panel.allowedContentTypes = [.html]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        isBuildingReport = true
+        Task {
+            let thumbs = await OffloadReportService.thumbnails(for: run)
+            let html = OffloadReportBuilder.html(for: run, thumbnails: thumbs)
+            try? html.write(to: url, atomically: true, encoding: .utf8)
+            isBuildingReport = false
+            NSWorkspace.shared.open(url)
         }
     }
 

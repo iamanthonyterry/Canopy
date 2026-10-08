@@ -9,6 +9,7 @@ struct ClipInfo: Equatable {
     var height: Int
     var fps: Double
     var codec: String?
+    var hasAudio = false
 
     var durationLabel: String { ClipInfoFormat.duration(duration) }
 
@@ -88,6 +89,7 @@ final class ClipInfoService {
                 info.codec = ClipInfoFormat.codecName(fourCC: String(decoding: bytes, as: UTF8.self))
             }
         }
+        if let audio = try? await asset.loadTracks(withMediaType: .audio), !audio.isEmpty { info.hasAudio = true }
         return info
     }
 }

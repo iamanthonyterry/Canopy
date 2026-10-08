@@ -1337,6 +1337,15 @@ final class WorkflowEngine: ObservableObject {
 
     // MARK: - Finish
 
+    private static func verificationKey(_ v: SyncTask.Verification) -> String {
+        switch v {
+        case .none, .verifying: return "none"
+        case .verified:         return "verified"
+        case .mismatch:         return "mismatch"
+        case .failed:           return "failed"
+        }
+    }
+
     private func finishRun(workflow: Workflow, session: WorkflowRunSession) {
         session.finalizeSteps()
         let c = session.converted
@@ -1350,7 +1359,16 @@ final class WorkflowEngine: ObservableObject {
             processed:      c,
             errors:         e,
             decksProcessed: Array(session.deckNames).sorted(),
-            log:            session.lines
+            log:            session.lines,
+            fileRecords:    session.tasks.map { task in
+                RunFileRecord(
+                    fileName: task.fileName, deviceName: task.deckName,
+                    sizeBytes: task.fileSizeBytes, succeeded: task.phase == .done,
+                    errorMessage: task.errorMessage,
+                    verification: Self.verificationKey(task.verification),
+                    sha256: task.sha256, folderPath: task.destDir.path
+                )
+            }
         )
         appState.workflowRunHistory.insert(run, at: 0)
         if appState.workflowRunHistory.count > 50 {

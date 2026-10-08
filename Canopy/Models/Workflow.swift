@@ -632,6 +632,21 @@ struct Workflow: Identifiable, Codable, Hashable {
 }
 
 // MARK: - Workflow Run History (persisted)
+/// One file's outcome in a finished run, kept so the offload report can be
+/// produced later.
+struct RunFileRecord: Codable, Hashable, Identifiable {
+    var id = UUID()
+    var fileName: String
+    var deviceName: String
+    var sizeBytes: Int64
+    var succeeded: Bool
+    var errorMessage: String?
+    /// "verified", "mismatch", "failed", or "none" when verification was off.
+    var verification: String
+    var sha256: String?
+    var folderPath: String
+}
+
 struct WorkflowRun: Identifiable, Codable, Hashable {
     var id = UUID()
     var workflowName: String
@@ -641,6 +656,8 @@ struct WorkflowRun: Identifiable, Codable, Hashable {
     var errors: Int
     var decksProcessed: [String]
     var log: [String]
+    /// Absent on runs saved before per-file records existed.
+    var fileRecords: [RunFileRecord]? = nil
 
     var duration: TimeInterval { finishedAt.timeIntervalSince(startedAt) }
     var durationFormatted: String {
