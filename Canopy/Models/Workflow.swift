@@ -150,7 +150,9 @@ enum StepAction: Hashable {
     /// own subfolder (named after the device) inside the created folder,
     /// instead of every device sharing the folder directly.
     case createFolder(cloudStoreID: UUID?, parentPath: String, nameTemplate: String, groupByDevice: Bool = false)
-    case sync(destination: SyncDestination)
+    /// `verify`: after each download, hash the copy and the source with
+    /// SHA-256 and compare, and write a `checksums.sha256` manifest.
+    case sync(destination: SyncDestination, verify: Bool = false)
     case convert(preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool, maxParallelJobs: Int, convertInPlace: Bool = false)
     case rename(pattern: String)
     case format
@@ -178,7 +180,7 @@ enum StepAction: Hashable {
         case .controlDeck:     return .controlDeck(command: .start, stopAfterMinutes: nil)
         case .wait:            return .wait(minutes: 60)
         case .createFolder:    return .createFolder(cloudStoreID: nil, parentPath: "", nameTemplate: "New Folder_\(FolderNameEngine.dateToken)", groupByDevice: false)
-        case .sync:            return .sync(destination: .global)
+        case .sync:            return .sync(destination: .global, verify: false)
         case .convert:         return .convert(preset: .fast, deleteOriginal: true, maxParallelJobs: 2, convertInPlace: false)
         case .rename:          return .rename(pattern: "{device}_{date}_{index}")
         case .format:          return .format
@@ -222,14 +224,15 @@ enum StepAction: Hashable {
             let folder = parentPath.isEmpty ? resolved : "\(parentPath)/\(resolved)"
             let grouping = groupByDevice ? " · one subfolder per device" : ""
             return "Creates \"\(folder)\" in \(location)\(grouping)"
-        case .sync(let destination):
+        case .sync(let destination, let verify):
+            let suffix = verify ? " · verified with SHA-256" : ""
             switch destination {
             case .global:
-                return "Downloads any new .mov files to the global destination"
+                return "Downloads any new .mov files to the global destination" + suffix
             case .cloudStore:
-                return "Downloads any new .mov files to the selected cloud store"
+                return "Downloads any new .mov files to the selected cloud store" + suffix
             case .createdFolder:
-                return "Downloads any new .mov files into the folder created earlier in this workflow"
+                return "Downloads any new .mov files into the folder created earlier in this workflow" + suffix
             }
         case .convert(let preset, let deleteOriginal, let maxParallelJobs, let convertInPlace):
             return "\(preset.displayName) preset" + (deleteOriginal ? " · deletes original" : " · keeps original") + " · \(maxParallelJobs) parallel" + (convertInPlace ? " · converts in place" : " · saves to a Converted folder")
@@ -277,7 +280,7 @@ extension StepAction: Codable {
     }
 
     enum SyncKeys: String, CodingKey {
-        case destination
+        case destination, verify
         // Legacy keys, kept only so workflows saved before the Sync step
         // could point at a Create Folder step still decode correctly.
         case cloudStoreID, cloudStorePath
@@ -332,17 +335,18 @@ extension StepAction: Codable {
             self = .createFolder(cloudStoreID: cloudStoreID, parentPath: parentPath, nameTemplate: nameTemplate, groupByDevice: groupByDevice)
         } else if container.contains(.sync) {
             let nested = try container.nestedContainer(keyedBy: SyncKeys.self, forKey: .sync)
+            let verify = try nested.decodeIfPresent(Bool.self, forKey: .verify) ?? false
             if let destination = try nested.decodeIfPresent(SyncDestination.self, forKey: .destination) {
-                self = .sync(destination: destination)
+                self = .sync(destination: destination, verify: verify)
             } else {
                 // Workflows saved before the Sync step could point at a Create
                 // Folder step stored a plain cloudStoreID/cloudStorePath pair.
                 let cloudStoreID = try nested.decodeIfPresent(UUID.self, forKey: .cloudStoreID)
                 let cloudStorePath = try nested.decodeIfPresent(String.self, forKey: .cloudStorePath) ?? ""
                 if let cloudStoreID {
-                    self = .sync(destination: .cloudStore(id: cloudStoreID, path: cloudStorePath))
+                    self = .sync(destination: .cloudStore(id: cloudStoreID, path: cloudStorePath), verify: verify)
                 } else {
-                    self = .sync(destination: .global)
+                    self = .sync(destination: .global, verify: verify)
                 }
             }
         } else if container.contains(.convert) {
@@ -397,9 +401,10 @@ extension StepAction: Codable {
             try nested.encode(parentPath, forKey: .parentPath)
             try nested.encode(nameTemplate, forKey: .nameTemplate)
             try nested.encode(groupByDevice, forKey: .groupByDevice)
-        case .sync(let destination):
+        case .sync(let destination, let verify):
             var nested = container.nestedContainer(keyedBy: SyncKeys.self, forKey: .sync)
             try nested.encode(destination, forKey: .destination)
+            try nested.encode(verify, forKey: .verify)
         case .convert(let preset, let deleteOriginal, let maxParallelJobs, let convertInPlace):
             var nested = container.nestedContainer(keyedBy: ConvertKeys.self, forKey: .convert)
             try nested.encode(preset, forKey: .preset)
@@ -570,7 +575,7 @@ struct Workflow: Identifiable, Codable, Hashable {
     /// previous run.
     var syncDestination: SyncDestination {
         for step in steps {
-            if case .sync(let destination) = step.action {
+            if case .sync(let destination, _) = step.action {
                 return destination
             }
         }

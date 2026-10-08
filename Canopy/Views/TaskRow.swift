@@ -17,6 +17,13 @@ struct TaskRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
+                if let label = task.verification.label {
+                    Label(label, systemImage: verificationIcon)
+                        .labelStyle(.titleAndIcon)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(verificationColor)
+                        .help(task.sha256.map { "SHA-256 \($0)" } ?? label)
+                }
                 Text(task.phase.label)
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(phaseColor)
@@ -87,6 +94,22 @@ struct TaskRow: View {
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .frame(width: 28, alignment: .trailing)
+        }
+    }
+
+    private var verificationIcon: String {
+        switch task.verification {
+        case .none, .verifying: return "checkmark.shield"
+        case .verified:         return "checkmark.shield.fill"
+        case .mismatch, .failed: return "exclamationmark.shield.fill"
+        }
+    }
+
+    private var verificationColor: Color {
+        switch task.verification {
+        case .none, .verifying: return .secondary
+        case .verified:         return .canopySage
+        case .mismatch, .failed: return .canopyRust
         }
     }
 

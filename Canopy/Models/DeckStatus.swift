@@ -196,6 +196,24 @@ struct SyncTask: Identifiable {
         var label: String { rawValue.capitalized }
     }
 
+    /// SHA-256 check of the copy against the source, when the Sync step has
+    /// Verify turned on. `.none` means verification wasn't requested.
+    enum Verification: Equatable {
+        case none, verifying, verified, mismatch, failed
+
+        var label: String? {
+            switch self {
+            case .none:      return nil
+            case .verifying: return "Verifying"
+            case .verified:  return "Verified"
+            case .mismatch:  return "Checksum mismatch"
+            case .failed:    return "Couldn't verify"
+            }
+        }
+    }
+    var verification: Verification = .none
+    var sha256: String? = nil
+
     var overallProgress: Double {
         switch phase {
         case .queued:      return 0

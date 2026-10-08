@@ -18,6 +18,7 @@ struct WorkflowStepConfigSheet: View {
     @State private var syncUsesCreatedFolder = false
     @State private var syncCreatedFolderStepID: UUID? = nil
     @State private var syncCloudStoreID: UUID? = nil   // nil = global destination
+    @State private var syncVerify = false
     @State private var syncCloudStorePath = ""
     @State private var showFolderPicker = false
     @State private var createFolderCloudStoreID: UUID? = nil   // nil = global destination
@@ -167,6 +168,10 @@ struct WorkflowStepConfigSheet: View {
         Group {
             Text("Downloads any files not already synced.")
                 .font(.callout).foregroundStyle(.secondary)
+
+            Toggle("Verify with SHA-256", isOn: $syncVerify)
+            Text("Re-reads each file from the device and compares it with the copy on the destination, then writes a checksums.sha256 manifest next to the footage. Adds time to every offload.")
+                .font(.caption).foregroundStyle(.secondary)
 
             if !availableFolderSteps.isEmpty {
                 Picker("Destination", selection: $syncUsesCreatedFolder) {
@@ -692,7 +697,8 @@ struct WorkflowStepConfigSheet: View {
             createFolderParentPath = parentPath
             createFolderNameTemplate = nameTemplate
             createFolderGroupByDevice = groupByDevice
-        case .sync(let destination):
+        case .sync(let destination, let verify):
+            syncVerify = verify
             switch destination {
             case .global:
                 syncUsesCreatedFolder = false
@@ -751,7 +757,7 @@ struct WorkflowStepConfigSheet: View {
             } else {
                 destination = .global
             }
-            step.action = .sync(destination: destination)
+            step.action = .sync(destination: destination, verify: syncVerify)
         case .convert: step.action = .convert(preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs, convertInPlace: convertInPlace)
         case .rename:  step.action = .rename(pattern: pattern.isEmpty ? "{name}" : pattern)
         case .format:  step.action = .format

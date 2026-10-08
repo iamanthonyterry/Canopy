@@ -61,6 +61,8 @@ final class WorkflowEngine: ObservableObject {
         /// it so per-file tasks can remember it, for retries.
         var cloudStoreID: UUID? = nil
         var files: [URL] = []
+        /// Set from the Sync step: hash each download against the source.
+        var verifyOffload = false
         let session: WorkflowRunSession
     }
 
@@ -223,7 +225,7 @@ final class WorkflowEngine: ObservableObject {
             // checkpoint is a deliberate whole-run pause a person needs to
             // see and approve before conversion starts — pipelining ahead
             // of it would silently bypass that. See `runSyncAndConvert`.
-            if case .sync = step.action,
+            if case .sync(_, let verifyPair) = step.action,
                stepIndex + 1 < workflow.steps.count,
                case .convert(let preset, let deleteOriginal, let maxParallelJobs, let pairConvertInPlace) = workflow.steps[stepIndex + 1].action,
                !step.requiresConfirmation, !workflow.steps[stepIndex + 1].requiresConfirmation {
@@ -235,6 +237,7 @@ final class WorkflowEngine: ObservableObject {
                     for context in contexts {
                         group.addTask {
                             var context = context
+                            context.verifyOffload = verifyPair
                             await self.runSyncAndConvert(
                                 context: &context, preset: preset, deleteOriginal: deleteOriginal,
                                 maxParallelJobs: maxParallelJobs, convertInPlace: pairConvertInPlace
@@ -516,7 +519,8 @@ final class WorkflowEngine: ObservableObject {
             break // handled once per run, before the per-deck fan-out — see `start`
         case .triggerWorkflow:
             break // handled once per run, before the per-deck fan-out — see `start`
-        case .sync:
+        case .sync(_, let verify):
+            context.verifyOffload = verify
             // The destination for this step (from the workflow's Sync step
             // config) is already resolved into context.destDir before the
             // run loop begins. `convertInPlace` here is the *workflow's*
@@ -607,6 +611,11 @@ final class WorkflowEngine: ObservableObject {
                 session.log("  ❌ Download failed: \(entry.name) — \(reason)")
                 session.errors += 1
                 continue
+            }
+
+            if context.verifyOffload {
+                let ok = await verifyCopy(taskID: taskID, fileName: entry.name, deck: deck, destURL: destURL, session: session)
+                guard ok else { continue }
             }
 
             updateTask(id: taskID, phase: .done, syncProgress: 1)
@@ -889,6 +898,7 @@ final class WorkflowEngine: ObservableObject {
         let queue = PipelineQueue<PipelineDownload>()
         let deckName = deck.name
         let settings = ConversionSettings(preset: preset)
+        let verifyDownloads = context.verifyOffload
 
         let outcomes: [PipelineFileOutcome] = await withTaskGroup(of: [PipelineFileOutcome].self) { group in
             // Producer: downloads each file in order, pushing it to the
@@ -916,6 +926,14 @@ final class WorkflowEngine: ObservableObject {
                             session.errors += 1
                         }
                         continue
+                    }
+
+                    if verifyDownloads {
+                        let ok = await self.verifyCopy(
+                            taskID: item.taskID, fileName: item.entry.name, deck: deck,
+                            destURL: item.destURL, session: session
+                        )
+                        guard ok else { continue }
                     }
 
                     await MainActor.run {
@@ -1487,6 +1505,45 @@ final class WorkflowEngine: ObservableObject {
             }
         }
         return nil
+    }
+
+    /// Hashes the copy against the source on the deck. Returns true when the
+    /// file is safe to carry on with (convert / delete the original); on a
+    /// mismatch or failure the task is marked as an error and the copy is
+    /// left in place for inspection.
+    private func verifyCopy(taskID: UUID, fileName: String, deck: HyperDeck, destURL: URL,
+                            session: WorkflowRunSession) async -> Bool {
+        setVerification(id: taskID, .verifying)
+        session.log("  🔍 Verifying \(fileName) (SHA-256)...")
+        let outcome = await ChecksumService.verifyDownload(of: fileName, from: deck, at: destURL)
+        switch outcome {
+        case .verified(let hash):
+            setVerification(id: taskID, .verified, hash: hash)
+            ChecksumService.record(hash: hash, fileName: fileName, in: destURL.deletingLastPathComponent())
+            session.log("  ✅ Verified \(fileName) — \(hash.prefix(12))…")
+            return true
+        case .mismatch:
+            setVerification(id: taskID, .mismatch)
+            updateTask(id: taskID, phase: .error, errorMessage: "Checksum mismatch — the copy doesn't match the source")
+            session.log("  🛑 Checksum mismatch: \(fileName) — the copy on the destination differs from the deck")
+            session.errors += 1
+            return false
+        case .failed(let reason):
+            setVerification(id: taskID, .failed)
+            updateTask(id: taskID, phase: .error, errorMessage: "Couldn't verify: \(reason)")
+            session.log("  ⚠️ Couldn't verify \(fileName): \(reason)")
+            session.errors += 1
+            return false
+        }
+    }
+
+    private func setVerification(id: UUID, _ state: SyncTask.Verification, hash: String? = nil) {
+        for session in appState.activeRuns {
+            guard let i = session.tasks.firstIndex(where: { $0.id == id }) else { continue }
+            session.tasks[i].verification = state
+            if let hash { session.tasks[i].sha256 = hash }
+            return
+        }
     }
 
     private func updateTask(
