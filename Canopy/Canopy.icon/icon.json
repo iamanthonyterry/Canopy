@@ -6,8 +6,10 @@
     {
       "layers" : [
         {
-          "image-name" : "Canopy Icon.svg",
-          "name" : "Canopy Icon",
+          "fill" : "none",
+          "glass" : true,
+          "image-name" : "Canopy Icon 2.svg",
+          "name" : "Canopy Icon 2",
           "position" : {
             "scale" : 2,
             "translation-in-points" : [
