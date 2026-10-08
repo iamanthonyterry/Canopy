@@ -57,6 +57,33 @@ final class ClipMetadataStore: ObservableObject {
         store(metadata, for: node.id)
     }
 
+    func markers(for nodeID: String) -> [ClipMarker] {
+        (entries[nodeID]?.markers ?? []).sorted { $0.time < $1.time }
+    }
+
+    func addMarker(at time: Double, node: FileNode, device: DeviceSource) {
+        var metadata = snapshot(for: node, device: device)
+        let label = "Marker \(metadata.markers.count + 1)"
+        metadata.markers.append(ClipMarker(time: time, label: label))
+        metadata.updatedAt = Date()
+        store(metadata, for: node.id)
+    }
+
+    func renameMarker(_ markerID: UUID, to label: String, nodeID: String) {
+        guard var metadata = entries[nodeID],
+              let i = metadata.markers.firstIndex(where: { $0.id == markerID }) else { return }
+        metadata.markers[i].label = label
+        metadata.updatedAt = Date()
+        store(metadata, for: nodeID)
+    }
+
+    func removeMarker(_ markerID: UUID, nodeID: String) {
+        guard var metadata = entries[nodeID] else { return }
+        metadata.markers.removeAll { $0.id == markerID }
+        metadata.updatedAt = Date()
+        store(metadata, for: nodeID)
+    }
+
     /// Id-only variants for callers (the Starred view) that already have an
     /// existing entry in hand and don't necessarily have a live `FileNode`/
     /// `DeviceSource` to reconstruct one from — e.g. a clip whose device was

@@ -109,6 +109,15 @@ struct ImagePreviewSheet: View {
             .clipped()
         }
         .clipNavigationShortcuts(onNavigate)
+        .background {
+            HStack {
+                Button("Reset Zoom") { withAnimation(.easeOut(duration: 0.2)) { resetZoom() } }
+                    .keyboardShortcut("0", modifiers: [])
+                Button("Zoom In") { zoom(by: 1.25) }.keyboardShortcut("=", modifiers: [])
+                Button("Zoom Out") { zoom(by: 0.8) }.keyboardShortcut("-", modifiers: [])
+            }
+            .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
+        }
         .frame(minWidth: 680, minHeight: 460)
         .background(Color.canopyPaper)
         .task { await load() }
@@ -164,6 +173,14 @@ struct ImagePreviewSheet: View {
             case .diskFull:
                 saveError = "The destination drive is full. Free up space and try again."
             }
+        }
+    }
+
+    private func zoom(by factor: CGFloat) {
+        withAnimation(.easeOut(duration: 0.15)) {
+            scale = min(max(scale * factor, 1), 8)
+            lastScale = scale
+            if scale == 1 { offset = .zero; lastOffset = .zero }
         }
     }
 

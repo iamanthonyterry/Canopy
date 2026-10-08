@@ -50,6 +50,14 @@ struct VideoPlayerSheet: View {
     @State private var isScrubbing = false
     @State private var wasPlayingBeforeScrub = false
 
+    // Pro transport state
+    @State private var fps: Double = 24
+    @State private var shuttleRate: Float = 0
+    @State private var showMarkers = false
+    @ObservedObject private var clipStore = ClipMetadataStore.shared
+
+    private var markers: [ClipMarker] { clipStore.markers(for: node.id) }
+
     var body: some View {
         VStack(spacing: 0) {
             // MARK: Header
@@ -98,6 +106,17 @@ struct VideoPlayerSheet: View {
         }
         .frame(minWidth: 680, minHeight: 460)
         .clipNavigationShortcuts(onNavigate)
+        .playerShortcuts(PlayerShortcutActions(
+            togglePlayback: { togglePlayback() },
+            shuttleReverse: { shuttle(direction: -1) },
+            pause: { stopShuttle() },
+            shuttleForward: { shuttle(direction: 1) },
+            stepFrame: { stepFrames($0) },
+            setIn: { setInPoint() },
+            setOut: { setOutPoint() },
+            clearRange: { inPoint = 0; outPoint = duration },
+            addMarker: { addMarker() }
+        ))
         .background(Color.canopyPaper)
         .task { await load() }
         .onDisappear { cleanUp() }
@@ -146,33 +165,37 @@ struct VideoPlayerSheet: View {
         VStack(spacing: 10) {
             if duration > 0 {
                 HStack(spacing: 10) {
-                    Text(timeString(currentTime))
+                    Text(Timecode.string(seconds: currentTime, fps: fps))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.white.opacity(0.85))
-                        .frame(width: 52, alignment: .leading)
+                        .frame(width: 84, alignment: .leading)
 
                     PlaybackTimelineView(
                         duration: duration,
                         currentTime: $currentTime,
                         inPoint: $inPoint,
                         outPoint: $outPoint,
+                        markers: markers,
+                        onMarkerTap: { scrub(to: $0.time) },
                         onScrubBegan: beginScrub,
                         onScrubChanged: scrub,
                         onScrubEnded: endScrub
                     )
                     .frame(height: 24)
 
-                    Text(timeString(duration))
+                    Text(Timecode.string(seconds: duration, fps: fps))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.white.opacity(0.85))
-                        .frame(width: 52, alignment: .trailing)
+                        .frame(width: 84, alignment: .trailing)
                 }
             }
 
             HStack(spacing: 20) {
-                playerIconButton("arrow.right.to.line", help: "Set In Point to current playhead") {
-                    inPoint = min(currentTime, max(0, outPoint - 0.05))
+                playerIconButton("arrow.right.to.line", help: "Set In Point (I)") {
+                    setInPoint()
                 }
+
+                playerIconButton("backward.frame.fill", help: "Previous Frame (,)") { stepFrames(-1) }
 
                 Spacer()
 
@@ -182,9 +205,16 @@ struct VideoPlayerSheet: View {
 
                 Spacer()
 
-                playerIconButton("arrow.left.to.line", help: "Set Out Point to current playhead") {
-                    outPoint = max(currentTime, min(duration, inPoint + 0.05))
+                playerIconButton("forward.frame.fill", help: "Next Frame (.)") { stepFrames(1) }
+
+                playerIconButton("arrow.left.to.line", help: "Set Out Point (O)") {
+                    setOutPoint()
                 }
+
+                playerIconButton("mappin.and.ellipse", help: "Markers (M adds one)") {
+                    showMarkers.toggle()
+                }
+                .popover(isPresented: $showMarkers, arrowEdge: .top) { markersPopover }
 
                 if duration > 0 {
                     Text("Clip \(timeString(max(0, outPoint - inPoint)))")
@@ -254,16 +284,95 @@ struct VideoPlayerSheet: View {
         .help(help)
     }
 
+    // MARK: - Markers
+
+    private var markersPopover: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if markers.isEmpty {
+                Text("No markers yet. Press M to drop one at the playhead.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 240, alignment: .leading)
+            } else {
+                ForEach(markers) { marker in
+                    HStack(spacing: 8) {
+                        Button(Timecode.string(seconds: marker.time, fps: fps)) {
+                            scrub(to: marker.time)
+                        }
+                        .buttonStyle(.link)
+                        .font(.caption.monospacedDigit())
+                        TextField("Label", text: Binding(
+                            get: { marker.label },
+                            set: { clipStore.renameMarker(marker.id, to: $0, nodeID: node.id) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 140)
+                        Button {
+                            clipStore.removeMarker(marker.id, nodeID: node.id)
+                        } label: { Image(systemName: "trash") }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+        }
+        .padding(12)
+    }
+
+    private func addMarker() {
+        guard duration > 0 else { return }
+        clipStore.addMarker(at: currentTime, node: node, device: device)
+    }
+
     // MARK: - Transport
 
     private func togglePlayback() {
         guard let player else { return }
+        shuttleRate = 0
         if isPlaying {
             player.pause()
         } else {
-            player.play()
+            player.rate = 1
         }
         isPlaying.toggle()
+    }
+
+    /// J / L: each press in the same direction steps the speed up
+    /// (1× → 2× → 4×); pressing the opposite direction while moving the
+    /// other way slows or reverses, like a conventional NLE.
+    private func shuttle(direction: Float) {
+        guard let player else { return }
+        let speeds: [Float] = [1, 2, 4]
+        if shuttleRate * direction > 0 {
+            let current = abs(shuttleRate)
+            let next = speeds.first { $0 > current } ?? speeds.last!
+            shuttleRate = next * direction
+        } else {
+            shuttleRate = direction
+        }
+        player.rate = shuttleRate
+        isPlaying = true
+    }
+
+    /// K: stop and drop out of shuttle.
+    private func stopShuttle() {
+        shuttleRate = 0
+        player?.pause()
+        isPlaying = false
+    }
+
+    private func stepFrames(_ count: Int) {
+        guard let player, let item = player.currentItem else { return }
+        if isPlaying { stopShuttle() }
+        item.step(byCount: count)
+        let t = item.currentTime().seconds
+        if t.isFinite { currentTime = min(max(0, t), duration) }
+    }
+
+    private func setInPoint() {
+        inPoint = min(currentTime, max(0, outPoint - 0.05))
+    }
+
+    private func setOutPoint() {
+        outPoint = max(currentTime, min(duration, inPoint + 0.05))
     }
 
     private func beginScrub() {
@@ -400,6 +509,10 @@ struct VideoPlayerSheet: View {
         guard let seconds = try? await item.asset.load(.duration).seconds, seconds.isFinite, seconds > 0 else { return }
         duration = seconds
         if outPoint == 0 { outPoint = seconds }
+        if let track = try? await item.asset.loadTracks(withMediaType: .video).first,
+           let rate = try? await track.load(.nominalFrameRate), rate > 0 {
+            fps = Double(rate)
+        }
     }
 
     // MARK: - Export
@@ -517,6 +630,8 @@ private struct PlaybackTimelineView: View {
     @Binding var currentTime: Double
     @Binding var inPoint: Double
     @Binding var outPoint: Double
+    var markers: [ClipMarker] = []
+    var onMarkerTap: (ClipMarker) -> Void = { _ in }
     let onScrubBegan: () -> Void
     let onScrubChanged: (Double) -> Void
     let onScrubEnded: () -> Void
@@ -545,6 +660,18 @@ private struct PlaybackTimelineView: View {
                     .contentShape(Rectangle())
                     .frame(height: geo.size.height)
                     .gesture(scrubGesture(width: width))
+
+                ForEach(markers) { marker in
+                    Image(systemName: "triangle.fill")
+                        .font(.system(size: 7))
+                        .foregroundStyle(Color.canopySage)
+                        .rotationEffect(.degrees(180))
+                        .frame(width: 14, height: 14)
+                        .contentShape(Rectangle())
+                        .help(marker.label)
+                        .offset(x: position(for: marker.time, width: width) - 7, y: -11)
+                        .onTapGesture { onMarkerTap(marker) }
+                }
 
                 Circle()
                     .fill(Color.white)
