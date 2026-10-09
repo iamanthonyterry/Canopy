@@ -534,6 +534,8 @@ final class WorkflowEngine: ObservableObject {
             runRename(context: &context, pattern: pattern)
         case .transcribe(let locale, let writeSRT, let skipExisting):
             await runTranscribe(context: &context, locale: locale, writeSRT: writeSRT, skipExisting: skipExisting)
+        case .reframe(let format, let followSubject):
+            await runReframe(context: &context, format: format, followSubject: followSubject)
         case .format:
             await runFormat(context: &context)
         case .cleanup(let retentionDays):
@@ -1099,6 +1101,52 @@ final class WorkflowEngine: ObservableObject {
                 session.log("  📝 Transcript ready: \(transcript.segments.count) segment(s), \(transcript.fullText.split(separator: " ").count) word(s)")
             } catch {
                 session.log("  ❌ Transcribe failed for \(url.lastPathComponent): \(error.localizedDescription)")
+                session.errors += 1
+            }
+        }
+    }
+
+    // MARK: - Resize for Social step
+
+    /// Writes `<name>_<ratio>.mp4` into a `Reframed` folder. The working set
+    /// of files is left as it was, so later steps still see the originals
+    /// (or proxies) rather than the social crops.
+    private func runReframe(context: inout StepContext, format: SocialFormat, followSubject: Bool) async {
+        let session = context.session
+
+        var files = context.files
+        if files.isEmpty, context.device.hyperDeck == nil {
+            session.log("  📂 Scanning \(context.device.name) (\(context.destDir.path)) for clips...")
+            files = ((try? FileManager.default.contentsOfDirectory(at: context.destDir, includingPropertiesForKeys: nil)) ?? [])
+                .filter { ConversionService.canConvert(url: $0) }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        }
+        guard !files.isEmpty else {
+            session.log("  ⏭ Resize for Social: no video files found in \(context.device.name)")
+            return
+        }
+
+        let outDir = context.destDir.appendingPathComponent("Reframed")
+        for url in files {
+            if session.isCancelled { return }
+            let output = outDir.appendingPathComponent(
+                (url.lastPathComponent as NSString).deletingPathExtension + "_\(format.fileSuffix).mp4"
+            )
+            if FileManager.default.fileExists(atPath: output.path) {
+                session.log("  ⏭ \(output.lastPathComponent) already exists")
+                continue
+            }
+            session.log("  📐 Resizing \(url.lastPathComponent) to \(format.title) (\(context.device.name))...")
+            do {
+                try await ReframeService.reframe(input: url, output: output, format: format, followSubject: followSubject)
+                session.log("  ✅ Resized → Reframed/\(output.lastPathComponent)")
+            } catch ReframeError.diskFull {
+                session.log("  🛑 Destination drive is full — stopping (\(url.lastPathComponent), \(context.device.name))")
+                session.errors += 1
+                session.isCancelled = true
+                return
+            } catch {
+                session.log("  ❌ Resize failed for \(url.lastPathComponent): \(error.localizedDescription)")
                 session.errors += 1
             }
         }

@@ -19,7 +19,7 @@ enum DeckCommand: String, Codable, CaseIterable, Identifiable {
 // MARK: - Step Kind
 // The catalog of step types users can drag into a workflow.
 enum StepKind: String, Codable, CaseIterable, Identifiable {
-    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, format, cleanup, notify, triggerWorkflow
+    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, reframe, format, cleanup, notify, triggerWorkflow
 
     var id: String { rawValue }
 
@@ -32,6 +32,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .convert:         return "Make Proxies"
         case .rename:          return "Rename"
         case .transcribe:      return "Transcribe"
+        case .reframe:         return "Resize for Social"
         case .format:          return "Format Drive"
         case .cleanup:         return "Cleanup"
         case .notify:          return "Notification"
@@ -48,6 +49,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .convert:         return "Transcode clips to MP4 proxies"
         case .rename:          return "Rename files using a pattern"
         case .transcribe:      return "Generate a timed transcript for each clip, on this Mac"
+        case .reframe:         return "Crop clips to a social media size, keeping the main subject in frame"
         case .format:          return "Permanently erase the device's drive"
         case .cleanup:         return "Delete files older than N days in the destination folder"
         case .notify:          return "Send an email"
@@ -64,6 +66,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .convert:         return "film.stack"
         case .rename:          return "textformat"
         case .transcribe:      return "text.bubble"
+        case .reframe:         return "rectangle.portrait.crop"
         case .format:          return "externaldrive.badge.xmark"
         case .cleanup:         return "trash"
         case .notify:          return "envelope"
@@ -80,6 +83,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .convert:         return .orange
         case .rename:          return .purple
         case .transcribe:      return .pink
+        case .reframe:         return .green
         case .format:          return .red
         case .cleanup:         return .gray
         case .notify:          return .teal
@@ -142,6 +146,55 @@ enum FolderNameEngine {
     }
 }
 
+// MARK: - Social Format
+/// Target frame shapes for the Resize for Social step. All are 1080 px on the
+/// short side, which is what Instagram, TikTok, YouTube Shorts and Facebook
+/// recommend.
+nonisolated enum SocialFormat: String, Codable, CaseIterable, Identifiable {
+    case vertical, portrait, square, landscape
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .vertical:  return "Vertical 9:16"
+        case .portrait:  return "Portrait 4:5"
+        case .square:    return "Square 1:1"
+        case .landscape: return "Landscape 16:9"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .vertical:  return "Reels, TikTok, Shorts, Stories"
+        case .portrait:  return "Instagram and Facebook feed"
+        case .square:    return "Feed posts everywhere"
+        case .landscape: return "YouTube, X, LinkedIn"
+        }
+    }
+
+    var outputSize: CGSize {
+        switch self {
+        case .vertical:  return CGSize(width: 1080, height: 1920)
+        case .portrait:  return CGSize(width: 1080, height: 1350)
+        case .square:    return CGSize(width: 1080, height: 1080)
+        case .landscape: return CGSize(width: 1920, height: 1080)
+        }
+    }
+
+    var aspectRatio: CGFloat { outputSize.width / outputSize.height }
+
+    /// Appended to the clip's name: `A001.mov` → `A001_9x16.mp4`.
+    var fileSuffix: String {
+        switch self {
+        case .vertical:  return "9x16"
+        case .portrait:  return "4x5"
+        case .square:    return "1x1"
+        case .landscape: return "16x9"
+        }
+    }
+}
+
 // MARK: - Step Action
 // Each case carries only the configuration that step needs.
 enum StepAction: Hashable {
@@ -162,6 +215,10 @@ enum StepAction: Hashable {
     /// Writes a `.transcript.json` sidecar (and optionally an `.srt`) next to
     /// each clip. `skipExisting` leaves clips that already have a transcript alone.
     case transcribe(locale: String, writeSRT: Bool, skipExisting: Bool)
+    /// Writes a cropped MP4 per clip into a `Reframed` folder. With
+    /// `followSubject` the crop window tracks people (or the most salient
+    /// object) through the shot; otherwise it stays centered.
+    case reframe(format: SocialFormat, followSubject: Bool)
     case format
     case cleanup(retentionDays: Int)
     case notify(header: String, message: String, recipients: [NotificationRecipient], sendPerDrive: Bool)
@@ -176,6 +233,7 @@ enum StepAction: Hashable {
         case .convert:         return .convert
         case .rename:          return .rename
         case .transcribe:      return .transcribe
+        case .reframe:         return .reframe
         case .format:          return .format
         case .cleanup:         return .cleanup
         case .notify:          return .notify
@@ -192,6 +250,7 @@ enum StepAction: Hashable {
         case .convert:         return .convert(preset: .fast, deleteOriginal: true, maxParallelJobs: 2, convertInPlace: false)
         case .rename:          return .rename(pattern: "{device}_{date}_{index}")
         case .transcribe:      return .transcribe(locale: Locale.current.identifier, writeSRT: true, skipExisting: true)
+        case .reframe:         return .reframe(format: .vertical, followSubject: true)
         case .format:          return .format
         case .cleanup:         return .cleanup(retentionDays: 30)
         case .notify:          return .notify(header: "Workflow update", message: "", recipients: [], sendPerDrive: true)
@@ -249,6 +308,8 @@ enum StepAction: Hashable {
             return "Pattern: \(pattern)"
         case .transcribe(_, let writeSRT, let skipExisting):
             return "Transcribes on-device" + (writeSRT ? " · also writes .srt" : "") + (skipExisting ? " · skips clips already done" : "")
+        case .reframe(let format, let followSubject):
+            return "\(format.title) · \(format.detail)" + (followSubject ? " · follows the subject" : " · centered crop")
         case .format:
             return "Erases the device's drive — cannot be undone"
         case .cleanup(let days):
@@ -269,7 +330,7 @@ enum StepAction: Hashable {
 // MARK: - StepAction Codable Implementation
 extension StepAction: Codable {
     enum CodingKeys: String, CodingKey {
-        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, format, cleanup, notify, triggerWorkflow
+        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, reframe, format, cleanup, notify, triggerWorkflow
     }
 
     enum ControlDeckKeys: String, CodingKey {
@@ -307,6 +368,10 @@ extension StepAction: Codable {
 
     enum TranscribeKeys: String, CodingKey {
         case locale, writeSRT, skipExisting
+    }
+
+    enum ReframeKeys: String, CodingKey {
+        case format, followSubject
     }
 
     enum CleanupKeys: String, CodingKey {
@@ -383,6 +448,11 @@ extension StepAction: Codable {
             let writeSRT = try nested.decodeIfPresent(Bool.self, forKey: .writeSRT) ?? true
             let skipExisting = try nested.decodeIfPresent(Bool.self, forKey: .skipExisting) ?? true
             self = .transcribe(locale: locale, writeSRT: writeSRT, skipExisting: skipExisting)
+        } else if container.contains(.reframe) {
+            let nested = try container.nestedContainer(keyedBy: ReframeKeys.self, forKey: .reframe)
+            let format = try nested.decodeIfPresent(SocialFormat.self, forKey: .format) ?? .vertical
+            let followSubject = try nested.decodeIfPresent(Bool.self, forKey: .followSubject) ?? true
+            self = .reframe(format: format, followSubject: followSubject)
         } else if container.contains(.format) {
             self = .format
         } else if container.contains(.cleanup) {
@@ -440,6 +510,10 @@ extension StepAction: Codable {
             try nested.encode(locale, forKey: .locale)
             try nested.encode(writeSRT, forKey: .writeSRT)
             try nested.encode(skipExisting, forKey: .skipExisting)
+        case .reframe(let format, let followSubject):
+            var nested = container.nestedContainer(keyedBy: ReframeKeys.self, forKey: .reframe)
+            try nested.encode(format, forKey: .format)
+            try nested.encode(followSubject, forKey: .followSubject)
         case .format:
             _ = container.nestedContainer(keyedBy: DummyKeys.self, forKey: .format)
         case .cleanup(let days):

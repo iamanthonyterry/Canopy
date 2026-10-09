@@ -35,6 +35,8 @@ struct WorkflowStepConfigSheet: View {
     @State private var transcribeLocale = Locale.current.identifier
     @State private var transcribeWriteSRT = true
     @State private var transcribeSkipExisting = true
+    @State private var reframeFormat = SocialFormat.vertical
+    @State private var reframeFollowSubject = true
     @State private var controlCommand: DeckCommand = .start
     @State private var stopRecordingAutomatically = false
     @State private var stopAfterMinutes = 5
@@ -98,6 +100,9 @@ struct WorkflowStepConfigSheet: View {
 
                 case .transcribe:
                     transcribeFields
+
+                case .reframe:
+                    reframeFields
 
                 case .format:
                     Label("This step erases the device's drive. All footage still on it will be permanently deleted — this cannot be undone.", systemImage: "exclamationmark.triangle.fill")
@@ -522,6 +527,19 @@ struct WorkflowStepConfigSheet: View {
         }
     }
 
+    private var reframeFields: some View {
+        Group {
+            Picker("Format", selection: $reframeFormat) {
+                ForEach(SocialFormat.allCases) { format in
+                    Text("\(format.title) — \(format.detail)").tag(format)
+                }
+            }
+            Toggle("Keep the main subject in frame", isOn: $reframeFollowSubject)
+            Text("Saves a cropped MP4 for each clip in a Reframed folder; the originals are untouched. The crop follows people in the shot, or whatever else stands out, and holds steady when they do. Turn this off for a plain centered crop.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     /// Common languages plus whatever is currently selected, so a saved
     /// choice never disappears from the picker.
     private var transcribeLocaleChoices: [String] {
@@ -750,6 +768,8 @@ struct WorkflowStepConfigSheet: View {
             pattern = pat
         case .transcribe(let locale, let writeSRT, let skipExisting):
             transcribeLocale = locale; transcribeWriteSRT = writeSRT; transcribeSkipExisting = skipExisting
+        case .reframe(let format, let followSubject):
+            reframeFormat = format; reframeFollowSubject = followSubject
         case .cleanup(let days):
             retentionDays = days
         case .notify(let header, let message, let recipients, let sendPerDrive):
@@ -793,6 +813,7 @@ struct WorkflowStepConfigSheet: View {
         case .convert: step.action = .convert(preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs, convertInPlace: convertInPlace)
         case .rename:  step.action = .rename(pattern: pattern.isEmpty ? "{name}" : pattern)
         case .transcribe: step.action = .transcribe(locale: transcribeLocale, writeSRT: transcribeWriteSRT, skipExisting: transcribeSkipExisting)
+        case .reframe: step.action = .reframe(format: reframeFormat, followSubject: reframeFollowSubject)
         case .format:  step.action = .format
         case .cleanup: step.action = .cleanup(retentionDays: retentionDays)
         case .notify:
