@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import Vision
 import CoreImage
+import QuartzCore
 
 enum ReframeError: LocalizedError {
     case noVideoTrack
@@ -140,6 +141,10 @@ nonisolated enum ReframeService {
         output: URL,
         format: SocialFormat,
         followSubject: Bool,
+        /// Only this part of `input` is exported (nil = the whole file).
+        range: CMTimeRange? = nil,
+        /// Burned into the picture; times are relative to the start of the export.
+        captions: [CaptionCue] = [],
         detector: @escaping @Sendable (CGImage) -> CGPoint? = ReframeService.subjectCenter
     ) async throws {
         let outDir = output.deletingLastPathComponent()
@@ -151,15 +156,36 @@ nonisolated enum ReframeService {
             throw ReframeError.diskFull
         }
 
-        let asset = AVURLAsset(url: input)
-        guard try await asset.load(.isReadable) else { throw ReframeError.unreadable }
-        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+        let source = AVURLAsset(url: input)
+        guard try await source.load(.isReadable) else { throw ReframeError.unreadable }
+        guard let sourceTrack = try await source.loadTracks(withMediaType: .video).first else {
             throw ReframeError.noVideoTrack
         }
-        let (naturalSize, preferredTransform, frameRate) = try await track.load(
+        let (naturalSize, preferredTransform, frameRate) = try await sourceTrack.load(
             .naturalSize, .preferredTransform, .nominalFrameRate
         )
-        let duration = try await asset.load(.duration)
+
+        // For a sub-range, work on a composition holding just that stretch,
+        // so everything below (sampling, camera path, captions) runs on a
+        // timeline that starts at zero.
+        var asset: AVAsset = source
+        var track = sourceTrack
+        var duration = try await source.load(.duration)
+        if let range {
+            let clip = AVMutableComposition()
+            guard let video = clip.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                throw ReframeError.exportFailed("couldn't build the clip")
+            }
+            try video.insertTimeRange(range, of: sourceTrack, at: .zero)
+            video.preferredTransform = preferredTransform
+            for audio in try await source.loadTracks(withMediaType: .audio) {
+                let target = clip.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+                try? target?.insertTimeRange(range, of: audio, at: .zero)
+            }
+            asset = clip
+            track = video
+            duration = range.duration
+        }
 
         // Work in the upright (rotation-applied) frame, so phone footage
         // shot in portrait is handled the same as anything else.
@@ -213,6 +239,18 @@ nonisolated enum ReframeService {
         composition.renderSize = outputSize
         composition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(frameRate > 0 ? min(frameRate, 60).rounded() : 30))
         composition.instructions = [instruction]
+
+        if !captions.isEmpty {
+            let parent = CALayer()
+            parent.frame = CGRect(origin: .zero, size: outputSize)
+            let videoLayer = CALayer()
+            videoLayer.frame = parent.frame
+            parent.addSublayer(videoLayer)
+            for layer in CaptionLayers.layers(for: captions, canvas: outputSize) { parent.addSublayer(layer) }
+            composition.animationTool = AVVideoCompositionCoreAnimationTool(
+                postProcessingAsVideoLayer: videoLayer, in: parent
+            )
+        }
 
         guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
             throw ReframeError.exportFailed("no export session")
