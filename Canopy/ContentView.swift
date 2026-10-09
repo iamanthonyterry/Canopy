@@ -72,6 +72,7 @@ struct ContentView: View {
                 Rectangle().fill(Color.canopyRule).frame(height: 1)
                 HStack(spacing: 0) {
                     roleSwitcher
+                    Spacer(minLength: 0)
                     if appState.isAdmin {
                         bottomIconButton(.history, help: "History")
                         bottomIconButton(.settings, help: "Settings")
@@ -80,6 +81,7 @@ struct ContentView: View {
                 }
             }
             .background(Color.canopyPaper)
+            .overlay(Rectangle().strokeBorder(Color.canopyRule, lineWidth: 1))
         } detail: {
             VStack(spacing: 0) {
                 WorkflowConfirmationBanner()
