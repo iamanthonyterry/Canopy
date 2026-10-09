@@ -20,6 +20,7 @@ final class ClipSuggestionsModel: ObservableObject {
     @Published var candidates: [ClipCandidate] = []
     @Published var selected: Set<UUID> = []
     @Published var status: Status = .idle
+    @Published var postOptions = SocialPostExporter.Options()
 
     var isBusy: Bool {
         switch status {
@@ -114,12 +115,42 @@ final class ClipSuggestionsModel: ObservableObject {
         }
     }
 
-    static func slug(_ title: String) -> String {
-        let allowed = CharacterSet.alphanumerics
-        let words = title.unicodeScalars.map { allowed.contains($0) ? Character($0) : " " }
-        let joined = String(words).split(separator: " ").prefix(6).joined(separator: "-")
-        return joined.isEmpty ? "clip" : joined
+    /// Renders each ticked clip as a finished post (cropped to the chosen
+    /// format, optionally captioned) into `folder`.
+    func exportPosts(from source: URL, to folder: URL) {
+        let chosen = candidates.filter { selected.contains($0.id) }.sorted { $0.start < $1.start }
+        guard !chosen.isEmpty else { return }
+        let base = source.deletingPathExtension().lastPathComponent
+        let options = postOptions
+        let transcript = Transcript.load(for: source)
+
+        status = .exporting(done: 0, total: chosen.count)
+        task = Task {
+            var failures = 0
+            var firstError: String?
+            for (i, clip) in chosen.enumerated() {
+                if Task.isCancelled { break }
+                let output = folder.appendingPathComponent(
+                    SocialPostExporter.fileName(base: base, index: i + 1, title: clip.title, format: options.format)
+                )
+                do {
+                    try await SocialPostExporter.export(source: source, clip: clip, transcript: transcript, options: options, output: output)
+                } catch {
+                    failures += 1
+                    firstError = firstError ?? error.localizedDescription
+                }
+                status = .exporting(done: i + 1, total: chosen.count)
+            }
+            if failures > 0 {
+                status = .failed("\(failures) post\(failures == 1 ? "" : "s") couldn't be rendered: \(firstError ?? "unknown error")")
+            } else {
+                status = .idle
+                onExported(folder)
+            }
+        }
     }
+
+    static func slug(_ title: String) -> String { SocialPostExporter.slug(title) }
 }
 
 // MARK: - View
@@ -216,12 +247,32 @@ struct ClipSuggestionsPopover: View {
     }
 
     private var footer: some View {
-        HStack {
-            Text("\(model.selected.count) selected").font(.caption).foregroundStyle(.secondary)
-            Spacer()
-            Button("Export Selected…") { chooseFolderAndExport() }
-                .buttonStyle(.borderedProminent)
-                .disabled(model.selected.isEmpty || model.isBusy || sourceURL == nil)
+        VStack(alignment: .leading, spacing: 10) {
+            Divider()
+            HStack {
+                Picker("Format", selection: $model.postOptions.format) {
+                    ForEach(SocialFormat.allCases) { format in
+                        Text(format.title).tag(format)
+                    }
+                }
+                .pickerStyle(.menu)
+                Toggle("Captions", isOn: $model.postOptions.captions)
+                Toggle("Follow subject", isOn: $model.postOptions.followSubject)
+            }
+            .toggleStyle(.checkbox)
+            .font(.callout)
+
+            HStack {
+                Text("\(model.selected.count) selected").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Export Clips…") { chooseFolder { model.exportSelected(from: $0, to: $1) } }
+                    .disabled(model.selected.isEmpty || model.isBusy || sourceURL == nil)
+                    .help("Plain trimmed copies, same shape as the original")
+                Button("Export Posts…") { chooseFolder { model.exportPosts(from: $0, to: $1) } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.selected.isEmpty || model.isBusy || sourceURL == nil)
+                    .help("Cropped to the chosen format with captions burned in")
+            }
         }
     }
 
@@ -232,17 +283,17 @@ struct ClipSuggestionsPopover: View {
         }
     }
 
-    private func chooseFolderAndExport() {
+    private func chooseFolder(_ export: (URL, URL) -> Void) {
         guard let sourceURL else { return }
         let panel = NSOpenPanel()
-        panel.title = "Export Selected Clips"
+        panel.title = "Choose a Folder for the Exported Clips"
         panel.prompt = "Export Here"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.directoryURL = sourceURL.deletingLastPathComponent()
         guard panel.runModal() == .OK, let folder = panel.url else { return }
-        model.exportSelected(from: sourceURL, to: folder)
+        export(sourceURL, folder)
     }
 
     static func time(_ seconds: TimeInterval) -> String {
