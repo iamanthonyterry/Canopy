@@ -19,7 +19,7 @@ enum DeckCommand: String, Codable, CaseIterable, Identifiable {
 // MARK: - Step Kind
 // The catalog of step types users can drag into a workflow.
 enum StepKind: String, Codable, CaseIterable, Identifiable {
-    case controlDeck, wait, createFolder, sync, convert, rename, format, cleanup, notify, triggerWorkflow
+    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, format, cleanup, notify, triggerWorkflow
 
     var id: String { rawValue }
 
@@ -31,6 +31,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .sync:            return "Offload"
         case .convert:         return "Make Proxies"
         case .rename:          return "Rename"
+        case .transcribe:      return "Transcribe"
         case .format:          return "Format Drive"
         case .cleanup:         return "Cleanup"
         case .notify:          return "Notification"
@@ -46,6 +47,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .sync:            return "Offload new clips from the device, optionally verified"
         case .convert:         return "Transcode clips to MP4 proxies"
         case .rename:          return "Rename files using a pattern"
+        case .transcribe:      return "Generate a timed transcript for each clip, on this Mac"
         case .format:          return "Permanently erase the device's drive"
         case .cleanup:         return "Delete files older than N days in the destination folder"
         case .notify:          return "Send an email"
@@ -61,6 +63,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .sync:            return "arrow.down.circle"
         case .convert:         return "film.stack"
         case .rename:          return "textformat"
+        case .transcribe:      return "text.bubble"
         case .format:          return "externaldrive.badge.xmark"
         case .cleanup:         return "trash"
         case .notify:          return "envelope"
@@ -76,6 +79,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .sync:            return .blue
         case .convert:         return .orange
         case .rename:          return .purple
+        case .transcribe:      return .pink
         case .format:          return .red
         case .cleanup:         return .gray
         case .notify:          return .teal
@@ -155,6 +159,9 @@ enum StepAction: Hashable {
     case sync(destination: SyncDestination, verify: Bool = false)
     case convert(preset: ConversionSettings.FFmpegPreset, deleteOriginal: Bool, maxParallelJobs: Int, convertInPlace: Bool = false)
     case rename(pattern: String)
+    /// Writes a `.transcript.json` sidecar (and optionally an `.srt`) next to
+    /// each clip. `skipExisting` leaves clips that already have a transcript alone.
+    case transcribe(locale: String, writeSRT: Bool, skipExisting: Bool)
     case format
     case cleanup(retentionDays: Int)
     case notify(header: String, message: String, recipients: [NotificationRecipient], sendPerDrive: Bool)
@@ -168,6 +175,7 @@ enum StepAction: Hashable {
         case .sync:            return .sync
         case .convert:         return .convert
         case .rename:          return .rename
+        case .transcribe:      return .transcribe
         case .format:          return .format
         case .cleanup:         return .cleanup
         case .notify:          return .notify
@@ -183,6 +191,7 @@ enum StepAction: Hashable {
         case .sync:            return .sync(destination: .global, verify: false)
         case .convert:         return .convert(preset: .fast, deleteOriginal: true, maxParallelJobs: 2, convertInPlace: false)
         case .rename:          return .rename(pattern: "{device}_{date}_{index}")
+        case .transcribe:      return .transcribe(locale: Locale.current.identifier, writeSRT: true, skipExisting: true)
         case .format:          return .format
         case .cleanup:         return .cleanup(retentionDays: 30)
         case .notify:          return .notify(header: "Workflow update", message: "", recipients: [], sendPerDrive: true)
@@ -238,6 +247,8 @@ enum StepAction: Hashable {
             return "\(preset.displayName) preset" + (deleteOriginal ? " · deletes original" : " · keeps original") + " · \(maxParallelJobs) parallel" + (convertInPlace ? " · converts in place" : " · saves to a Converted folder")
         case .rename(let pattern):
             return "Pattern: \(pattern)"
+        case .transcribe(_, let writeSRT, let skipExisting):
+            return "Transcribes on-device" + (writeSRT ? " · also writes .srt" : "") + (skipExisting ? " · skips clips already done" : "")
         case .format:
             return "Erases the device's drive — cannot be undone"
         case .cleanup(let days):
@@ -258,7 +269,7 @@ enum StepAction: Hashable {
 // MARK: - StepAction Codable Implementation
 extension StepAction: Codable {
     enum CodingKeys: String, CodingKey {
-        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, format, cleanup, notify, triggerWorkflow
+        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, format, cleanup, notify, triggerWorkflow
     }
 
     enum ControlDeckKeys: String, CodingKey {
@@ -292,6 +303,10 @@ extension StepAction: Codable {
 
     enum RenameKeys: String, CodingKey {
         case pattern
+    }
+
+    enum TranscribeKeys: String, CodingKey {
+        case locale, writeSRT, skipExisting
     }
 
     enum CleanupKeys: String, CodingKey {
@@ -362,6 +377,12 @@ extension StepAction: Codable {
             let nested = try container.nestedContainer(keyedBy: RenameKeys.self, forKey: .rename)
             let pattern = try nested.decode(String.self, forKey: .pattern)
             self = .rename(pattern: pattern)
+        } else if container.contains(.transcribe) {
+            let nested = try container.nestedContainer(keyedBy: TranscribeKeys.self, forKey: .transcribe)
+            let locale = try nested.decodeIfPresent(String.self, forKey: .locale) ?? Locale.current.identifier
+            let writeSRT = try nested.decodeIfPresent(Bool.self, forKey: .writeSRT) ?? true
+            let skipExisting = try nested.decodeIfPresent(Bool.self, forKey: .skipExisting) ?? true
+            self = .transcribe(locale: locale, writeSRT: writeSRT, skipExisting: skipExisting)
         } else if container.contains(.format) {
             self = .format
         } else if container.contains(.cleanup) {
@@ -414,6 +435,11 @@ extension StepAction: Codable {
         case .rename(let pattern):
             var nested = container.nestedContainer(keyedBy: RenameKeys.self, forKey: .rename)
             try nested.encode(pattern, forKey: .pattern)
+        case .transcribe(let locale, let writeSRT, let skipExisting):
+            var nested = container.nestedContainer(keyedBy: TranscribeKeys.self, forKey: .transcribe)
+            try nested.encode(locale, forKey: .locale)
+            try nested.encode(writeSRT, forKey: .writeSRT)
+            try nested.encode(skipExisting, forKey: .skipExisting)
         case .format:
             _ = container.nestedContainer(keyedBy: DummyKeys.self, forKey: .format)
         case .cleanup(let days):

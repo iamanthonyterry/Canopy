@@ -532,6 +532,8 @@ final class WorkflowEngine: ObservableObject {
             await runConvert(context: &context, preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs, convertInPlace: convertInPlace)
         case .rename(let pattern):
             runRename(context: &context, pattern: pattern)
+        case .transcribe(let locale, let writeSRT, let skipExisting):
+            await runTranscribe(context: &context, locale: locale, writeSRT: writeSRT, skipExisting: skipExisting)
         case .format:
             await runFormat(context: &context)
         case .cleanup(let retentionDays):
@@ -1060,6 +1062,46 @@ final class WorkflowEngine: ObservableObject {
         }
 
         context.files = renamed
+    }
+
+    // MARK: - Transcribe step
+
+    private func runTranscribe(context: inout StepContext, locale: String, writeSRT: Bool, skipExisting: Bool) async {
+        let session = context.session
+
+        // Nothing handed down from an earlier step (e.g. a workflow that is
+        // only Transcribe, pointed at a folder): scan the target folder
+        // itself. Not for a HyperDeck, whose destDir is only a placeholder
+        // until an Offload step runs.
+        var files = context.files
+        if files.isEmpty, context.device.hyperDeck == nil {
+            session.log("  📂 Scanning \(context.device.name) (\(context.destDir.path)) for clips...")
+            files = ((try? FileManager.default.contentsOfDirectory(at: context.destDir, includingPropertiesForKeys: nil)) ?? [])
+                .filter { ConversionService.canConvert(url: $0) }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        }
+        guard !files.isEmpty else {
+            session.log("  ⏭ Transcribe: no video files found in \(context.device.name)")
+            return
+        }
+
+        for url in files {
+            if session.isCancelled { return }
+            if skipExisting, Transcript.load(for: url) != nil {
+                session.log("  ⏭ \(url.lastPathComponent) already has a transcript")
+                continue
+            }
+            session.log("  🗣 Transcribing \(url.lastPathComponent) (\(context.device.name))...")
+            do {
+                let transcript = try await TranscriptionService.transcribe(video: url, localeID: locale)
+                try transcript.write(for: url)
+                if writeSRT { try transcript.writeSRT(for: url) }
+                session.log("  📝 Transcript ready: \(transcript.segments.count) segment(s), \(transcript.fullText.split(separator: " ").count) word(s)")
+            } catch {
+                session.log("  ❌ Transcribe failed for \(url.lastPathComponent): \(error.localizedDescription)")
+                session.errors += 1
+            }
+        }
     }
 
     // MARK: - Control HyperDeck step

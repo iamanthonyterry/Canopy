@@ -32,6 +32,9 @@ struct WorkflowStepConfigSheet: View {
     @State private var convertInPlace = false
     @State private var pattern = ""
     @State private var retentionDays = 30
+    @State private var transcribeLocale = Locale.current.identifier
+    @State private var transcribeWriteSRT = true
+    @State private var transcribeSkipExisting = true
     @State private var controlCommand: DeckCommand = .start
     @State private var stopRecordingAutomatically = false
     @State private var stopAfterMinutes = 5
@@ -92,6 +95,9 @@ struct WorkflowStepConfigSheet: View {
 
                 case .rename:
                     renameFields
+
+                case .transcribe:
+                    transcribeFields
 
                 case .format:
                     Label("This step erases the device's drive. All footage still on it will be permanently deleted — this cannot be undone.", systemImage: "exclamationmark.triangle.fill")
@@ -502,6 +508,28 @@ struct WorkflowStepConfigSheet: View {
         }
     }
 
+    private var transcribeFields: some View {
+        Group {
+            Picker("Language", selection: $transcribeLocale) {
+                ForEach(transcribeLocaleChoices, id: \.self) { id in
+                    Text(Locale.current.localizedString(forIdentifier: id) ?? id).tag(id)
+                }
+            }
+            Toggle("Also write an .srt subtitle file", isOn: $transcribeWriteSRT)
+            Toggle("Skip clips that already have a transcript", isOn: $transcribeSkipExisting)
+            Text("Runs entirely on this Mac. A .transcript.json file is saved next to each clip for later steps to use. The first run in a language downloads its speech model.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Common languages plus whatever is currently selected, so a saved
+    /// choice never disappears from the picker.
+    private var transcribeLocaleChoices: [String] {
+        var ids = ["en-US", "en-GB", "es-ES", "fr-FR", "de-DE", "it-IT", "pt-BR", "ja-JP", "ko-KR", "zh-CN"]
+        if !ids.contains(transcribeLocale) { ids.insert(transcribeLocale, at: 0) }
+        return ids
+    }
+
     private var availableWorkflows: [Workflow] {
         appState.workflows
             .filter { $0.id != excludingWorkflowID }
@@ -720,6 +748,8 @@ struct WorkflowStepConfigSheet: View {
             preset = p; deleteOriginal = del; maxParallelJobs = jobs; convertInPlace = inPlace
         case .rename(let pat):
             pattern = pat
+        case .transcribe(let locale, let writeSRT, let skipExisting):
+            transcribeLocale = locale; transcribeWriteSRT = writeSRT; transcribeSkipExisting = skipExisting
         case .cleanup(let days):
             retentionDays = days
         case .notify(let header, let message, let recipients, let sendPerDrive):
@@ -762,6 +792,7 @@ struct WorkflowStepConfigSheet: View {
             step.action = .sync(destination: destination, verify: syncVerify)
         case .convert: step.action = .convert(preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs, convertInPlace: convertInPlace)
         case .rename:  step.action = .rename(pattern: pattern.isEmpty ? "{name}" : pattern)
+        case .transcribe: step.action = .transcribe(locale: transcribeLocale, writeSRT: transcribeWriteSRT, skipExisting: transcribeSkipExisting)
         case .format:  step.action = .format
         case .cleanup: step.action = .cleanup(retentionDays: retentionDays)
         case .notify:
