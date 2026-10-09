@@ -534,8 +534,9 @@ final class WorkflowEngine: ObservableObject {
             runRename(context: &context, pattern: pattern)
         case .transcribe(let locale, let writeSRT, let skipExisting):
             await runTranscribe(context: &context, locale: locale, writeSRT: writeSRT, skipExisting: skipExisting)
-        case .findClips(let maxClips, let minSeconds, let maxSeconds):
-            await runFindClips(context: &context, maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds)
+        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions):
+            await runFindClips(context: &context, maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds,
+                               exportFormat: exportFormat, captions: captions)
         case .reframe(let format, let followSubject):
             await runReframe(context: &context, format: format, followSubject: followSubject)
         case .format:
@@ -1112,7 +1113,8 @@ final class WorkflowEngine: ObservableObject {
 
     /// Suggests short-form clips for each video and saves them next to it as
     /// `<name>.clips.json`. Transcribes first when there's no transcript yet.
-    private func runFindClips(context: inout StepContext, maxClips: Int, minSeconds: Int, maxSeconds: Int) async {
+    private func runFindClips(context: inout StepContext, maxClips: Int, minSeconds: Int, maxSeconds: Int,
+                              exportFormat: SocialFormat?, captions: Bool) async {
         let session = context.session
 
         var files = context.files
@@ -1134,28 +1136,60 @@ final class WorkflowEngine: ObservableObject {
 
         for url in files {
             if session.isCancelled { return }
-            if ClipSuggestions.load(for: url) != nil {
-                session.log("  ⏭ \(url.lastPathComponent) already has clip suggestions")
-                continue
-            }
             do {
                 var transcript = Transcript.load(for: url)
-                if transcript == nil {
-                    session.log("  🗣 Transcribing \(url.lastPathComponent) first (\(context.device.name))...")
-                    let made = try await TranscriptionService.transcribe(video: url, localeID: Locale.current.identifier)
-                    try made.write(for: url)
-                    transcript = made
+                var clips: [ClipCandidate]
+                if let saved = ClipSuggestions.load(for: url) {
+                    session.log("  ⏭ \(url.lastPathComponent) already has clip suggestions")
+                    clips = saved.candidates
+                } else {
+                    if transcript == nil {
+                        session.log("  🗣 Transcribing \(url.lastPathComponent) first (\(context.device.name))...")
+                        let made = try await TranscriptionService.transcribe(video: url, localeID: Locale.current.identifier)
+                        try made.write(for: url)
+                        transcript = made
+                    }
+                    guard let transcript, !transcript.segments.isEmpty else {
+                        session.log("  ⏭ \(url.lastPathComponent): no speech found")
+                        continue
+                    }
+                    session.log("  ✨ Finding clips in \(url.lastPathComponent) (\(context.device.name))...")
+                    clips = try await ClipFinder.findClips(in: transcript, options: options)
+                    try ClipSuggestions(sourceFileName: url.lastPathComponent, generatedAt: Date(), candidates: clips).write(for: url)
+                    session.log("  🎬 \(clips.count) clip suggestion(s) for \(url.lastPathComponent)")
+                    for clip in clips {
+                        session.log("     • \(clip.title) (\(Int(clip.duration))s)")
+                    }
                 }
-                guard let transcript, !transcript.segments.isEmpty else {
-                    session.log("  ⏭ \(url.lastPathComponent): no speech found")
-                    continue
-                }
-                session.log("  ✨ Finding clips in \(url.lastPathComponent) (\(context.device.name))...")
-                let clips = try await ClipFinder.findClips(in: transcript, options: options)
-                try ClipSuggestions(sourceFileName: url.lastPathComponent, generatedAt: Date(), candidates: clips).write(for: url)
-                session.log("  🎬 \(clips.count) clip suggestion(s) for \(url.lastPathComponent)")
-                for clip in clips {
-                    session.log("     • \(clip.title) (\(Int(clip.duration))s)")
+
+                guard let exportFormat, !clips.isEmpty else { continue }
+                let folder = url.deletingLastPathComponent().appendingPathComponent("Social Posts")
+                let base = url.deletingPathExtension().lastPathComponent
+                var postOptions = SocialPostExporter.Options()
+                postOptions.format = exportFormat
+                postOptions.captions = captions
+                for (i, clip) in clips.sorted(by: { $0.start < $1.start }).enumerated() {
+                    if session.isCancelled { return }
+                    let output = folder.appendingPathComponent(
+                        SocialPostExporter.fileName(base: base, index: i + 1, title: clip.title, format: exportFormat)
+                    )
+                    if FileManager.default.fileExists(atPath: output.path) {
+                        session.log("  ⏭ \(output.lastPathComponent) already exists")
+                        continue
+                    }
+                    session.log("  📱 Rendering \(output.lastPathComponent)...")
+                    do {
+                        try await SocialPostExporter.export(source: url, clip: clip, transcript: transcript, options: postOptions, output: output)
+                        session.log("  ✅ Social Posts/\(output.lastPathComponent)")
+                    } catch ReframeError.diskFull {
+                        session.log("  🛑 Destination drive is full — stopping (\(url.lastPathComponent), \(context.device.name))")
+                        session.errors += 1
+                        session.isCancelled = true
+                        return
+                    } catch {
+                        session.log("  ❌ Couldn't render \(output.lastPathComponent): \(error.localizedDescription)")
+                        session.errors += 1
+                    }
                 }
             } catch {
                 session.log("  ❌ Find Clips failed for \(url.lastPathComponent): \(error.localizedDescription)")

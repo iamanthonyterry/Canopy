@@ -221,7 +221,10 @@ enum StepAction: Hashable {
     case transcribe(locale: String, writeSRT: Bool, skipExisting: Bool)
     /// Suggests short-form clips from each video's transcript (transcribing
     /// first if needed) and saves them in a `.clips.json` sidecar.
-    case findClips(maxClips: Int, minSeconds: Int, maxSeconds: Int)
+    /// With `exportFormat` set, each suggested clip is also rendered as a
+    /// finished post (cropped to that format, optionally captioned) into a
+    /// `Social Posts` folder next to the video.
+    case findClips(maxClips: Int, minSeconds: Int, maxSeconds: Int, exportFormat: SocialFormat? = nil, captions: Bool = true)
     /// Writes a cropped MP4 per clip into a `Reframed` folder. With
     /// `followSubject` the crop window tracks people (or the most salient
     /// object) through the shot; otherwise it stays centered.
@@ -317,8 +320,12 @@ enum StepAction: Hashable {
             return "Pattern: \(pattern)"
         case .transcribe(_, let writeSRT, let skipExisting):
             return "Transcribes on-device" + (writeSRT ? " · also writes .srt" : "") + (skipExisting ? " · skips clips already done" : "")
-        case .findClips(let maxClips, let minSeconds, let maxSeconds):
-            return "Suggests up to \(maxClips) clip\(maxClips == 1 ? "" : "s") of \(minSeconds)–\(maxSeconds) seconds per video"
+        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions):
+            var text = "Suggests up to \(maxClips) clip\(maxClips == 1 ? "" : "s") of \(minSeconds)–\(maxSeconds) seconds per video"
+            if let exportFormat {
+                text += " · exports \(exportFormat.title) posts" + (captions ? " with captions" : "")
+            }
+            return text
         case .reframe(let format, let followSubject):
             return "\(format.title) · \(format.detail)" + (followSubject ? " · follows the subject" : " · centered crop")
         case .format:
@@ -382,7 +389,7 @@ extension StepAction: Codable {
     }
 
     enum FindClipsKeys: String, CodingKey {
-        case maxClips, minSeconds, maxSeconds
+        case maxClips, minSeconds, maxSeconds, exportFormat, captions
     }
 
     enum ReframeKeys: String, CodingKey {
@@ -468,7 +475,9 @@ extension StepAction: Codable {
             let maxClips = try nested.decodeIfPresent(Int.self, forKey: .maxClips) ?? 5
             let minSeconds = try nested.decodeIfPresent(Int.self, forKey: .minSeconds) ?? 20
             let maxSeconds = try nested.decodeIfPresent(Int.self, forKey: .maxSeconds) ?? 60
-            self = .findClips(maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds)
+            let exportFormat = try nested.decodeIfPresent(SocialFormat.self, forKey: .exportFormat)
+            let captions = try nested.decodeIfPresent(Bool.self, forKey: .captions) ?? true
+            self = .findClips(maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds, exportFormat: exportFormat, captions: captions)
         } else if container.contains(.reframe) {
             let nested = try container.nestedContainer(keyedBy: ReframeKeys.self, forKey: .reframe)
             let format = try nested.decodeIfPresent(SocialFormat.self, forKey: .format) ?? .vertical
@@ -531,11 +540,13 @@ extension StepAction: Codable {
             try nested.encode(locale, forKey: .locale)
             try nested.encode(writeSRT, forKey: .writeSRT)
             try nested.encode(skipExisting, forKey: .skipExisting)
-        case .findClips(let maxClips, let minSeconds, let maxSeconds):
+        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions):
             var nested = container.nestedContainer(keyedBy: FindClipsKeys.self, forKey: .findClips)
             try nested.encode(maxClips, forKey: .maxClips)
             try nested.encode(minSeconds, forKey: .minSeconds)
             try nested.encode(maxSeconds, forKey: .maxSeconds)
+            try nested.encodeIfPresent(exportFormat, forKey: .exportFormat)
+            try nested.encode(captions, forKey: .captions)
         case .reframe(let format, let followSubject):
             var nested = container.nestedContainer(keyedBy: ReframeKeys.self, forKey: .reframe)
             try nested.encode(format, forKey: .format)
