@@ -54,6 +54,8 @@ struct VideoPlayerSheet: View {
     @State private var fps: Double = 24
     @State private var shuttleRate: Float = 0
     @State private var showMarkers = false
+    @StateObject private var clipModel = ClipSuggestionsModel()
+    @State private var showClipSuggestions = false
     @ObservedObject private var clipStore = ClipMetadataStore.shared
 
     private var markers: [ClipMarker] { clipStore.markers(for: node.id) }
@@ -121,6 +123,7 @@ struct VideoPlayerSheet: View {
         .background(Color.canopyViewerGray)
         .preferredColorScheme(.dark)
         .task { await load() }
+        .onChange(of: sourceURL) { _, url in clipModel.load(for: url) }
         .onDisappear { cleanUp() }
     }
 
@@ -217,6 +220,15 @@ struct VideoPlayerSheet: View {
                     showMarkers.toggle()
                 }
                 .popover(isPresented: $showMarkers, arrowEdge: .top) { markersPopover }
+
+                playerIconButton("sparkles", help: "Find clips for social posts") {
+                    showClipSuggestions.toggle()
+                }
+                .popover(isPresented: $showClipSuggestions, arrowEdge: .top) {
+                    ClipSuggestionsPopover(model: clipModel, sourceURL: sourceURL) { clip in
+                        previewSuggestion(clip)
+                    }
+                }
 
                 if duration > 0 {
                     Text("Clip \(timeString(max(0, outPoint - inPoint)))")
@@ -367,6 +379,16 @@ struct VideoPlayerSheet: View {
         item.step(byCount: count)
         let t = item.currentTime().seconds
         if t.isFinite { currentTime = min(max(0, t), duration) }
+    }
+
+    /// Jumps to a suggested clip: sets the in/out points to its range, so the
+    /// normal Export / Add to Queue buttons act on it, and starts playing.
+    private func previewSuggestion(_ clip: ClipCandidate) {
+        guard duration > 0 else { return }
+        inPoint = min(max(0, clip.start), duration)
+        outPoint = min(max(clip.end, inPoint + 0.05), duration)
+        scrub(to: inPoint)
+        if !isPlaying { togglePlayback() }
     }
 
     private func setInPoint() {
