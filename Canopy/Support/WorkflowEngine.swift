@@ -534,6 +534,8 @@ final class WorkflowEngine: ObservableObject {
             runRename(context: &context, pattern: pattern)
         case .transcribe(let locale, let writeSRT, let skipExisting):
             await runTranscribe(context: &context, locale: locale, writeSRT: writeSRT, skipExisting: skipExisting)
+        case .findClips(let maxClips, let minSeconds, let maxSeconds):
+            await runFindClips(context: &context, maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds)
         case .reframe(let format, let followSubject):
             await runReframe(context: &context, format: format, followSubject: followSubject)
         case .format:
@@ -1101,6 +1103,62 @@ final class WorkflowEngine: ObservableObject {
                 session.log("  📝 Transcript ready: \(transcript.segments.count) segment(s), \(transcript.fullText.split(separator: " ").count) word(s)")
             } catch {
                 session.log("  ❌ Transcribe failed for \(url.lastPathComponent): \(error.localizedDescription)")
+                session.errors += 1
+            }
+        }
+    }
+
+    // MARK: - Find Clips step
+
+    /// Suggests short-form clips for each video and saves them next to it as
+    /// `<name>.clips.json`. Transcribes first when there's no transcript yet.
+    private func runFindClips(context: inout StepContext, maxClips: Int, minSeconds: Int, maxSeconds: Int) async {
+        let session = context.session
+
+        var files = context.files
+        if files.isEmpty, context.device.hyperDeck == nil {
+            session.log("  📂 Scanning \(context.device.name) (\(context.destDir.path)) for clips...")
+            files = ((try? FileManager.default.contentsOfDirectory(at: context.destDir, includingPropertiesForKeys: nil)) ?? [])
+                .filter { ConversionService.canConvert(url: $0) }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        }
+        guard !files.isEmpty else {
+            session.log("  ⏭ Find Clips: no video files found in \(context.device.name)")
+            return
+        }
+
+        var options = ClipFinderOptions()
+        options.maxClips = maxClips
+        options.minDuration = TimeInterval(minSeconds)
+        options.maxDuration = TimeInterval(max(maxSeconds, minSeconds))
+
+        for url in files {
+            if session.isCancelled { return }
+            if ClipSuggestions.load(for: url) != nil {
+                session.log("  ⏭ \(url.lastPathComponent) already has clip suggestions")
+                continue
+            }
+            do {
+                var transcript = Transcript.load(for: url)
+                if transcript == nil {
+                    session.log("  🗣 Transcribing \(url.lastPathComponent) first (\(context.device.name))...")
+                    let made = try await TranscriptionService.transcribe(video: url, localeID: Locale.current.identifier)
+                    try made.write(for: url)
+                    transcript = made
+                }
+                guard let transcript, !transcript.segments.isEmpty else {
+                    session.log("  ⏭ \(url.lastPathComponent): no speech found")
+                    continue
+                }
+                session.log("  ✨ Finding clips in \(url.lastPathComponent) (\(context.device.name))...")
+                let clips = try await ClipFinder.findClips(in: transcript, options: options)
+                try ClipSuggestions(sourceFileName: url.lastPathComponent, generatedAt: Date(), candidates: clips).write(for: url)
+                session.log("  🎬 \(clips.count) clip suggestion(s) for \(url.lastPathComponent)")
+                for clip in clips {
+                    session.log("     • \(clip.title) (\(Int(clip.duration))s)")
+                }
+            } catch {
+                session.log("  ❌ Find Clips failed for \(url.lastPathComponent): \(error.localizedDescription)")
                 session.errors += 1
             }
         }

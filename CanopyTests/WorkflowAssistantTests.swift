@@ -53,6 +53,11 @@ struct WorkflowAssistantTests {
         #expect(build([.rename], "grab the footage and rename it").workflow.steps.map(\.kind) == [.sync, .rename])
     }
 
+    @Test func findClipsRecognisedAfterTranscribeAndBeforeResize() {
+        let r = build([.resizeForSocial, .findClips, .transcribe], "transcribe, find the best moments for social and resize them vertical")
+        #expect(r.workflow.steps.map(\.kind) == [.transcribe, .findClips, .reframe])
+    }
+
     @Test func nameIsTrimmedAndDefaulted() {
         #expect(build([.offload], "offload", name: "  Test Flow ").workflow.name == "Test Flow")
         #expect(build([.offload], "offload", name: "  ").workflow.name == "New Workflow")

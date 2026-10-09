@@ -35,6 +35,9 @@ struct WorkflowStepConfigSheet: View {
     @State private var transcribeLocale = Locale.current.identifier
     @State private var transcribeWriteSRT = true
     @State private var transcribeSkipExisting = true
+    @State private var findClipsMax = 5
+    @State private var findClipsMinSeconds = 20
+    @State private var findClipsMaxSeconds = 60
     @State private var reframeFormat = SocialFormat.vertical
     @State private var reframeFollowSubject = true
     @State private var controlCommand: DeckCommand = .start
@@ -100,6 +103,9 @@ struct WorkflowStepConfigSheet: View {
 
                 case .transcribe:
                     transcribeFields
+
+                case .findClips:
+                    findClipsFields
 
                 case .reframe:
                     reframeFields
@@ -527,6 +533,16 @@ struct WorkflowStepConfigSheet: View {
         }
     }
 
+    private var findClipsFields: some View {
+        Group {
+            Stepper("Up to \(findClipsMax) clip\(findClipsMax == 1 ? "" : "s") per video", value: $findClipsMax, in: 1...10)
+            Stepper("At least \(findClipsMinSeconds) seconds", value: $findClipsMinSeconds, in: 10...120, step: 5)
+            Stepper("At most \(findClipsMaxSeconds) seconds", value: $findClipsMaxSeconds, in: 15...180, step: 5)
+            Text("Reads each video's transcript (making one first if needed) and suggests moments that work as standalone short posts. Suggestions are saved next to the video; open it in the player to review and export them. Runs on this Mac.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     private var reframeFields: some View {
         Group {
             Picker("Format", selection: $reframeFormat) {
@@ -768,6 +784,8 @@ struct WorkflowStepConfigSheet: View {
             pattern = pat
         case .transcribe(let locale, let writeSRT, let skipExisting):
             transcribeLocale = locale; transcribeWriteSRT = writeSRT; transcribeSkipExisting = skipExisting
+        case .findClips(let maxClips, let minSeconds, let maxSeconds):
+            findClipsMax = maxClips; findClipsMinSeconds = minSeconds; findClipsMaxSeconds = maxSeconds
         case .reframe(let format, let followSubject):
             reframeFormat = format; reframeFollowSubject = followSubject
         case .cleanup(let days):
@@ -813,6 +831,7 @@ struct WorkflowStepConfigSheet: View {
         case .convert: step.action = .convert(preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs, convertInPlace: convertInPlace)
         case .rename:  step.action = .rename(pattern: pattern.isEmpty ? "{name}" : pattern)
         case .transcribe: step.action = .transcribe(locale: transcribeLocale, writeSRT: transcribeWriteSRT, skipExisting: transcribeSkipExisting)
+        case .findClips: step.action = .findClips(maxClips: findClipsMax, minSeconds: findClipsMinSeconds, maxSeconds: max(findClipsMaxSeconds, findClipsMinSeconds))
         case .reframe: step.action = .reframe(format: reframeFormat, followSubject: reframeFollowSubject)
         case .format:  step.action = .format
         case .cleanup: step.action = .cleanup(retentionDays: retentionDays)
