@@ -57,7 +57,13 @@ enum SMBService {
             return existing
         }
 
-        // 3. Snapshot /Volumes before mounting
+        // 3. Fail fast if the server isn't reachable — NetFS can block for
+        // minutes on an offline host before giving up.
+        guard await ConnectionMonitor.ping(host: ip, port: 445) == .online else {
+            throw SMBMountError(ip: ip, volume: volume, status: 64)
+        }
+
+        // 3b. Snapshot /Volumes before mounting
         let before = Set(volumeNames())
 
         // 4. Mount via NetFS
@@ -196,42 +202,51 @@ enum SMBService {
         ip: String, volume: String, username: String, password: String
     ) async -> OSStatus {
         await withCheckedContinuation { continuation in
-            // Share names can contain spaces and other characters that aren't
-            // valid in a raw URL string, so percent-encode the path component.
-            guard let encodedVolume = volume.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-                  let url = URL(string: "smb://\(ip)/\(encodedVolume)") else {
-                continuation.resume(returning: -1)
-                return
+            // NetFSMountURLSync blocks until the mount succeeds or fails (minutes
+            // for an unreachable host), so it must never run on the main thread.
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: mountSync(ip: ip, volume: volume, username: username, password: password))
             }
-
-            let openOptions: NSMutableDictionary = [
-                kNetFSUseGuestKey: false,
-                kNetFSNoUserPreferencesKey: true   // suppress interactive auth dialogs
-            ]
-            let mountOptions: NSMutableDictionary = [
-                kNetFSAllowLoopbackKey: false,
-                kNetFSSoftMountKey: true
-            ]
-
-            var mountpoints: Unmanaged<CFArray>?
-
-            let status = NetFSMountURLSync(
-                url as CFURL,
-                nil,
-                username as CFString,
-                password as CFString,
-                openOptions,
-                mountOptions,
-                &mountpoints
-            )
-
-            if status == 0 {
-                print("[SMBService] NetFS mount succeeded")
-            } else {
-                print("[SMBService] NetFS mount failed, status: \(status)")
-            }
-            continuation.resume(returning: status)
         }
+    }
+
+    private nonisolated static func mountSync(
+        ip: String, volume: String, username: String, password: String
+    ) -> OSStatus {
+        // Share names can contain spaces and other characters that aren't
+        // valid in a raw URL string, so percent-encode the path component.
+        guard let encodedVolume = volume.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "smb://\(ip)/\(encodedVolume)") else {
+            return -1
+        }
+
+        let openOptions: NSMutableDictionary = [
+            kNetFSUseGuestKey: false,
+            kNetFSNoUserPreferencesKey: true   // suppress interactive auth dialogs
+        ]
+        let mountOptions: NSMutableDictionary = [
+            kNetFSAllowLoopbackKey: false,
+            kNetFSSoftMountKey: true
+        ]
+
+        var mountpoints: Unmanaged<CFArray>?
+
+        let status = NetFSMountURLSync(
+            url as CFURL,
+            nil,
+            username as CFString,
+            password as CFString,
+            openOptions,
+            mountOptions,
+            &mountpoints
+        )
+
+        if status == 0 {
+            print("[SMBService] NetFS mount succeeded")
+        } else {
+            print("[SMBService] NetFS mount failed, status: \(status)")
+        }
+        return status
     }
 
     /// Return the /Volumes path of any currently-mounted volume whose remount URL

@@ -184,7 +184,7 @@ final class ConnectionMonitor: ObservableObject {
         return .online
     }
 
-    private static func ping(host: String, port: UInt16) async -> DeckStatus {
+    static func ping(host: String, port: UInt16) async -> DeckStatus {
         guard let nwPort = NWEndpoint.Port(rawValue: port) else { return .offline }
         let conn = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .tcp)
         conn.start(queue: .global())
