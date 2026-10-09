@@ -15,12 +15,15 @@ struct WorkflowEditorSheet: View {
     @State private var editingTrigger: ScheduleSettings? = nil
     @State private var pickingCloudStoreFolder: CloudStore? = nil
 
-    init(workflow: Workflow?) {
+    /// `prefill` seeds a brand-new workflow's fields (e.g. from the
+    /// natural-language builder) without making this an edit of an existing one.
+    init(workflow: Workflow?, prefill: Workflow? = nil) {
         existingWorkflow = workflow
-        _name    = State(initialValue: workflow?.name ?? "")
-        _steps   = State(initialValue: workflow?.steps ?? [])
-        _targets = State(initialValue: Set(workflow?.targets ?? []))
-        _triggers = State(initialValue: workflow?.triggers ?? [])
+        let source = workflow ?? prefill
+        _name    = State(initialValue: source?.name ?? "")
+        _steps   = State(initialValue: source?.steps ?? [])
+        _targets = State(initialValue: Set(source?.targets ?? []))
+        _triggers = State(initialValue: source?.triggers ?? [])
     }
 
     var canSave: Bool { !name.isEmpty && !steps.isEmpty }

@@ -6,6 +6,11 @@ struct WorkflowsView: View {
 
     @State private var editingWorkflow: Workflow? = nil
     @State private var isCreating = false
+    @State private var isDescribing = false
+    /// A draft from the builder waiting to be opened in the editor once the
+    /// builder sheet has finished dismissing.
+    @State private var pendingDraft: Workflow? = nil
+    @State private var draftWorkflow: Workflow? = nil
     @State private var workflowPendingDelete: Workflow? = nil
 
     private var inProgress: [WorkflowRunSession] {
@@ -36,6 +41,15 @@ struct WorkflowsView: View {
         .sheet(isPresented: $isCreating) {
             WorkflowEditorSheet(workflow: nil).environmentObject(appState)
         }
+        .sheet(isPresented: $isDescribing, onDismiss: {
+            draftWorkflow = pendingDraft
+            pendingDraft = nil
+        }) {
+            WorkflowAssistantSheet { pendingDraft = $0 }
+        }
+        .sheet(item: $draftWorkflow) { draft in
+            WorkflowEditorSheet(workflow: nil, prefill: draft).environmentObject(appState)
+        }
         .sheet(item: $editingWorkflow) { workflow in
             WorkflowEditorSheet(workflow: workflow).environmentObject(appState)
         }
@@ -63,6 +77,11 @@ struct WorkflowsView: View {
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer()
+            Button {
+                isDescribing = true
+            } label: {
+                Label("Describe It", systemImage: "sparkles")
+            }
             Button {
                 isCreating = true
             } label: {
