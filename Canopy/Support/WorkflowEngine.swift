@@ -543,6 +543,8 @@ final class WorkflowEngine: ObservableObject {
             await runWriteCopy(context: &context, platform: platform, hashtagCount: hashtagCount)
         case .webhook(let url, let format):
             await runWebhook(context: &context, url: url, format: format)
+        case .copyTo(let destination, let verify, let includeSidecars):
+            await runCopyTo(context: &context, destination: destination, verify: verify, includeSidecars: includeSidecars)
         case .reframe(let format, let followSubject):
             await runReframe(context: &context, format: format, followSubject: followSubject)
         case .format:
@@ -1300,6 +1302,88 @@ final class WorkflowEngine: ObservableObject {
             session.log("  ⚠️ Webhook to \(host) failed: \(error.localizedDescription)")
             session.errors += 1
         }
+    }
+
+    // MARK: - Copy To step
+
+    private func runCopyTo(
+        context: inout StepContext, destination: CopyDestination, verify: Bool, includeSidecars: Bool
+    ) async {
+        let session = context.session
+        let videos = workingVideos(for: context)
+        guard !videos.isEmpty else {
+            session.log("  ⏭ Copy To: no files to copy for \(context.device.name)")
+            return
+        }
+
+        let base: URL
+        do {
+            switch destination {
+            case .global:
+                let mountPath = try await mountSMBVolume(location: appState.syncLocation)
+                appState.syncLocation.resolvedMountPath = mountPath
+                base = URL(fileURLWithPath: appState.syncLocation.recordsPath)
+                    .appendingPathComponent(context.device.name)
+            case .cloudStore(let id, let path):
+                guard let store = appState.cloudStores.first(where: { $0.id == id }) else {
+                    session.log("  ❌ Copy To: the selected cloud store no longer exists")
+                    session.errors += 1
+                    return
+                }
+                session.log("  Mounting \(store.name)...")
+                let mount = URL(fileURLWithPath: try await SMBService.mount(store: store))
+                base = path.isEmpty ? mount : mount.appendingPathComponent(path)
+            case .localFolder(let id, let path):
+                guard let folder = appState.localFolders.first(where: { $0.id == id }) else {
+                    session.log("  ❌ Copy To: the selected local folder no longer exists")
+                    session.errors += 1
+                    return
+                }
+                guard folder.exists else {
+                    session.log("  ❌ Copy To: \(folder.name) isn't available — is the drive connected?")
+                    session.errors += 1
+                    return
+                }
+                let root = URL(fileURLWithPath: folder.path)
+                base = path.isEmpty ? root : root.appendingPathComponent(path)
+            }
+        } catch {
+            session.log("  ❌ Copy To: couldn't reach the destination — \(error.localizedDescription)")
+            session.errors += 1
+            return
+        }
+
+        // Each file keeps its place relative to where it is now: a flat
+        // list of names, matching how the clips sit in the source folder.
+        var jobs: [(from: URL, to: URL)] = []
+        for video in videos {
+            jobs.append((video, base.appendingPathComponent(video.lastPathComponent)))
+            if includeSidecars {
+                for sidecar in FileCopier.sidecars(of: video) {
+                    jobs.append((sidecar, base.appendingPathComponent(sidecar.lastPathComponent)))
+                }
+            }
+        }
+
+        session.log("  📋 Copying \(jobs.count) file(s) to \(base.path)\(verify ? " (verified)" : "")...")
+        var copied = 0, skipped = 0, problems = 0
+        for job in jobs {
+            if session.isCancelled { return }
+            switch await FileCopier.copy(from: job.from, to: job.to, verify: verify) {
+            case .copied:
+                copied += 1
+            case .skipped:
+                skipped += 1
+            case .mismatch:
+                problems += 1
+                session.log("  ❌ \(job.from.lastPathComponent): copy didn't match the original and was removed")
+            case .failed(let why):
+                problems += 1
+                session.log("  ❌ \(job.from.lastPathComponent): \(why)")
+            }
+        }
+        session.errors += problems
+        session.log("  ✅ Copy To: \(copied) copied, \(skipped) already there\(problems > 0 ? ", \(problems) failed" : "")")
     }
 
     // MARK: - Queue Clips step

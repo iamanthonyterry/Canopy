@@ -19,7 +19,7 @@ enum DeckCommand: String, Codable, CaseIterable, Identifiable {
 // MARK: - Step Kind
 // The catalog of step types users can drag into a workflow.
 enum StepKind: String, Codable, CaseIterable, Identifiable {
-    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, writeCopy, webhook, reframe, format, cleanup, notify, triggerWorkflow
+    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, writeCopy, webhook, copyTo, reframe, format, cleanup, notify, triggerWorkflow
 
     var id: String { rawValue }
 
@@ -36,6 +36,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .queueClips:      return "Queue Clips"
         case .writeCopy:       return "Write Post Copy"
         case .webhook:         return "Send Webhook"
+        case .copyTo:          return "Copy To"
         case .reframe:         return "Resize for Social"
         case .format:          return "Format Drive"
         case .cleanup:         return "Cleanup"
@@ -57,6 +58,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .queueClips:      return "Add the suggested clips to the Export Queue as trimmed items"
         case .writeCopy:       return "Draft a title, caption and hashtags for each suggested clip"
         case .webhook:         return "Send the run's details to a URL — Slack, Discord, Zapier, Make and more"
+        case .copyTo:          return "Copy the finished files to a second location, optionally verified"
         case .reframe:         return "Crop clips to a social media size, keeping the main subject in frame"
         case .format:          return "Permanently erase the device's drive"
         case .cleanup:         return "Delete files older than N days in the destination folder"
@@ -78,6 +80,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .queueClips:      return "tray.and.arrow.up"
         case .writeCopy:       return "text.quote"
         case .webhook:         return "paperplane"
+        case .copyTo:          return "doc.on.doc"
         case .reframe:         return "rectangle.portrait.crop"
         case .format:          return "externaldrive.badge.xmark"
         case .cleanup:         return "trash"
@@ -99,6 +102,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .queueClips:      return .brown
         case .writeCopy:       return .mint
         case .webhook:         return .gray
+        case .copyTo:          return .blue
         case .reframe:         return .green
         case .format:          return .red
         case .cleanup:         return .gray
@@ -146,6 +150,16 @@ nonisolated enum CopyPlatform: String, Codable, CaseIterable, Identifiable {
         case .linkedin:  return "Professional but human, with a takeaway."
         }
     }
+}
+
+// MARK: - Copy Destination
+/// Where the Copy To step puts its second copy: the shared global
+/// destination, a cloud store (with a folder inside it), or one of the
+/// app's registered local folders — typically an external drive.
+nonisolated enum CopyDestination: Hashable, Codable {
+    case global
+    case cloudStore(id: UUID, path: String)
+    case localFolder(id: UUID, path: String)
 }
 
 // MARK: - Webhook Format
@@ -301,6 +315,9 @@ enum StepAction: Hashable {
     /// POSTs the run's details to `url`. Doesn't stop the workflow if the
     /// request fails.
     case webhook(url: String, format: WebhookFormat)
+    /// Copies the working files (and optionally their transcripts and clip
+    /// suggestions) to a second destination.
+    case copyTo(destination: CopyDestination, verify: Bool, includeSidecars: Bool)
     /// Writes a cropped MP4 per clip into a `Reframed` folder. With
     /// `followSubject` the crop window tracks people (or the most salient
     /// object) through the shot; otherwise it stays centered.
@@ -323,6 +340,7 @@ enum StepAction: Hashable {
         case .queueClips:      return .queueClips
         case .writeCopy:       return .writeCopy
         case .webhook:         return .webhook
+        case .copyTo:          return .copyTo
         case .reframe:         return .reframe
         case .format:          return .format
         case .cleanup:         return .cleanup
@@ -344,6 +362,7 @@ enum StepAction: Hashable {
         case .queueClips:      return .queueClips(minScore: 0)
         case .writeCopy:       return .writeCopy(platform: .general, hashtagCount: 5)
         case .webhook:         return .webhook(url: "", format: .json)
+        case .copyTo:          return .copyTo(destination: .global, verify: true, includeSidecars: true)
         case .reframe:         return .reframe(format: .vertical, followSubject: true)
         case .format:          return .format
         case .cleanup:         return .cleanup(retentionDays: 30)
@@ -417,6 +436,14 @@ enum StepAction: Hashable {
         case .webhook(let url, let format):
             guard let host = URL(string: url)?.host else { return "No URL set yet" }
             return "Sends \(format.title) to \(host)"
+        case .copyTo(let destination, let verify, let includeSidecars):
+            let place: String
+            switch destination {
+            case .global:      place = "the global destination"
+            case .cloudStore:  place = "the selected cloud store"
+            case .localFolder: place = "the selected local folder"
+            }
+            return "Copies files to \(place)" + (verify ? " · verified with SHA-256" : "") + (includeSidecars ? " · with transcripts and clips" : "")
         case .reframe(let format, let followSubject):
             return "\(format.title) · \(format.detail)" + (followSubject ? " · follows the subject" : " · centered crop")
         case .format:
@@ -439,7 +466,7 @@ enum StepAction: Hashable {
 // MARK: - StepAction Codable Implementation
 extension StepAction: Codable {
     enum CodingKeys: String, CodingKey {
-        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, writeCopy, webhook, reframe, format, cleanup, notify, triggerWorkflow
+        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, writeCopy, webhook, copyTo, reframe, format, cleanup, notify, triggerWorkflow
     }
 
     enum ControlDeckKeys: String, CodingKey {
@@ -489,6 +516,10 @@ extension StepAction: Codable {
 
     enum WebhookKeys: String, CodingKey {
         case url, format
+    }
+
+    enum CopyToKeys: String, CodingKey {
+        case destination, verify, includeSidecars
     }
 
     enum QueueClipsKeys: String, CodingKey {
@@ -591,6 +622,12 @@ extension StepAction: Codable {
             let url = try nested.decodeIfPresent(String.self, forKey: .url) ?? ""
             let format = try nested.decodeIfPresent(WebhookFormat.self, forKey: .format) ?? .json
             self = .webhook(url: url, format: format)
+        } else if container.contains(.copyTo) {
+            let nested = try container.nestedContainer(keyedBy: CopyToKeys.self, forKey: .copyTo)
+            let destination = try nested.decodeIfPresent(CopyDestination.self, forKey: .destination) ?? .global
+            let verify = try nested.decodeIfPresent(Bool.self, forKey: .verify) ?? true
+            let sidecars = try nested.decodeIfPresent(Bool.self, forKey: .includeSidecars) ?? true
+            self = .copyTo(destination: destination, verify: verify, includeSidecars: sidecars)
         } else if container.contains(.queueClips) {
             let nested = try container.nestedContainer(keyedBy: QueueClipsKeys.self, forKey: .queueClips)
             self = .queueClips(minScore: try nested.decodeIfPresent(Int.self, forKey: .minScore) ?? 0)
@@ -671,6 +708,11 @@ extension StepAction: Codable {
             var nested = container.nestedContainer(keyedBy: WebhookKeys.self, forKey: .webhook)
             try nested.encode(url, forKey: .url)
             try nested.encode(format, forKey: .format)
+        case .copyTo(let destination, let verify, let includeSidecars):
+            var nested = container.nestedContainer(keyedBy: CopyToKeys.self, forKey: .copyTo)
+            try nested.encode(destination, forKey: .destination)
+            try nested.encode(verify, forKey: .verify)
+            try nested.encode(includeSidecars, forKey: .includeSidecars)
         case .queueClips(let minScore):
             var nested = container.nestedContainer(keyedBy: QueueClipsKeys.self, forKey: .queueClips)
             try nested.encode(minScore, forKey: .minScore)

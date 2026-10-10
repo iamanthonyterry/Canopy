@@ -45,8 +45,14 @@ struct WorkflowStepConfigSheet: View {
     @State private var webhookURL = ""
     @State private var webhookFormat = WebhookFormat.json
     @State private var webhookTestState: WebhookTestState = .idle
+    @State private var copyToChoice = CopyTargetChoice.global
+    @State private var copyToPath = ""
+    @State private var copyToVerify = true
+    @State private var copyToSidecars = true
+    @State private var showCopyToFolderPicker = false
 
     private enum WebhookTestState: Equatable { case idle, sending, sent, failed(String) }
+    private enum CopyTargetChoice: Hashable { case global, cloudStore(UUID), localFolder(UUID) }
     @State private var findClipsFormat = SocialFormat.vertical
     @State private var findClipsCaptions = true
     @State private var reframeFormat = SocialFormat.vertical
@@ -127,6 +133,9 @@ struct WorkflowStepConfigSheet: View {
                 case .webhook:
                     webhookFields
 
+                case .copyTo:
+                    copyToFields
+
                 case .reframe:
                     reframeFields
 
@@ -166,6 +175,14 @@ struct WorkflowStepConfigSheet: View {
             if let store = selectedSyncStore {
                 FolderPickerSheet(store: store) { path in
                     syncCloudStorePath = path
+                }
+                .environmentObject(appState)
+            }
+        }
+        .sheet(isPresented: $showCopyToFolderPicker) {
+            if case .cloudStore(let id) = copyToChoice, let store = appState.cloudStores.first(where: { $0.id == id }) {
+                FolderPickerSheet(store: store) { path in
+                    copyToPath = path
                 }
                 .environmentObject(appState)
             }
@@ -591,6 +608,67 @@ struct WorkflowStepConfigSheet: View {
         }
     }
 
+    private var copyToFields: some View {
+        Group {
+            Section("Copy Destination") {
+                LabeledContent("Copy to") {
+                    Picker("", selection: $copyToChoice) {
+                        Text("Global Default").tag(CopyTargetChoice.global)
+                        if !appState.cloudStores.isEmpty {
+                            Divider()
+                            ForEach(appState.cloudStores) { store in
+                                Text(store.name).tag(CopyTargetChoice.cloudStore(store.id))
+                            }
+                        }
+                        if !appState.localFolders.isEmpty {
+                            Divider()
+                            ForEach(appState.localFolders) { folder in
+                                Text(folder.name).tag(CopyTargetChoice.localFolder(folder.id))
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 200)
+                    .onChange(of: copyToChoice) { copyToPath = "" }
+                }
+
+                if case .localFolder(let id) = copyToChoice, let folder = appState.localFolders.first(where: { $0.id == id }) {
+                    LabeledContent("Subfolder") {
+                        TextField("Optional", text: $copyToPath)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 200)
+                    }
+                    Label("→ \(folder.path)\(copyToPath.isEmpty ? "" : "/" + copyToPath)", systemImage: "externaldrive")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else if case .cloudStore(let id) = copyToChoice, let store = appState.cloudStores.first(where: { $0.id == id }) {
+                    LabeledContent("Folder") {
+                        HStack(spacing: 8) {
+                            Text(copyToPath.isEmpty ? "Volume root" : copyToPath)
+                                .foregroundStyle(copyToPath.isEmpty ? .secondary : .primary)
+                                .lineLimit(1).truncationMode(.head)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .font(.callout)
+                            Button { showCopyToFolderPicker = true } label: {
+                                Label("Browse…", systemImage: "folder")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                    Label("→ \(store.name)/\(copyToPath)", systemImage: "externaldrive.connected.to.line.below")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Label("Uses the global sync destination from Settings, in a folder named after the device.",
+                          systemImage: "info.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Toggle("Verify with SHA-256", isOn: $copyToVerify)
+            Toggle("Include transcripts and clip suggestions", isOn: $copyToSidecars)
+            Text("Copies the files this workflow handled to a second location. Files already there with the same contents are skipped, so it's safe to re-run. Each copy is written under a temporary name and only moved into place once it's complete.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     private func sendWebhookTest() {
         webhookTestState = .sending
         let url = webhookURL
@@ -897,6 +975,16 @@ struct WorkflowStepConfigSheet: View {
             copyPlatform = platform; copyHashtagCount = hashtagCount
         case .webhook(let url, let format):
             webhookURL = url; webhookFormat = format
+        case .copyTo(let destination, let verify, let includeSidecars):
+            copyToVerify = verify; copyToSidecars = includeSidecars
+            switch destination {
+            case .global:
+                copyToChoice = .global
+            case .cloudStore(let id, let path):
+                copyToChoice = .cloudStore(id); copyToPath = path
+            case .localFolder(let id, let path):
+                copyToChoice = .localFolder(id); copyToPath = path
+            }
         case .reframe(let format, let followSubject):
             reframeFormat = format; reframeFollowSubject = followSubject
         case .cleanup(let days):
@@ -947,6 +1035,14 @@ struct WorkflowStepConfigSheet: View {
         case .queueClips: step.action = .queueClips(minScore: queueClipsMinScore)
         case .writeCopy: step.action = .writeCopy(platform: copyPlatform, hashtagCount: copyHashtagCount)
         case .webhook: step.action = .webhook(url: webhookURL.trimmingCharacters(in: .whitespacesAndNewlines), format: webhookFormat)
+        case .copyTo:
+            let destination: CopyDestination
+            switch copyToChoice {
+            case .global:                destination = .global
+            case .cloudStore(let id):    destination = .cloudStore(id: id, path: copyToPath)
+            case .localFolder(let id):   destination = .localFolder(id: id, path: copyToPath.trimmingCharacters(in: .whitespaces))
+            }
+            step.action = .copyTo(destination: destination, verify: copyToVerify, includeSidecars: copyToSidecars)
         case .reframe: step.action = .reframe(format: reframeFormat, followSubject: reframeFollowSubject)
         case .format:  step.action = .format
         case .cleanup: step.action = .cleanup(retentionDays: retentionDays)
