@@ -539,6 +539,8 @@ final class WorkflowEngine: ObservableObject {
                                exportFormat: exportFormat, captions: captions)
         case .queueClips(let minScore):
             runQueueClips(context: &context, minScore: minScore)
+        case .upload:
+            context.session.log("  ⏭ Upload: uploading is coming soon — this step was skipped")
         case .writeCopy(let platform, let hashtagCount):
             await runWriteCopy(context: &context, platform: platform, hashtagCount: hashtagCount)
         case .webhook(let url, let format):

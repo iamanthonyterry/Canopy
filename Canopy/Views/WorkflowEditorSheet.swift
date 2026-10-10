@@ -284,7 +284,7 @@ struct WorkflowEditorSheet: View {
                 Button {
                     steps.append(WorkflowStep(action: .defaultAction(for: kind)))
                 } label: {
-                    Label(kind.title, systemImage: kind.icon)
+                    Label(kind.isComingSoon ? "\(kind.title) · Coming Soon" : kind.title, systemImage: kind.icon)
                 }
             }
         } label: {

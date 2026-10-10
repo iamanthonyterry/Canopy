@@ -19,7 +19,7 @@ enum DeckCommand: String, Codable, CaseIterable, Identifiable {
 // MARK: - Step Kind
 // The catalog of step types users can drag into a workflow.
 enum StepKind: String, Codable, CaseIterable, Identifiable {
-    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, writeCopy, webhook, copyTo, reframe, format, cleanup, notify, triggerWorkflow
+    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, writeCopy, webhook, copyTo, upload, reframe, format, cleanup, notify, triggerWorkflow
 
     var id: String { rawValue }
 
@@ -37,6 +37,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .writeCopy:       return "Write Post Copy"
         case .webhook:         return "Send Webhook"
         case .copyTo:          return "Copy To"
+        case .upload:          return "Upload"
         case .reframe:         return "Resize for Social"
         case .format:          return "Format Drive"
         case .cleanup:         return "Cleanup"
@@ -59,6 +60,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .writeCopy:       return "Draft a title, caption and hashtags for each suggested clip"
         case .webhook:         return "Send the run's details to a URL — Slack, Discord, Zapier, Make and more"
         case .copyTo:          return "Copy the finished files to a second location, optionally verified"
+        case .upload:          return "Coming soon — send finished posts to YouTube, Dropbox and more"
         case .reframe:         return "Crop clips to a social media size, keeping the main subject in frame"
         case .format:          return "Permanently erase the device's drive"
         case .cleanup:         return "Delete files older than N days in the destination folder"
@@ -81,6 +83,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .writeCopy:       return "text.quote"
         case .webhook:         return "paperplane"
         case .copyTo:          return "doc.on.doc"
+        case .upload:          return "icloud.and.arrow.up"
         case .reframe:         return "rectangle.portrait.crop"
         case .format:          return "externaldrive.badge.xmark"
         case .cleanup:         return "trash"
@@ -88,6 +91,10 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .triggerWorkflow: return "arrow.triangle.branch"
         }
     }
+
+    /// Steps that exist in the app so workflows can be planned around them,
+    /// but don't do anything yet.
+    var isComingSoon: Bool { self == .upload }
 
     var color: Color {
         switch self {
@@ -103,6 +110,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .writeCopy:       return .mint
         case .webhook:         return .gray
         case .copyTo:          return .blue
+        case .upload:          return .indigo
         case .reframe:         return .green
         case .format:          return .red
         case .cleanup:         return .gray
@@ -318,6 +326,9 @@ enum StepAction: Hashable {
     /// Copies the working files (and optionally their transcripts and clip
     /// suggestions) to a second destination.
     case copyTo(destination: CopyDestination, verify: Bool, includeSidecars: Bool)
+    /// Placeholder: will send finished posts to YouTube, cloud storage and
+    /// similar. Skipped (and logged as coming soon) until it's built.
+    case upload
     /// Writes a cropped MP4 per clip into a `Reframed` folder. With
     /// `followSubject` the crop window tracks people (or the most salient
     /// object) through the shot; otherwise it stays centered.
@@ -341,6 +352,7 @@ enum StepAction: Hashable {
         case .writeCopy:       return .writeCopy
         case .webhook:         return .webhook
         case .copyTo:          return .copyTo
+        case .upload:          return .upload
         case .reframe:         return .reframe
         case .format:          return .format
         case .cleanup:         return .cleanup
@@ -363,6 +375,7 @@ enum StepAction: Hashable {
         case .writeCopy:       return .writeCopy(platform: .general, hashtagCount: 5)
         case .webhook:         return .webhook(url: "", format: .json)
         case .copyTo:          return .copyTo(destination: .global, verify: true, includeSidecars: true)
+        case .upload:          return .upload
         case .reframe:         return .reframe(format: .vertical, followSubject: true)
         case .format:          return .format
         case .cleanup:         return .cleanup(retentionDays: 30)
@@ -444,6 +457,8 @@ enum StepAction: Hashable {
             case .localFolder: place = "the selected local folder"
             }
             return "Copies files to \(place)" + (verify ? " · verified with SHA-256" : "") + (includeSidecars ? " · with transcripts and clips" : "")
+        case .upload:
+            return "Coming soon — this step is skipped for now"
         case .reframe(let format, let followSubject):
             return "\(format.title) · \(format.detail)" + (followSubject ? " · follows the subject" : " · centered crop")
         case .format:
@@ -466,7 +481,7 @@ enum StepAction: Hashable {
 // MARK: - StepAction Codable Implementation
 extension StepAction: Codable {
     enum CodingKeys: String, CodingKey {
-        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, writeCopy, webhook, copyTo, reframe, format, cleanup, notify, triggerWorkflow
+        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, writeCopy, webhook, copyTo, upload, reframe, format, cleanup, notify, triggerWorkflow
     }
 
     enum ControlDeckKeys: String, CodingKey {
@@ -612,6 +627,8 @@ extension StepAction: Codable {
             let exportFormat = try nested.decodeIfPresent(SocialFormat.self, forKey: .exportFormat)
             let captions = try nested.decodeIfPresent(Bool.self, forKey: .captions) ?? true
             self = .findClips(maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds, exportFormat: exportFormat, captions: captions)
+        } else if container.contains(.upload) {
+            self = .upload
         } else if container.contains(.writeCopy) {
             let nested = try container.nestedContainer(keyedBy: WriteCopyKeys.self, forKey: .writeCopy)
             let platform = try nested.decodeIfPresent(CopyPlatform.self, forKey: .platform) ?? .general
@@ -720,6 +737,8 @@ extension StepAction: Codable {
             var nested = container.nestedContainer(keyedBy: ReframeKeys.self, forKey: .reframe)
             try nested.encode(format, forKey: .format)
             try nested.encode(followSubject, forKey: .followSubject)
+        case .upload:
+            _ = container.nestedContainer(keyedBy: DummyKeys.self, forKey: .upload)
         case .format:
             _ = container.nestedContainer(keyedBy: DummyKeys.self, forKey: .format)
         case .cleanup(let days):
@@ -897,7 +916,7 @@ struct Workflow: Identifiable, Codable, Hashable {
 
     /// True if any step needs the shared sync destination mounted.
     var needsDestinationMount: Bool {
-        steps.contains { ![.format, .controlDeck, .wait, .notify, .triggerWorkflow, .webhook].contains($0.kind) }
+        steps.contains { ![.format, .controlDeck, .wait, .notify, .triggerWorkflow, .webhook, .upload].contains($0.kind) }
     }
 
     /// The destination configured on this workflow's Sync step. Falls back

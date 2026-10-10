@@ -286,6 +286,9 @@ enum WorkflowDraftBuilder {
             }
         }
 
+        if details.mentions(["upload", "publish it", "publish them", "post it to", "post them to"]) {
+            notes.append("Uploading is coming soon, so I left it out — the finished files are ready for you to upload yourself.")
+        }
         if details.ambiguousTime {
             notes.append("Couldn't tell if the schedule time is AM or PM — set it under Schedule in the editor.")
         }

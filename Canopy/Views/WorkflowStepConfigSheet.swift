@@ -127,6 +127,10 @@ struct WorkflowStepConfigSheet: View {
                 case .queueClips:
                     queueClipsFields
 
+                case .upload:
+                    Label("Uploading is coming soon. Until it's ready this step does nothing when the workflow runs, so you can plan around it now — YouTube, Dropbox and Google Drive are first.", systemImage: "clock.badge")
+                        .font(.callout).foregroundStyle(.secondary)
+
                 case .writeCopy:
                     writeCopyFields
 
@@ -971,6 +975,8 @@ struct WorkflowStepConfigSheet: View {
             findClipsCaptions = captions
         case .queueClips(let minScore):
             queueClipsMinScore = minScore
+        case .upload:
+            break
         case .writeCopy(let platform, let hashtagCount):
             copyPlatform = platform; copyHashtagCount = hashtagCount
         case .webhook(let url, let format):
@@ -1033,6 +1039,7 @@ struct WorkflowStepConfigSheet: View {
         case .findClips: step.action = .findClips(maxClips: findClipsMax, minSeconds: findClipsMinSeconds, maxSeconds: max(findClipsMaxSeconds, findClipsMinSeconds),
                                                    exportFormat: findClipsExport ? findClipsFormat : nil, captions: findClipsCaptions)
         case .queueClips: step.action = .queueClips(minScore: queueClipsMinScore)
+        case .upload: step.action = .upload
         case .writeCopy: step.action = .writeCopy(platform: copyPlatform, hashtagCount: copyHashtagCount)
         case .webhook: step.action = .webhook(url: webhookURL.trimmingCharacters(in: .whitespacesAndNewlines), format: webhookFormat)
         case .copyTo:
