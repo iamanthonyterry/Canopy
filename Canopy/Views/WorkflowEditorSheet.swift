@@ -54,7 +54,11 @@ struct WorkflowEditorSheet: View {
         }
         .sheet(item: $editingTrigger) { trigger in
             if let index = triggers.firstIndex(where: { $0.id == trigger.id }) {
-                ScheduleTriggerConfigSheet(trigger: $triggers[index])
+                ScheduleTriggerConfigSheet(
+                    trigger: $triggers[index],
+                    sourceWorkflows: eligibleSourceWorkflows
+                )
+                .environmentObject(appState)
             }
         }
         .sheet(item: $pickingCloudStoreFolder) { store in
@@ -294,7 +298,21 @@ struct WorkflowEditorSheet: View {
         .fixedSize()
     }
 
-    // MARK: - Schedule
+    // MARK: - Triggers
+
+    /// Workflows that can start this one when they finish. Excludes this
+    /// workflow itself, and any workflow that is itself started by this one,
+    /// so two workflows can't be wired to trigger each other forever.
+    private var eligibleSourceWorkflows: [Workflow] {
+        appState.workflows
+            .filter { candidate in
+                guard candidate.id != existingWorkflow?.id else { return false }
+                return !candidate.triggers.contains {
+                    $0.mode == .workflowFinished && $0.sourceWorkflowID == existingWorkflow?.id
+                }
+            }
+            .sorted { $0.sortOrder < $1.sortOrder }
+    }
 
     private var scheduleSection: some View {
         Section {
@@ -309,22 +327,63 @@ struct WorkflowEditorSheet: View {
             }
             addTriggerMenu
         } header: {
-            Text("Schedule")
+            Text("Triggers")
         } footer: {
-            Text("Add one or more triggers to run this workflow automatically.")
+            Text("Run this workflow on a schedule, or when something happens — a deck stops recording, a device comes online, another workflow finishes, or new clips arrive.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
 
+    private func triggerTitle(_ trigger: ScheduleSettings) -> String {
+        switch trigger.mode {
+        case .daily:
+            return "Daily · \(trigger.displayTime)"
+        case .oneTime:
+            return "One Time · \(trigger.displayOneTimeDate)"
+        case .recordingStopped:
+            return "When \(deckName(trigger.deviceID)) stops recording"
+        case .deviceOnline:
+            return "When \(deckName(trigger.deviceID)) comes online"
+        case .workflowFinished:
+            let name = appState.workflows.first { $0.id == trigger.sourceWorkflowID }?.name
+            return name.map { "When \"\($0)\" finishes" } ?? "When a workflow finishes"
+        case .folderChanged:
+            let name = appState.localFolders.first { $0.id == trigger.deviceID }?.name
+            return name.map { "When new clips arrive in \($0)" } ?? "When new clips arrive in a folder"
+        }
+    }
+
+    private func triggerDetail(_ trigger: ScheduleSettings) -> String {
+        switch trigger.mode {
+        case .daily:
+            return trigger.displayWeekdays
+        case .oneTime:
+            return "Runs once, then turns off"
+        case .recordingStopped, .deviceOnline:
+            return "Runs on that deck · at most every \(trigger.cooldownMinutes) min"
+        case .workflowFinished:
+            return "\(trigger.finishCondition.title) · at most every \(trigger.cooldownMinutes) min"
+        case .folderChanged:
+            return trigger.deviceID == nil
+                ? "Choose a folder to watch"
+                : "Runs on that folder · at most every \(trigger.cooldownMinutes) min"
+        }
+    }
+
+    private func deckName(_ id: UUID?) -> String {
+        guard let id else { return "any deck" }
+        return appState.hyperDecks.first { $0.id == id }?.name ?? "a deck"
+    }
+
     private func triggerRow(_ trigger: ScheduleSettings, index: Int) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: trigger.mode == .daily ? "clock" : "calendar")
+            Image(systemName: trigger.mode.icon)
                 .foregroundStyle(trigger.isEnabled ? Color.accentColor : .secondary)
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
-                Text(trigger.mode == .daily ? "Daily · \(trigger.displayTime)" : "One Time · \(trigger.displayOneTimeDate)")
+                Text(triggerTitle(trigger))
                     .font(.body)
-                Text(trigger.mode == .daily ? trigger.displayWeekdays : "Runs once, then turns off")
+                Text(triggerDetail(trigger))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -356,15 +415,33 @@ struct WorkflowEditorSheet: View {
     }
 
     private var addTriggerMenu: some View {
-        Button {
-            var trigger = ScheduleSettings()
-            trigger.isEnabled = true
-            triggers.append(trigger)
-            editingTrigger = trigger
+        Menu {
+            Section("On a schedule") {
+                ForEach(ScheduleMode.scheduleModes) { mode in
+                    Button { addTrigger(mode) } label: { Label(mode.title, systemImage: mode.icon) }
+                }
+            }
+            Section("When something happens") {
+                ForEach(ScheduleMode.eventModes) { mode in
+                    Button { addTrigger(mode) } label: { Label(mode.title, systemImage: mode.icon) }
+                }
+            }
         } label: {
             Label("Add Trigger", systemImage: "plus.circle.fill")
         }
-        .buttonStyle(.borderless)
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private func addTrigger(_ mode: ScheduleMode) {
+        var trigger = ScheduleSettings()
+        trigger.isEnabled = true
+        trigger.mode = mode
+        if mode == .folderChanged {
+            trigger.deviceID = appState.localFolders.first?.id
+        }
+        triggers.append(trigger)
+        editingTrigger = trigger
     }
 
     // MARK: - Save
@@ -391,16 +468,16 @@ struct WorkflowEditorSheet: View {
 /// Small focused sheet for configuring a single schedule trigger — mirrors
 /// WorkflowStepConfigSheet's pattern of editing one item from a list.
 struct ScheduleTriggerConfigSheet: View {
+    @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @Binding var trigger: ScheduleSettings
+    /// Workflows offered by a "When a workflow finishes" trigger.
+    var sourceWorkflows: [Workflow] = []
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Label(
-                    trigger.mode == .daily ? "Daily Trigger" : "One-Time Trigger",
-                    systemImage: trigger.mode == .daily ? "clock" : "calendar"
-                )
+                Label("\(trigger.mode.title) Trigger", systemImage: trigger.mode.icon)
                 .font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                 Spacer()
                 Button("Done") { dismiss() }
@@ -413,13 +490,14 @@ struct ScheduleTriggerConfigSheet: View {
             Form {
                 Toggle("Enabled", isOn: $trigger.isEnabled)
 
-                Picker("", selection: $trigger.mode) {
-                    ForEach(ScheduleMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
+                Picker("Trigger", selection: $trigger.mode) {
+                    Section("On a schedule") {
+                        ForEach(ScheduleMode.scheduleModes) { Text($0.title).tag($0) }
+                    }
+                    Section("When something happens") {
+                        ForEach(ScheduleMode.eventModes) { Text($0.title).tag($0) }
                     }
                 }
-                .labelsHidden()
-                .pickerStyle(.segmented)
 
                 switch trigger.mode {
                 case .daily:
@@ -447,13 +525,69 @@ struct ScheduleTriggerConfigSheet: View {
                     )
                     Text("Runs once at the selected date and time, then turns off.")
                         .font(.caption).foregroundStyle(.secondary)
+
+                case .recordingStopped:
+                    deckPicker
+                    note("Runs the workflow on the deck that just stopped, so a take can be offloaded the moment it ends. Decks that drop off the network don't count.")
+                    cooldownStepper
+
+                case .deviceOnline:
+                    deckPicker
+                    note("Runs when a deck that was unreachable — or had lost its drive or login — is back online. A deck that's already online when Canopy launches doesn't count.")
+                    cooldownStepper
+
+                case .workflowFinished:
+                    Picker("Workflow", selection: $trigger.sourceWorkflowID) {
+                        Text("Choose a workflow").tag(UUID?.none)
+                        ForEach(sourceWorkflows) { workflow in
+                            Text(workflow.name).tag(Optional(workflow.id))
+                        }
+                    }
+                    Picker("Run when", selection: $trigger.finishCondition) {
+                        ForEach(WorkflowFinishCondition.allCases) { Text($0.title).tag($0) }
+                    }
+                    note("Runs after the chosen workflow finishes. Runs you stop by hand don't count.")
+                    cooldownStepper
+
+                case .folderChanged:
+                    Picker("Folder", selection: $trigger.deviceID) {
+                        Text("Choose a folder").tag(UUID?.none)
+                        ForEach(appState.localFolders) { folder in
+                            Text(folder.name).tag(Optional(folder.id))
+                        }
+                    }
+                    if appState.localFolders.isEmpty {
+                        note("Add a Local Folder in Devices first.")
+                    } else {
+                        note("Checked every 30 seconds. Clips already in the folder are ignored; the workflow runs on the folder once new clips have finished copying in.")
+                    }
+                    cooldownStepper
                 }
             }
             .formStyle(.grouped)
             .padding(.top, 4)
         }
-        .frame(width: 380)
+        .frame(width: 420)
         .background(Color.canopyPaper)
+    }
+
+    private var deckPicker: some View {
+        Picker("Deck", selection: $trigger.deviceID) {
+            Text("Any deck").tag(UUID?.none)
+            ForEach(appState.hyperDecks) { deck in
+                Text(deck.name).tag(Optional(deck.id))
+            }
+        }
+    }
+
+    private var cooldownStepper: some View {
+        Stepper(value: $trigger.cooldownMinutes, in: 1...240) {
+            Text("At most once every \(trigger.cooldownMinutes) min")
+        }
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text).font(.caption).foregroundStyle(.secondary)
     }
 
     private var weekdaySelector: some View {

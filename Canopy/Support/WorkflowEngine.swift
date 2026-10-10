@@ -1798,6 +1798,8 @@ final class WorkflowEngine: ObservableObject {
 
         appState.finish(session)
         NotificationService.sendCompletion(converted: c, errors: e)
+
+        SchedulerService.shared.workflowFinished(workflow, errors: e, wasCancelled: session.isCancelled)
     }
 
     // MARK: - Helpers

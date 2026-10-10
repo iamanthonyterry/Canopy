@@ -227,16 +227,65 @@ struct SyncTask: Identifiable {
 
 // MARK: - Schedule Settings
 
+/// What starts a workflow. `daily` and `oneTime` are clock-based; the rest
+/// react to something happening on a device or in another workflow.
 enum ScheduleMode: String, Codable, CaseIterable, Identifiable {
     case daily
     case oneTime
+    /// A HyperDeck that was recording has stopped.
+    case recordingStopped
+    /// A HyperDeck that was unreachable (or had lost its drive or login) is
+    /// back online.
+    case deviceOnline
+    /// Another workflow finished a run.
+    case workflowFinished
+    /// New clips have finished arriving in a Local Folder.
+    case folderChanged
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .daily:   return "Daily"
-        case .oneTime: return "One Time"
+        case .daily:            return "Daily"
+        case .oneTime:          return "One Time"
+        case .recordingStopped: return "Recording Stops"
+        case .deviceOnline:     return "Device Comes Online"
+        case .workflowFinished: return "Workflow Finishes"
+        case .folderChanged:    return "New Clips in Folder"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .daily:            return "clock"
+        case .oneTime:          return "calendar"
+        case .recordingStopped: return "stop.circle"
+        case .deviceOnline:     return "bolt.horizontal.circle"
+        case .workflowFinished: return "arrow.triangle.branch"
+        case .folderChanged:    return "folder.badge.plus"
+        }
+    }
+
+    /// True for triggers that react to something happening rather than to
+    /// the clock.
+    var isEvent: Bool { self != .daily && self != .oneTime }
+
+    static let scheduleModes: [ScheduleMode] = [.daily, .oneTime]
+    static let eventModes: [ScheduleMode] = [.recordingStopped, .deviceOnline, .workflowFinished, .folderChanged]
+}
+
+/// Which finished runs of the source workflow count for a
+/// `workflowFinished` trigger.
+enum WorkflowFinishCondition: String, Codable, CaseIterable, Identifiable {
+    case any, withoutErrors, withErrors
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .any:           return "Any run"
+        case .withoutErrors: return "Only if it had no errors"
+        case .withErrors:    return "Only if it had errors"
         }
     }
 }
@@ -293,6 +342,17 @@ struct ScheduleSettings: Codable, Hashable, Identifiable {
     // One-time mode — a specific calendar date + time.
     var oneTimeDate: Date = Date().addingTimeInterval(3600)
 
+    // Event modes.
+    /// `recordingStopped` / `deviceOnline`: the HyperDeck to watch (nil =
+    /// any of the workflow's decks). `folderChanged`: the Local Folder to watch.
+    var deviceID: UUID? = nil
+    /// `workflowFinished`: the workflow whose runs fire this trigger.
+    var sourceWorkflowID: UUID? = nil
+    var finishCondition: WorkflowFinishCondition = .any
+    /// Minimum gap between two firings of an event trigger, so a deck that
+    /// flickers or a chain of workflows can't start runs back to back.
+    var cooldownMinutes: Int = 5
+
     var displayTime: String {
         let h = hour % 12 == 0 ? 12 : hour % 12
         let ampm = hour < 12 ? "AM" : "PM"
@@ -324,7 +384,40 @@ struct ScheduleSettings: Codable, Hashable, Identifiable {
         Self.oneTimeDateFormatter.string(from: oneTimeDate)
     }
 
+    /// Short, device-agnostic description for badges and menus.
+    var displaySummary: String {
+        switch mode {
+        case .daily:            return repeatDaily ? "\(displayTime) · \(displayWeekdays)" : displayTime
+        case .oneTime:          return displayOneTimeDate
+        case .recordingStopped: return "When recording stops"
+        case .deviceOnline:     return "When a device comes online"
+        case .workflowFinished: return "When a workflow finishes"
+        case .folderChanged:    return "When new clips arrive"
+        }
+    }
+
     enum CodingKeys: String, CodingKey {
         case isEnabled, mode, hour, minute, repeatDaily, selectedWeekdays, oneTimeDate
+        case deviceID, sourceWorkflowID, finishCondition, cooldownMinutes
+    }
+}
+
+// Decoding lives in an extension so the struct keeps its memberwise and
+// empty initializers. Every key is optional: workflows saved before event
+// triggers existed have none of the event fields.
+extension ScheduleSettings {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? false
+        mode = try c.decodeIfPresent(ScheduleMode.self, forKey: .mode) ?? .daily
+        hour = try c.decodeIfPresent(Int.self, forKey: .hour) ?? 2
+        minute = try c.decodeIfPresent(Int.self, forKey: .minute) ?? 0
+        repeatDaily = try c.decodeIfPresent(Bool.self, forKey: .repeatDaily) ?? true
+        selectedWeekdays = try c.decodeIfPresent(Set<Weekday>.self, forKey: .selectedWeekdays) ?? []
+        oneTimeDate = try c.decodeIfPresent(Date.self, forKey: .oneTimeDate) ?? Date().addingTimeInterval(3600)
+        deviceID = try c.decodeIfPresent(UUID.self, forKey: .deviceID)
+        sourceWorkflowID = try c.decodeIfPresent(UUID.self, forKey: .sourceWorkflowID)
+        finishCondition = try c.decodeIfPresent(WorkflowFinishCondition.self, forKey: .finishCondition) ?? .any
+        cooldownMinutes = try c.decodeIfPresent(Int.self, forKey: .cooldownMinutes) ?? 5
     }
 }

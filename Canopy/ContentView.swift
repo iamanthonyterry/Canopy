@@ -201,7 +201,7 @@ struct ContentView: View {
         if scheduledWorkflows.count == 1, let workflow = scheduledWorkflows.first {
             let active = workflow.activeTriggers
             if active.count == 1, let trigger = active.first {
-                return "\(workflow.name) at \(trigger.mode == .oneTime ? trigger.displayOneTimeDate : trigger.displayTime)"
+                return "\(workflow.name) · \(trigger.displaySummary)"
             }
             return "\(workflow.name) (\(active.count) triggers)"
         }

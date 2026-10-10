@@ -84,8 +84,8 @@ struct MenuBarView: View {
                 ForEach(scheduled) { workflow in
                     ForEach(workflow.activeTriggers) { trigger in
                         Label(
-                            "\(workflow.name) at \(trigger.mode == .oneTime ? trigger.displayOneTimeDate : trigger.displayTime)",
-                            systemImage: "clock"
+                            "\(workflow.name) · \(trigger.displaySummary)",
+                            systemImage: trigger.mode.icon
                         )
                         .foregroundStyle(.secondary)
                     }

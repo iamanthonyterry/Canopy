@@ -143,19 +143,11 @@ struct WorkflowsView: View {
                 Spacer()
                 if workflow.isScheduled {
                     let active = workflow.activeTriggers
-                    let scheduleLabel: String = {
-                        guard active.count == 1, let trigger = active.first else {
-                            return "\(active.count) triggers"
-                        }
-                        if trigger.mode == .oneTime {
-                            return trigger.displayOneTimeDate
-                        }
-                        let time = trigger.displayTime
-                        return trigger.repeatDaily
-                            ? "\(time) · \(trigger.displayWeekdays)"
-                            : time
-                    }()
-                    Label(scheduleLabel, systemImage: "clock.fill")
+                    let scheduleLabel: String = active.count == 1
+                        ? active[0].displaySummary
+                        : "\(active.count) triggers"
+                    let scheduleIcon = active.count == 1 ? active[0].mode.icon : "bolt"
+                    Label(scheduleLabel, systemImage: scheduleIcon)
                         .font(.system(size: 10, weight: .semibold))
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(Color.canopySage.opacity(0.18))
