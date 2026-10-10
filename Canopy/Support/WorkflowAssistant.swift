@@ -10,7 +10,7 @@ import FoundationModels
 @Generable
 enum DraftStepKind {
     case startRecording, stopRecording, wait, createFolder, offload
-    case makeProxies, rename, transcribe, findClips, resizeForSocial, formatDrive, cleanup, notify
+    case makeProxies, rename, transcribe, findClips, queueClips, resizeForSocial, formatDrive, cleanup, notify
 }
 
 @Generable
@@ -36,6 +36,7 @@ struct RequestDetails {
 
     /// Deliberately avoids "shorts"/"reels"/"tiktok", which mean the *format*
     /// (Resize for Social) rather than picking the moments.
+    private static let queueClipsWords = ["export queue", "add to the queue", "add them to the queue", "queue the clips", "queue them", "queue clips", "to the queue"]
     private static let findClipsWords = ["highlight", "best moment", "find clips", "find the clips", "find the best", "find moments", "key moments", "short-form", "social clips", "viral", "social posts", "find short"]
 
     /// Whether the request gives any reason to include this kind of step.
@@ -48,7 +49,8 @@ struct RequestDetails {
         case .makeProxies: return mentions(["proxy", "proxies", "convert", "transcode", "mp4", "compress", "small version", "smaller", "low-res", "lower res", "low res", "editing cop", "edit cop"])
         case .rename:      return mentions(["rename", "name the", "naming", "called"])
         case .transcribe:  return mentions(["transcri", "caption", "subtitle", "speech to text", "srt"])
-        case .findClips:   return mentions(Self.findClipsWords)
+        case .findClips:   return mentions(Self.findClipsWords) || mentions(Self.queueClipsWords)
+        case .queueClips:  return mentions(Self.queueClipsWords)
         case .resizeForSocial: return mentions(["social", "vertical", "reel", "tiktok", "shorts", "instagram", "9:16", "square crop", "4:5"])
         case .formatDrive: return mentions(["format", "erase", "wipe", "clear the", "empty the"])
         case .cleanup:     return mentions(["delete", "clean", "remove", "older than", "old files", "purge", "clear out"])
@@ -68,6 +70,7 @@ struct RequestDetails {
         if mentions(["rename"]) { kinds.append(.rename) }
         if mentions(["transcri", "caption", "subtitle"]) { kinds.append(.transcribe) }
         if mentions(Self.findClipsWords) { kinds.append(.findClips) }
+        if mentions(Self.queueClipsWords) { kinds.append(.queueClips) }
         if mentions(["email me", "notify me", "let me know", "tell me when", "message me"]) { kinds.append(.notify) }
         return kinds
     }
@@ -220,6 +223,8 @@ enum WorkflowDraftBuilder {
                 steps.append(WorkflowStep(action: StepAction.defaultAction(for: .transcribe)))
             case .findClips:
                 steps.append(WorkflowStep(action: StepAction.defaultAction(for: .findClips)))
+            case .queueClips:
+                steps.append(WorkflowStep(action: StepAction.defaultAction(for: .queueClips)))
             case .resizeForSocial:
                 steps.append(WorkflowStep(action: StepAction.defaultAction(for: .reframe)))
             case .formatDrive:
@@ -281,6 +286,7 @@ enum WorkflowDraftBuilder {
         case .rename:         return "Rename"
         case .transcribe:     return "Transcribe"
         case .findClips:      return "Find Clips"
+        case .queueClips:     return "Queue Clips"
         case .resizeForSocial: return "Resize for Social"
         case .formatDrive:    return "Format Drive"
         case .cleanup:        return "Cleanup"
@@ -307,7 +313,7 @@ enum WorkflowAssistant {
     private static let instructions = """
     You turn a request into a workflow for Canopy, an app that offloads footage from HyperDeck recorders.
     Choose steps from: startRecording, stopRecording, wait, createFolder, offload (copy new clips from the \
-    device), makeProxies (small MP4 copies), rename, transcribe (speech to text), findClips (suggest short social clips from a long video), resizeForSocial (vertical or square \
+    device), makeProxies (small MP4 copies), rename, transcribe (speech to text), findClips (suggest short social clips from a long video), queueClips (add those clips to the export queue), resizeForSocial (vertical or square \
     crop for social media that keeps the subject in frame), formatDrive (erases the recorder), cleanup (deletes old files), notify (sends an email).
     Include ONLY steps the request asks for. Do not add recording, waiting, folders, or anything else that \
     was not mentioned. Keep them in the order the request describes.
@@ -358,10 +364,11 @@ private extension DraftStepKind {
         case .rename:         return 6
         case .transcribe:     return 7
         case .findClips:      return 8
-        case .resizeForSocial: return 9
-        case .formatDrive:    return 10
-        case .cleanup:        return 11
-        case .notify:         return 12
+        case .queueClips:     return 9
+        case .resizeForSocial: return 10
+        case .formatDrive:    return 11
+        case .cleanup:        return 12
+        case .notify:         return 13
         }
     }
 }

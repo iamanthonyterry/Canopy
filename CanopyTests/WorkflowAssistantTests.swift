@@ -104,4 +104,12 @@ struct WorkflowAssistantTests {
         #expect(pattern("rename files with the project name and camera") == "{project}_{cam}_{index}")
         #expect(pattern("rename the files") == "{device}_{date}_{index}")
     }
+
+    @Test func builderUnderstandsQueueingClips() {
+        let r = WorkflowDraftBuilder.build(
+            from: WorkflowDraft(name: "Shorts", steps: [.queueClips, .findClips, .offload]),
+            request: "offload, find the best moments and add them to the export queue"
+        )
+        #expect(r.workflow.steps.map(\.kind) == [.sync, .findClips, .queueClips])
+    }
 }
