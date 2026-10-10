@@ -26,7 +26,7 @@ struct WorkflowAssistantTests {
     @Test func offloadPointsAtEarlierCreateFolder() {
         let r = build([.createFolder, .offload], "make a folder and offload into it")
         let folderID = r.workflow.steps[0].id
-        guard case .sync(let destination, _) = r.workflow.steps[1].action else { Issue.record("not sync"); return }
+        guard case .sync(let destination, _, _) = r.workflow.steps[1].action else { Issue.record("not sync"); return }
         #expect(destination == .createdFolder(stepID: folderID))
     }
 
@@ -67,7 +67,7 @@ struct WorkflowAssistantTests {
 
     @Test func verificationOnlyWhenAskedFor() {
         func verify(_ text: String) -> Bool? {
-            guard case .sync(_, let v) = build([.offload], text).workflow.steps.first?.action else { return nil }
+            guard case .sync(_, let v, _) = build([.offload], text).workflow.steps.first?.action else { return nil }
             return v
         }
         #expect(verify("offload my clips") == false)

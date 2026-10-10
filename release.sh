@@ -48,6 +48,7 @@ xcodebuild archive \
   -archivePath "$ARCHIVE_PATH" \
   -configuration Release \
   -destination "generic/platform=macOS" \
+  -skipMacroValidation \
   DEVELOPMENT_TEAM=GAYT638PXY \
   CODE_SIGN_IDENTITY="Developer ID Application" \
   CODE_SIGN_STYLE=Manual \

@@ -15,6 +15,7 @@ struct SettingsView: View {
                 emailSection
                 AlertSettingsView()
                 PerformanceSettingsView()
+                AIModelSettingsView()
                 RemoteControlSettingsView()
                 DataBackupView()
                 //systemSection

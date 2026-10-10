@@ -7,9 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		01419CC2AA40F1E6A9333B16 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = B686A94BB38FB0C0808A07E8 /* MLXLLM */; };
+		0BEF49CF23D7EDCED85E6811 /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = 4EA037117187CDC79B79E0DF /* HuggingFace */; };
+		63A8A1CEE92A259E8D42720D /* MLXFoundationModels in Frameworks */ = {isa = PBXBuildFile; productRef = 04AD71F31915CDA2C17136D6 /* MLXFoundationModels */; };
 		644D5A602FFC42C900204FD5 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 644D5A5F2FFC42C900204FD5 /* Sparkle */; };
 		64E3101C2FDB0EEF00BD0F01 /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 64E3101A2FDB0EEF00BD0F01 /* UserNotifications.framework */; };
 		64E3101D2FDB0EEF00BD0F01 /* UserNotificationsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 64E3101B2FDB0EEF00BD0F01 /* UserNotificationsUI.framework */; };
+		89B7219AAEFA04D3B0DBB7E9 /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = C490C74E38F4F9F589ECB953 /* Tokenizers */; };
+		B9330A6A2E47468EF724DF93 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 4C3BAEA99CBB392CB6ACF539 /* MLXLMCommon */; };
+		E61F0B66E0C4896E8E1F1508 /* MLXHuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = 4F27859973081C2896FDC972 /* MLXHuggingFace */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,6 +69,12 @@
 				644D5A602FFC42C900204FD5 /* Sparkle in Frameworks */,
 				64E3101D2FDB0EEF00BD0F01 /* UserNotificationsUI.framework in Frameworks */,
 				64E3101C2FDB0EEF00BD0F01 /* UserNotifications.framework in Frameworks */,
+				01419CC2AA40F1E6A9333B16 /* MLXLLM in Frameworks */,
+				B9330A6A2E47468EF724DF93 /* MLXLMCommon in Frameworks */,
+				E61F0B66E0C4896E8E1F1508 /* MLXHuggingFace in Frameworks */,
+				63A8A1CEE92A259E8D42720D /* MLXFoundationModels in Frameworks */,
+				0BEF49CF23D7EDCED85E6811 /* HuggingFace in Frameworks */,
+				89B7219AAEFA04D3B0DBB7E9 /* Tokenizers in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -134,6 +146,12 @@
 			name = Canopy;
 			packageProductDependencies = (
 				644D5A5F2FFC42C900204FD5 /* Sparkle */,
+				B686A94BB38FB0C0808A07E8 /* MLXLLM */,
+				4C3BAEA99CBB392CB6ACF539 /* MLXLMCommon */,
+				4F27859973081C2896FDC972 /* MLXHuggingFace */,
+				04AD71F31915CDA2C17136D6 /* MLXFoundationModels */,
+				4EA037117187CDC79B79E0DF /* HuggingFace */,
+				C490C74E38F4F9F589ECB953 /* Tokenizers */,
 			);
 			productName = Canopy;
 			productReference = 648E39C02FD6334E00EE3177 /* Canopy.app */;
@@ -156,8 +174,6 @@
 				648E39D52FD6335100EE3177 /* CanopyTests */,
 			);
 			name = CanopyTests;
-			packageProductDependencies = (
-			);
 			productName = CanopyTests;
 			productReference = 648E39D22FD6335100EE3177 /* CanopyTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -179,8 +195,6 @@
 				648E39DF2FD6335100EE3177 /* CanopyUITests */,
 			);
 			name = CanopyUITests;
-			packageProductDependencies = (
-			);
 			productName = CanopyUITests;
 			productReference = 648E39DC2FD6335100EE3177 /* CanopyUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
@@ -219,6 +233,9 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				644D5A5E2FFC40D300204FD5 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				235E431FB2685D1C1B286092 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+				E81DE8DA31879E0E64265EC2 /* XCRemoteSwiftPackageReference "swift-huggingface" */,
+				5788FC8A07D09E0811815CD6 /* XCRemoteSwiftPackageReference "swift-transformers" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 648E39C12FD6334E00EE3177 /* Products */;
@@ -623,6 +640,22 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		235E431FB2685D1C1B286092 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.32.3;
+			};
+		};
+		5788FC8A07D09E0811815CD6 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-transformers";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.3.0;
+			};
+		};
 		644D5A5E2FFC40D300204FD5 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
@@ -631,13 +664,51 @@
 				minimumVersion = 2.9.4;
 			};
 		};
+		E81DE8DA31879E0E64265EC2 /* XCRemoteSwiftPackageReference "swift-huggingface" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-huggingface";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		04AD71F31915CDA2C17136D6 /* MLXFoundationModels */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 235E431FB2685D1C1B286092 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXFoundationModels;
+		};
+		4C3BAEA99CBB392CB6ACF539 /* MLXLMCommon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 235E431FB2685D1C1B286092 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLMCommon;
+		};
+		4EA037117187CDC79B79E0DF /* HuggingFace */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E81DE8DA31879E0E64265EC2 /* XCRemoteSwiftPackageReference "swift-huggingface" */;
+			productName = HuggingFace;
+		};
+		4F27859973081C2896FDC972 /* MLXHuggingFace */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 235E431FB2685D1C1B286092 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXHuggingFace;
+		};
 		644D5A5F2FFC42C900204FD5 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 644D5A5E2FFC40D300204FD5 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		B686A94BB38FB0C0808A07E8 /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 235E431FB2685D1C1B286092 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLLM;
+		};
+		C490C74E38F4F9F589ECB953 /* Tokenizers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5788FC8A07D09E0811815CD6 /* XCRemoteSwiftPackageReference "swift-transformers" */;
+			productName = Tokenizers;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -22,6 +22,47 @@ struct WorkflowDraft {
     var steps: [DraftStepKind]
 }
 
+// MARK: - Generable edit
+// For changing a workflow that already exists. The model only says *what*
+// kind of change and to *which* step kind; `WorkflowEditBuilder` applies it.
+
+@Generable
+enum DraftEditAction {
+    /// Add a new step.
+    case add
+    /// Remove every step of that kind.
+    case remove
+    /// Move an existing step to a different place.
+    case move
+    /// Change a setting on an existing step (wait length, verification, days to keep, URL…).
+    case update
+}
+
+@Generable
+enum DraftPlacement {
+    /// Where that step would normally run — use this unless the request says where.
+    case automatic
+    case start, end, before, after
+}
+
+@Generable
+struct DraftEdit {
+    var action: DraftEditAction
+    var step: DraftStepKind
+
+    @Guide(description: "For add and move: where it goes. Use automatic unless the request names a position.")
+    var placement: DraftPlacement
+
+    @Guide(description: "Only when placement is before or after: the existing step it goes next to")
+    var relativeTo: DraftStepKind?
+}
+
+@Generable
+struct WorkflowEditDraft {
+    @Guide(description: "Only the changes the request asks for, in order. Empty if it asks for no change to the steps.", .maximumCount(8))
+    var edits: [DraftEdit]
+}
+
 // MARK: - Reading details from the request
 // Numbers and options come from the user's own words, not from the model — a
 // small model invents plausible-looking values (schedules, waits, verification)
@@ -181,6 +222,44 @@ struct RequestDetails {
         return (parts + [RenameToken.index.rawValue]).joined(separator: "_")
     }
 
+    /// "remove the schedule" / "only run it manually".
+    var removesSchedule: Bool {
+        mentions(["remove the schedule", "remove the trigger", "no schedule", "no longer run on a schedule", "stop running every", "run it manually", "only run manually", "manual only", "turn off the schedule", "unschedule", "delete the schedule"])
+    }
+
+    /// "rename the workflow to Friday Ingest" / "call this workflow Friday Ingest".
+    var newWorkflowName: String? {
+        guard let m = capture(#"(?:rename|call|name)\s+(?:the|this|my)\s+workflow\s+(?:to\s+|as\s+)?["“]?([a-z0-9][a-z0-9 _\-]{0,40})"#) else { return nil }
+        let raw = m[0].trimmingCharacters(in: .whitespaces)
+        return raw.isEmpty ? nil : raw
+    }
+
+    /// Whether the request refers to this kind of step by name, for removing
+    /// or changing one — looser than `supports`, which decides whether a
+    /// request *wants a new one*.
+    func refersTo(_ kind: DraftStepKind) -> Bool {
+        let words: [String]
+        switch kind {
+        case .startRecording, .stopRecording: words = ["record"]
+        case .wait:        words = ["wait", "delay", "pause"]
+        case .createFolder: words = ["folder"]
+        case .offload:     words = ["offload", "sync", "download", "copy", "ingest", "import", "verif"]
+        case .makeProxies: words = ["proxy", "proxies", "convert", "transcode"]
+        case .rename:      words = ["rename", "naming", "file name", "filename"]
+        case .transcribe:  words = ["transcri", "subtitle", "caption"]
+        case .findClips:   words = ["find clips", "highlight", "moments", "clips"]
+        case .queueClips:  words = ["queue"]
+        case .writeCopy:   words = ["post copy", "caption", "hashtag", "copy"]
+        case .webhook:     words = ["webhook", "slack", "discord", "zapier", "url"]
+        case .copyTo:      words = ["copy to", "second copy", "backup", "back up", "mirror"]
+        case .resizeForSocial: words = ["resize", "social", "vertical", "reframe", "crop"]
+        case .formatDrive: words = ["format", "erase", "wipe"]
+        case .cleanup:     words = ["cleanup", "clean up", "delete", "older than", "retention", "days"]
+        case .notify:      words = ["notif", "email", "alert", "message"]
+        }
+        return mentions(words)
+    }
+
     // MARK: helpers
 
     private func capture(_ pattern: String) -> [String]? {
@@ -232,81 +311,15 @@ enum WorkflowDraftBuilder {
                 dropped.append(title(for: kind))
                 continue
             }
-            switch kind {
-            case .startRecording:
-                steps.append(WorkflowStep(action: .controlDeck(command: .start, stopAfterMinutes: details.stopAfterMinutes)))
-            case .stopRecording:
-                steps.append(WorkflowStep(action: .controlDeck(command: .stop, stopAfterMinutes: nil)))
-            case .wait:
-                steps.append(WorkflowStep(action: .wait(minutes: details.waitMinutes ?? 60)))
-            case .createFolder:
-                steps.append(WorkflowStep(action: .createFolder(cloudStoreID: nil, parentPath: "", nameTemplate: details.folderName, groupByDevice: false)))
-            case .offload:
-                steps.append(WorkflowStep(action: .sync(destination: .global, verify: details.wantsVerification)))
-            case .makeProxies:
-                // The app's own default deletes the originals; a plain-language
-                // request has to say so explicitly.
-                steps.append(WorkflowStep(action: .convert(preset: .fast, deleteOriginal: details.deletesOriginals, maxParallelJobs: 2, convertInPlace: false)))
-            case .rename:
-                steps.append(WorkflowStep(action: .rename(pattern: details.renamePattern)))
-            case .transcribe:
-                steps.append(WorkflowStep(action: StepAction.defaultAction(for: .transcribe)))
-            case .findClips:
-                steps.append(WorkflowStep(action: StepAction.defaultAction(for: .findClips)))
-            case .queueClips:
-                steps.append(WorkflowStep(action: StepAction.defaultAction(for: .queueClips)))
-            case .writeCopy:
-                steps.append(WorkflowStep(action: StepAction.defaultAction(for: .writeCopy)))
-            case .webhook:
-                // Only a URL the request actually contains; never made up.
-                steps.append(WorkflowStep(action: .webhook(url: details.urlInRequest ?? "", format: details.webhookFormat)))
-            case .copyTo:
-                steps.append(WorkflowStep(action: StepAction.defaultAction(for: .copyTo)))
-            case .resizeForSocial:
-                steps.append(WorkflowStep(action: StepAction.defaultAction(for: .reframe)))
-            case .formatDrive:
-                steps.append(WorkflowStep(action: .format, requiresConfirmation: true))
-            case .cleanup:
-                steps.append(WorkflowStep(action: .cleanup(retentionDays: details.retentionDays ?? 30), requiresConfirmation: true))
-            case .notify:
-                steps.append(WorkflowStep(action: .notify(header: "Workflow update", message: "", recipients: [], sendPerDrive: true)))
-            }
+            steps.append(makeStep(kind, details: details))
         }
 
         if !dropped.isEmpty {
             notes.append("Left out \(dropped.joined(separator: ", ")) — your request didn't mention it.")
         }
 
-        if let folderIndex = steps.firstIndex(where: { $0.kind == .createFolder }) {
-            let folderID = steps[folderIndex].id
-            for i in steps.indices where i > folderIndex {
-                if case .sync(.global, let verify, let deleteFromDevice) = steps[i].action {
-                    steps[i].action = .sync(destination: .createdFolder(stepID: folderID), verify: verify, deleteFromDevice: deleteFromDevice)
-                }
-            }
-        }
-
-        if details.mentions(["upload", "publish it", "publish them", "post it to", "post them to"]) {
-            notes.append("Uploading is coming soon, so I left it out — the finished files are ready for you to upload yourself.")
-        }
-        if details.ambiguousTime {
-            notes.append("Couldn't tell if the schedule time is AM or PM — set it under Schedule in the editor.")
-        }
-        if steps.contains(where: { step in
-            if case .webhook(let url, _) = step.action { return url.isEmpty }
-            return false
-        }) {
-            notes.append("Paste the webhook URL into the Send Webhook step.")
-        }
-        if steps.contains(where: { $0.kind == .copyTo }) {
-            notes.append("Choose where the Copy To step should copy to — it defaults to the global destination.")
-        }
-        if steps.contains(where: { $0.kind == .notify }) {
-            notes.append("Add recipients to the Notification step — I can't pick email addresses for you.")
-        }
-        if steps.contains(where: { $0.kind == .format || $0.kind == .cleanup }) {
-            notes.append("Destructive steps are set to ask for confirmation before they run.")
-        }
+        linkOffloadsToCreatedFolder(&steps)
+        notes += followUpNotes(for: steps, details: details)
 
         var triggers: [ScheduleSettings] = []
         if let time = details.dailyTime {
@@ -324,7 +337,88 @@ enum WorkflowDraftBuilder {
         return WorkflowDraftResult(workflow: workflow, notes: notes)
     }
 
-    private static func title(for kind: DraftStepKind) -> String {
+    /// One new step for a kind, with details read from the request.
+    static func makeStep(_ kind: DraftStepKind, details: RequestDetails) -> WorkflowStep {
+        switch kind {
+        case .startRecording:
+            return WorkflowStep(action: .controlDeck(command: .start, stopAfterMinutes: details.stopAfterMinutes))
+        case .stopRecording:
+            return WorkflowStep(action: .controlDeck(command: .stop, stopAfterMinutes: nil))
+        case .wait:
+            return WorkflowStep(action: .wait(minutes: details.waitMinutes ?? 60))
+        case .createFolder:
+            return WorkflowStep(action: .createFolder(cloudStoreID: nil, parentPath: "", nameTemplate: details.folderName, groupByDevice: false))
+        case .offload:
+            return WorkflowStep(action: .sync(destination: .global, verify: details.wantsVerification))
+        case .makeProxies:
+            // The app's own default deletes the originals; a plain-language
+            // request has to say so explicitly.
+            return WorkflowStep(action: .convert(preset: .fast, deleteOriginal: details.deletesOriginals, maxParallelJobs: 2, convertInPlace: false))
+        case .rename:
+            return WorkflowStep(action: .rename(pattern: details.renamePattern))
+        case .transcribe:
+            return WorkflowStep(action: StepAction.defaultAction(for: .transcribe))
+        case .findClips:
+            return WorkflowStep(action: StepAction.defaultAction(for: .findClips))
+        case .queueClips:
+            return WorkflowStep(action: StepAction.defaultAction(for: .queueClips))
+        case .writeCopy:
+            return WorkflowStep(action: StepAction.defaultAction(for: .writeCopy))
+        case .webhook:
+            // Only a URL the request actually contains; never made up.
+            return WorkflowStep(action: .webhook(url: details.urlInRequest ?? "", format: details.webhookFormat))
+        case .copyTo:
+            return WorkflowStep(action: StepAction.defaultAction(for: .copyTo))
+        case .resizeForSocial:
+            return WorkflowStep(action: StepAction.defaultAction(for: .reframe))
+        case .formatDrive:
+            return WorkflowStep(action: .format, requiresConfirmation: true)
+        case .cleanup:
+            return WorkflowStep(action: .cleanup(retentionDays: details.retentionDays ?? 30), requiresConfirmation: true)
+        case .notify:
+            return WorkflowStep(action: .notify(header: "Workflow update", message: "", recipients: [], sendPerDrive: true))
+        }
+    }
+
+    /// Points global-destination Offloads that follow a Create Folder step at it.
+    static func linkOffloadsToCreatedFolder(_ steps: inout [WorkflowStep]) {
+        guard let folderIndex = steps.firstIndex(where: { $0.kind == .createFolder }) else { return }
+        let folderID = steps[folderIndex].id
+        for i in steps.indices where i > folderIndex {
+            if case .sync(.global, let verify, let deleteFromDevice) = steps[i].action {
+                steps[i].action = .sync(destination: .createdFolder(stepID: folderID), verify: verify, deleteFromDevice: deleteFromDevice)
+            }
+        }
+    }
+
+    /// What the user still has to fill in for the given (new) steps.
+    static func followUpNotes(for steps: [WorkflowStep], details: RequestDetails) -> [String] {
+        var notes: [String] = []
+        if details.mentions(["upload", "publish it", "publish them", "post it to", "post them to"]) {
+            notes.append("Uploading is coming soon, so I left it out — the finished files are ready for you to upload yourself.")
+        }
+        if details.ambiguousTime {
+            notes.append("Couldn't tell if the schedule time is AM or PM — set it under Starts when.")
+        }
+        if steps.contains(where: { step in
+            if case .webhook(let url, _) = step.action { return url.isEmpty }
+            return false
+        }) {
+            notes.append("Paste the webhook URL into the Send Webhook step.")
+        }
+        if steps.contains(where: { $0.kind == .copyTo }) {
+            notes.append("Choose where the Copy To step should copy to — it defaults to the global destination.")
+        }
+        if steps.contains(where: { $0.kind == .notify }) {
+            notes.append("Add recipients to the Notification step — I can't pick email addresses for you.")
+        }
+        if steps.contains(where: { $0.kind == .format || $0.kind == .cleanup }) {
+            notes.append("Destructive steps are set to ask for confirmation before they run.")
+        }
+        return notes
+    }
+
+    static func title(for kind: DraftStepKind) -> String {
         switch kind {
         case .startRecording: return "Start Recording"
         case .stopRecording:  return "Stop Recording"
@@ -347,16 +441,178 @@ enum WorkflowDraftBuilder {
     }
 }
 
+// MARK: - Edit → Workflow
+
+enum WorkflowEditBuilder {
+    /// Applies the model's edits to an existing workflow's steps and triggers.
+    /// - Anything the request doesn't refer to is left alone.
+    /// - New steps and their details are built the same way as for a draft.
+    /// - Schedules, renames and step settings are read from the request text.
+    static func apply(_ draft: WorkflowEditDraft, to workflow: Workflow, request: String) -> WorkflowDraftResult {
+        let details = RequestDetails(request)
+        var result = workflow
+        var notes: [String] = []
+        var summary: [String] = []
+        var added: [WorkflowStep] = []
+        var addedFolder = false
+
+        for edit in draft.edits {
+            let title = WorkflowDraftBuilder.title(for: edit.step)
+            switch edit.action {
+            case .add:
+                guard details.supports(edit.step) else {
+                    notes.append("Didn't add \(title) — your request didn't mention it.")
+                    continue
+                }
+                let step = WorkflowDraftBuilder.makeStep(edit.step, details: details)
+                let index = insertionIndex(for: edit, in: result.steps)
+                result.steps.insert(step, at: index)
+                added.append(step)
+                if step.kind == .createFolder { addedFolder = true }
+                summary.append("Added \(title)")
+
+            case .remove:
+                guard details.refersTo(edit.step) else {
+                    notes.append("Kept \(title) — your request didn't mention it.")
+                    continue
+                }
+                let before = result.steps.count
+                result.steps.removeAll { edit.step.matches($0) }
+                let removed = before - result.steps.count
+                if removed > 0 { summary.append("Removed \(title)\(removed > 1 ? " (\(removed) steps)" : "")") }
+                else { notes.append("There's no \(title) step to remove.") }
+
+            case .move:
+                guard details.refersTo(edit.step),
+                      let from = result.steps.firstIndex(where: { edit.step.matches($0) }) else {
+                    notes.append("Couldn't find \(title) to move.")
+                    continue
+                }
+                guard edit.placement != .automatic else { continue }
+                let step = result.steps.remove(at: from)
+                let index = insertionIndex(for: edit, in: result.steps)
+                result.steps.insert(step, at: index)
+                summary.append("Moved \(title)")
+
+            case .update:
+                guard details.refersTo(edit.step) else { continue }
+                var changed = false
+                for i in result.steps.indices where edit.step.matches(result.steps[i]) {
+                    if update(&result.steps[i], details: details) { changed = true }
+                }
+                if changed { summary.append("Updated \(title)") }
+                else { notes.append("Couldn't tell what to change on \(title) — open it to adjust.") }
+            }
+        }
+
+        if addedFolder {
+            // Only a folder this edit just added: re-pointing offloads at a
+            // folder the user already had would change settings they chose.
+            WorkflowDraftBuilder.linkOffloadsToCreatedFolder(&result.steps)
+        }
+
+        // Schedule: read straight from the request, never from the model.
+        if details.removesSchedule, !result.triggers.isEmpty {
+            result.triggers.removeAll()
+            summary.append("Removed the schedule")
+        } else if let time = details.dailyTime {
+            if let i = result.triggers.firstIndex(where: { $0.mode == .daily }) {
+                result.triggers[i].hour = time.hour
+                result.triggers[i].minute = time.minute
+                result.triggers[i].isEnabled = true
+                summary.append("Changed the schedule to \(result.triggers[i].displayTime)")
+            } else {
+                var trigger = ScheduleSettings()
+                trigger.isEnabled = true
+                trigger.mode = .daily
+                trigger.hour = time.hour
+                trigger.minute = time.minute
+                trigger.repeatDaily = true
+                result.triggers.append(trigger)
+                summary.append("Scheduled daily at \(trigger.displayTime)")
+            }
+        }
+
+        if let name = details.newWorkflowName, name.caseInsensitiveCompare(result.name) != .orderedSame {
+            result.name = name
+            summary.append("Renamed to \(name)")
+        }
+
+        notes += WorkflowDraftBuilder.followUpNotes(for: added, details: details)
+        return WorkflowDraftResult(workflow: result, notes: summary + notes)
+    }
+
+    /// Where a step should land: next to the step it's relative to, at an
+    /// end, or — by default — after the last step that normally runs before it.
+    private static func insertionIndex(for edit: DraftEdit, in steps: [WorkflowStep]) -> Int {
+        switch edit.placement {
+        case .start: return 0
+        case .end:   return steps.count
+        case .before, .after:
+            if let other = edit.relativeTo,
+               let i = steps.firstIndex(where: { other.matches($0) }) {
+                return edit.placement == .before ? i : i + 1
+            }
+            fallthrough
+        case .automatic:
+            let order = edit.step.runOrder
+            let lastBefore = steps.lastIndex { step in
+                DraftStepKind(step: step).map { $0.runOrder <= order } ?? false
+            }
+            return lastBefore.map { $0 + 1 } ?? 0
+        }
+    }
+
+    /// Applies whichever setting the request states to one existing step.
+    private static func update(_ step: inout WorkflowStep, details: RequestDetails) -> Bool {
+        switch step.action {
+        case .wait:
+            guard let minutes = details.waitMinutes ?? details.stopAfterMinutes else { return false }
+            step.action = .wait(minutes: minutes)
+            return true
+        case .cleanup:
+            guard let days = details.retentionDays else { return false }
+            step.action = .cleanup(retentionDays: days)
+            return true
+        case .sync(let destination, let verify, let deleteFromDevice):
+            if details.mentions(["without verif", "no verif", "skip verif", "don't verify", "turn off verif"]) {
+                step.action = .sync(destination: destination, verify: false, deleteFromDevice: deleteFromDevice)
+                return true
+            }
+            if details.wantsVerification {
+                step.action = .sync(destination: destination, verify: true, deleteFromDevice: deleteFromDevice)
+                return verify == false
+            }
+            return false
+        case .controlDeck(let command, _):
+            guard command == .start, let minutes = details.stopAfterMinutes else { return false }
+            step.action = .controlDeck(command: command, stopAfterMinutes: minutes)
+            return true
+        case .webhook(_, let format):
+            guard let url = details.urlInRequest else { return false }
+            step.action = .webhook(url: url, format: format)
+            return true
+        case .rename:
+            step.action = .rename(pattern: details.renamePattern)
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 // MARK: - Assistant
 
 enum WorkflowAssistantError: LocalizedError {
     case modelUnavailable(String)
     case emptyResult
+    case noChange
 
     var errorDescription: String? {
         switch self {
         case .modelUnavailable(let why): return why
         case .emptyResult: return "I couldn't turn that into any steps. Try describing what should happen in order."
+        case .noChange: return "I couldn't find a change to make. Try naming the step, like \"remove the wait\" or \"add an email at the end\"."
         }
     }
 }
@@ -376,28 +632,53 @@ enum WorkflowAssistant {
     "offload and transcribe everything" -> offload, transcribe
     """
 
-    /// nil when the on-device model is ready, otherwise a user-facing reason.
-    static var unavailableReason: String? {
-        switch SystemLanguageModel.default.availability {
-        case .available:
-            return nil
-        case .unavailable(.deviceNotEligible):
-            return "This Mac doesn't support Apple Intelligence, which the workflow builder needs."
-        case .unavailable(.appleIntelligenceNotEnabled):
-            return "Turn on Apple Intelligence in System Settings to use the workflow builder."
-        case .unavailable(.modelNotReady):
-            return "Apple Intelligence is still downloading its model. Try again in a few minutes."
-        case .unavailable:
-            return "The on-device model isn't available right now."
+    /// nil when a model is ready to answer, otherwise a user-facing reason.
+    static var unavailableReason: String? { AIModels.shared.unavailableReason }
+
+    private static let editInstructions = """
+    You change an existing workflow for Canopy, an app that offloads footage from HyperDeck recorders.
+    You are given the workflow's current steps and a request to change it. List ONLY the changes the \
+    request asks for. Do not change anything it doesn't mention.
+    Actions: add (a new step), remove (delete a step), move (change where a step runs), update (change a \
+    setting on a step, such as how long to wait, verification, or days to keep files).
+    Step names: startRecording, stopRecording, wait, createFolder, offload, makeProxies, rename, transcribe, \
+    findClips, queueClips, writeCopy, webhook, copyTo, resizeForSocial, formatDrive, cleanup, notify.
+    Use placement automatic unless the request says where. A change to the schedule or the workflow's name \
+    is not a step change: return no edits for it.
+    Examples:
+    steps: offload. "add a notification" -> add notify, automatic
+    steps: offload, makeProxies, notify. "remove the proxies" -> remove makeProxies
+    steps: offload, wait. "make the wait 30 minutes" -> update wait
+    steps: offload, makeProxies. "do the proxies before the offload" -> move makeProxies, before, relativeTo offload
+    steps: offload, cleanup. "run every night at 2am" -> no edits
+    """
+
+    /// Applies a plain-language change to an existing workflow.
+    static func edit(_ workflow: Workflow, request: String) async throws -> WorkflowDraftResult {
+        if let reason = unavailableReason { throw WorkflowAssistantError.modelUnavailable(reason) }
+
+        let current = workflow.steps.isEmpty
+            ? "(no steps yet)"
+            : workflow.steps.compactMap { DraftStepKind(step: $0)?.promptName }.joined(separator: ", ")
+        let prompt = "Current steps: \(current)\nRequest: \(request)"
+
+        let edits = try await AIModels.shared.generate(
+            WorkflowEditDraft.self, instructions: editInstructions, prompt: prompt)
+        let result = WorkflowEditBuilder.apply(edits, to: workflow, request: request)
+        guard result.workflow.steps != workflow.steps
+                || result.workflow.triggers != workflow.triggers
+                || result.workflow.name != workflow.name else {
+            throw WorkflowAssistantError.noChange
         }
+        return result
     }
 
     static func draft(from request: String) async throws -> WorkflowDraftResult {
         if let reason = unavailableReason { throw WorkflowAssistantError.modelUnavailable(reason) }
 
-        let session = LanguageModelSession(instructions: instructions)
-        let response = try await session.respond(to: request, generating: WorkflowDraft.self, options: GenerationOptions(samplingMode: .greedy))
-        let result = WorkflowDraftBuilder.build(from: response.content, request: request)
+        let draft = try await AIModels.shared.generate(
+            WorkflowDraft.self, instructions: instructions, prompt: request)
+        let result = WorkflowDraftBuilder.build(from: draft, request: request)
         guard !result.workflow.steps.isEmpty else { throw WorkflowAssistantError.emptyResult }
         return result
     }
@@ -424,6 +705,59 @@ private extension DraftStepKind {
         case .cleanup:        return 14
         case .webhook:        return 15
         case .notify:         return 16
+        }
+    }
+}
+
+@MainActor
+extension DraftStepKind {
+    /// The draft kind that describes an existing step, if there is one.
+    init?(step: WorkflowStep) {
+        switch step.action {
+        case .controlDeck(let command, _): self = command == .start ? .startRecording : .stopRecording
+        default:
+            switch step.kind {
+            case .wait:         self = .wait
+            case .createFolder: self = .createFolder
+            case .sync:         self = .offload
+            case .convert:      self = .makeProxies
+            case .rename:       self = .rename
+            case .transcribe:   self = .transcribe
+            case .findClips:    self = .findClips
+            case .queueClips:   self = .queueClips
+            case .writeCopy:    self = .writeCopy
+            case .webhook:      self = .webhook
+            case .copyTo:       self = .copyTo
+            case .reframe:      self = .resizeForSocial
+            case .format:       self = .formatDrive
+            case .cleanup:      self = .cleanup
+            case .notify:       self = .notify
+            case .controlDeck, .upload, .triggerWorkflow: return nil
+            }
+        }
+    }
+
+    func matches(_ step: WorkflowStep) -> Bool { DraftStepKind(step: step) == self }
+
+    var promptName: String {
+        switch self {
+        case .startRecording: return "startRecording"
+        case .stopRecording:  return "stopRecording"
+        case .wait:           return "wait"
+        case .createFolder:   return "createFolder"
+        case .offload:        return "offload"
+        case .makeProxies:    return "makeProxies"
+        case .rename:         return "rename"
+        case .transcribe:     return "transcribe"
+        case .findClips:      return "findClips"
+        case .queueClips:     return "queueClips"
+        case .writeCopy:      return "writeCopy"
+        case .webhook:        return "webhook"
+        case .copyTo:         return "copyTo"
+        case .resizeForSocial: return "resizeForSocial"
+        case .formatDrive:    return "formatDrive"
+        case .cleanup:        return "cleanup"
+        case .notify:         return "notify"
         }
     }
 }

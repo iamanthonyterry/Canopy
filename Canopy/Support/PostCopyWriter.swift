@@ -54,17 +54,17 @@ enum PostCopyWriter {
         guard !words.isEmpty else { throw PostCopyError.nothingSaid }
         let spoken = words.prefix(maxWords).joined(separator: " ")
 
-        let session = LanguageModelSession(instructions: """
+        let instructions = """
         You write social media post copy for a short video clip, using only what is said in it.
         Style: \(platform.styleGuidance) Keep the caption under \(platform.maxCaptionLength) characters.
         Do not invent facts, names, links or claims that aren't in the transcript.
-        """)
-        let response = try await session.respond(
-            to: "Clip transcript:\n\(spoken)\n\nWrite the post copy.",
-            generating: GeneratedPostCopy.self,
-            options: GenerationOptions(samplingMode: .greedy)
+        """
+        let generated = try await AIModels.shared.generate(
+            GeneratedPostCopy.self,
+            instructions: instructions,
+            prompt: "Clip transcript:\n\(spoken)\n\nWrite the post copy."
         )
-        return normalize(response.content, platform: platform, hashtagCount: hashtagCount, fallbackTitle: clip.title)
+        return normalize(generated, platform: platform, hashtagCount: hashtagCount, fallbackTitle: clip.title)
     }
 
     /// Cleans what the model returned: hashtags without "#" or spaces,

@@ -4,13 +4,26 @@ struct WorkflowsView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var engine = WorkflowEngine.shared
 
-    @State private var editingWorkflow: Workflow? = nil
-    @State private var isCreating = false
+    /// What the full-screen builder is showing, or nil for the workflow list.
+    private enum BuilderRoute: Identifiable {
+        case new
+        case draft(Workflow)
+        case edit(Workflow)
+
+        var id: String {
+            switch self {
+            case .new:            return "new"
+            case .draft(let w):   return "draft-\(w.id)"
+            case .edit(let w):    return "edit-\(w.id)"
+            }
+        }
+    }
+
+    @State private var builder: BuilderRoute? = nil
     @State private var isDescribing = false
-    /// A draft from the builder waiting to be opened in the editor once the
-    /// builder sheet has finished dismissing.
+    /// A draft from the assistant sheet waiting to be opened in the builder
+    /// once the sheet has finished dismissing.
     @State private var pendingDraft: Workflow? = nil
-    @State private var draftWorkflow: Workflow? = nil
     @State private var workflowPendingDelete: Workflow? = nil
 
     private var inProgress: [WorkflowRunSession] {
@@ -18,6 +31,30 @@ struct WorkflowsView: View {
     }
 
     var body: some View {
+        if let route = builder {
+            builderView(for: route)
+        } else {
+            listBody
+        }
+    }
+
+    @ViewBuilder
+    private func builderView(for route: BuilderRoute) -> some View {
+        let close = { builder = nil }
+        Group {
+            switch route {
+            case .new:
+                WorkflowBuilderView(workflow: nil, onClose: close)
+            case .draft(let draft):
+                WorkflowBuilderView(workflow: nil, prefill: draft, onClose: close)
+            case .edit(let workflow):
+                WorkflowBuilderView(workflow: workflow, onClose: close)
+            }
+        }
+        .id(route.id)
+    }
+
+    private var listBody: some View {
         VStack(spacing: 0) {
             header
             rule
@@ -38,20 +75,11 @@ struct WorkflowsView: View {
             }
         }
         .background(Color.canopyPaper)
-        .sheet(isPresented: $isCreating) {
-            WorkflowEditorSheet(workflow: nil).environmentObject(appState)
-        }
         .sheet(isPresented: $isDescribing, onDismiss: {
-            draftWorkflow = pendingDraft
+            if let draft = pendingDraft { builder = .draft(draft) }
             pendingDraft = nil
         }) {
             WorkflowAssistantSheet { pendingDraft = $0 }
-        }
-        .sheet(item: $draftWorkflow) { draft in
-            WorkflowEditorSheet(workflow: nil, prefill: draft).environmentObject(appState)
-        }
-        .sheet(item: $editingWorkflow) { workflow in
-            WorkflowEditorSheet(workflow: workflow).environmentObject(appState)
         }
         .alert(
             "Delete \"\(workflowPendingDelete?.name ?? "")\"?",
@@ -83,7 +111,7 @@ struct WorkflowsView: View {
                 Label("Describe It", systemImage: "sparkles")
             }
             Button {
-                isCreating = true
+                builder = .new
             } label: {
                 Label("New Workflow", systemImage: "plus")
             }
@@ -109,7 +137,7 @@ struct WorkflowsView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
             Button {
-                isCreating = true
+                builder = .new
             } label: {
                 Label("Create a Workflow", systemImage: "plus")
             }
@@ -170,7 +198,7 @@ struct WorkflowsView: View {
 
             HStack {
                 Button {
-                    editingWorkflow = workflow
+                    builder = .edit(workflow)
                 } label: {
                     Image(systemName: "pencil")
                 }.buttonStyle(.borderless)

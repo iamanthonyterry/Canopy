@@ -178,6 +178,12 @@ enum ClipFinder {
     ) async throws -> [ClipCandidate] {
         if let reason = WorkflowAssistant.unavailableReason { throw ClipFinderError.modelUnavailable(reason) }
 
+        // A stronger model can weigh much more of the video at once, which
+        // is what lets it tell a real standout moment from a merely
+        // decent one, so give it bigger windows.
+        var options = options
+        if AIModels.shared.isEnhancedActive { options.windowWords = max(options.windowWords, 900) }
+
         let segments = transcript.segments
         let windows = ClipSelection.windows(for: segments, words: options.windowWords)
         var candidates: [ClipCandidate] = []
@@ -192,12 +198,9 @@ enum ClipFinder {
             Pick up to 2 moments of \(Int(options.minDuration)) to \(Int(options.maxDuration)) seconds.
             """
             do {
-                let session = LanguageModelSession(instructions: instructions)
-                let response = try await session.respond(
-                    to: prompt, generating: ClipPicks.self,
-                    options: GenerationOptions(samplingMode: .greedy)
-                )
-                for pick in response.content.picks {
+                let picks = try await AIModels.shared.generate(
+                    ClipPicks.self, instructions: instructions, prompt: prompt)
+                for pick in picks.picks {
                     let raw = RawClipPick(startIndex: pick.startIndex, endIndex: pick.endIndex,
                                           title: pick.title, score: pick.score, reason: pick.reason)
                     // Only accept picks that point inside the window we showed.
