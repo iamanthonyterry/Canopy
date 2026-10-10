@@ -51,6 +51,12 @@ jobs:
           sudo xcode-select -s "$XCODE"
           xcodebuild -version
 
+      # mlx-swift compiles .metal shaders, and the Metal toolchain is a separate
+      # download that the runner image doesn't ship with.
+      - name: Install Metal toolchain
+        if: steps.version.outputs.exists == 'false'
+        run: xcodebuild -downloadComponent MetalToolchain
+
       - name: Import Developer ID certificate
         if: steps.version.outputs.exists == 'false'
         env:
