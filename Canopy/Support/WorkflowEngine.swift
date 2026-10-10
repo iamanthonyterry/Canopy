@@ -538,8 +538,8 @@ final class WorkflowEngine: ObservableObject {
             await runConvert(context: &context, preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs, convertInPlace: convertInPlace)
         case .rename(let pattern):
             runRename(context: &context, pattern: pattern)
-        case .transcribe(let locale, let writeSRT, let skipExisting):
-            await runTranscribe(context: &context, locale: locale, writeSRT: writeSRT, skipExisting: skipExisting)
+        case .transcribe(let locale, let writeSRT, let skipExisting, let deleteWhenDone):
+            await runTranscribe(context: &context, locale: locale, writeSRT: writeSRT, skipExisting: skipExisting, deleteWhenDone: deleteWhenDone)
         case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions):
             await runFindClips(context: &context, maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds,
                                exportFormat: exportFormat, captions: captions)
@@ -1130,7 +1130,7 @@ final class WorkflowEngine: ObservableObject {
 
     // MARK: - Transcribe step
 
-    private func runTranscribe(context: inout StepContext, locale: String, writeSRT: Bool, skipExisting: Bool) async {
+    private func runTranscribe(context: inout StepContext, locale: String, writeSRT: Bool, skipExisting: Bool, deleteWhenDone: Bool) async {
         let session = context.session
 
         // Nothing handed down from an earlier step (e.g. a workflow that is
@@ -1159,7 +1159,11 @@ final class WorkflowEngine: ObservableObject {
             do {
                 let transcript = try await TranscriptionService.transcribe(video: url, localeID: locale)
                 try transcript.write(for: url)
-                if writeSRT { try transcript.writeSRT(for: url) }
+                if deleteWhenDone { session.transcriptFilesToDelete.insert(Transcript.sidecarURL(for: url)) }
+                if writeSRT {
+                    try transcript.writeSRT(for: url)
+                    if deleteWhenDone { session.transcriptFilesToDelete.insert(Transcript.srtURL(for: url)) }
+                }
                 session.log("  📝 Transcript ready: \(transcript.segments.count) segment(s), \(transcript.fullText.split(separator: " ").count) word(s)")
             } catch {
                 session.log("  ❌ Transcribe failed for \(url.lastPathComponent): \(error.localizedDescription)")
@@ -1816,7 +1820,27 @@ final class WorkflowEngine: ObservableObject {
         }
     }
 
+    /// Deletes the transcript files a Transcribe step marked "delete when
+    /// done". Runs at the very end so Find Clips, Copy To and the rest have
+    /// used them first — including when the run is stopped or had errors.
+    private func removeTemporaryTranscripts(session: WorkflowRunSession) {
+        let files = session.transcriptFilesToDelete
+        guard !files.isEmpty else { return }
+        session.transcriptFilesToDelete = []
+        var removed = 0
+        for file in files where FileManager.default.fileExists(atPath: file.path) {
+            do {
+                try FileManager.default.removeItem(at: file)
+                removed += 1
+            } catch {
+                session.log("  ⚠️ Couldn't delete \(file.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+        if removed > 0 { session.log("  🧹 Deleted \(removed) temporary transcript file(s)") }
+    }
+
     private func finishRun(workflow: Workflow, session: WorkflowRunSession) {
+        removeTemporaryTranscripts(session: session)
         session.finalizeSteps()
         let c = session.converted
         let e = session.errors

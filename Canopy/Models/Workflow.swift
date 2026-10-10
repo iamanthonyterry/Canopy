@@ -309,7 +309,9 @@ enum StepAction: Hashable {
     case rename(pattern: String)
     /// Writes a `.transcript.json` sidecar (and optionally an `.srt`) next to
     /// each clip. `skipExisting` leaves clips that already have a transcript alone.
-    case transcribe(locale: String, writeSRT: Bool, skipExisting: Bool)
+    /// `deleteWhenDone` removes the transcript files this step created once
+    /// the whole workflow has finished, so later steps can still use them.
+    case transcribe(locale: String, writeSRT: Bool, skipExisting: Bool, deleteWhenDone: Bool = false)
     /// Suggests short-form clips from each video's transcript (transcribing
     /// first if needed) and saves them in a `.clips.json` sidecar.
     /// With `exportFormat` set, each suggested clip is also rendered as a
@@ -435,8 +437,8 @@ enum StepAction: Hashable {
             return "\(preset.displayName) preset" + (deleteOriginal ? " · deletes original" : " · keeps original") + " · \(maxParallelJobs) parallel" + (convertInPlace ? " · converts in place" : " · saves to a Converted folder")
         case .rename(let pattern):
             return "Pattern: \(pattern)"
-        case .transcribe(_, let writeSRT, let skipExisting):
-            return "Transcribes on-device" + (writeSRT ? " · also writes .srt" : "") + (skipExisting ? " · skips clips already done" : "")
+        case .transcribe(_, let writeSRT, let skipExisting, let deleteWhenDone):
+            return "Transcribes on-device" + (writeSRT ? " · also writes .srt" : "") + (skipExisting ? " · skips clips already done" : "") + (deleteWhenDone ? " · deletes transcripts when done" : "")
         case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions):
             var text = "Suggests up to \(maxClips) clip\(maxClips == 1 ? "" : "s") of \(minSeconds)–\(maxSeconds) seconds per video"
             if let exportFormat {
@@ -521,7 +523,7 @@ extension StepAction: Codable {
     }
 
     enum TranscribeKeys: String, CodingKey {
-        case locale, writeSRT, skipExisting
+        case locale, writeSRT, skipExisting, deleteWhenDone
     }
 
     enum FindClipsKeys: String, CodingKey {
@@ -623,7 +625,8 @@ extension StepAction: Codable {
             let locale = try nested.decodeIfPresent(String.self, forKey: .locale) ?? Locale.current.identifier
             let writeSRT = try nested.decodeIfPresent(Bool.self, forKey: .writeSRT) ?? true
             let skipExisting = try nested.decodeIfPresent(Bool.self, forKey: .skipExisting) ?? true
-            self = .transcribe(locale: locale, writeSRT: writeSRT, skipExisting: skipExisting)
+            let deleteWhenDone = try nested.decodeIfPresent(Bool.self, forKey: .deleteWhenDone) ?? false
+            self = .transcribe(locale: locale, writeSRT: writeSRT, skipExisting: skipExisting, deleteWhenDone: deleteWhenDone)
         } else if container.contains(.findClips) {
             let nested = try container.nestedContainer(keyedBy: FindClipsKeys.self, forKey: .findClips)
             let maxClips = try nested.decodeIfPresent(Int.self, forKey: .maxClips) ?? 5
@@ -711,11 +714,12 @@ extension StepAction: Codable {
         case .rename(let pattern):
             var nested = container.nestedContainer(keyedBy: RenameKeys.self, forKey: .rename)
             try nested.encode(pattern, forKey: .pattern)
-        case .transcribe(let locale, let writeSRT, let skipExisting):
+        case .transcribe(let locale, let writeSRT, let skipExisting, let deleteWhenDone):
             var nested = container.nestedContainer(keyedBy: TranscribeKeys.self, forKey: .transcribe)
             try nested.encode(locale, forKey: .locale)
             try nested.encode(writeSRT, forKey: .writeSRT)
             try nested.encode(skipExisting, forKey: .skipExisting)
+            try nested.encode(deleteWhenDone, forKey: .deleteWhenDone)
         case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions):
             var nested = container.nestedContainer(keyedBy: FindClipsKeys.self, forKey: .findClips)
             try nested.encode(maxClips, forKey: .maxClips)

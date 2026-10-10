@@ -27,6 +27,10 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
     /// are unaffected.
     @Published var isCancelled = false
 
+    /// Transcript files a Transcribe step created with "delete when done"
+    /// on. Removed by the engine when the run finishes.
+    var transcriptFilesToDelete: Set<URL> = []
+
     /// The step currently paused and waiting on a confirmation response —
     /// non-nil only while a `.requiresConfirmation` step is holding the
     /// run. Drives the confirmation prompt in the UI.

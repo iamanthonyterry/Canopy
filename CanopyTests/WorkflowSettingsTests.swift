@@ -78,9 +78,23 @@ struct WorkflowSettingsTests {
 
     // MARK: Transcribe and clips
 
+    @Test func deletingTranscriptsIsASettingNotACleanupStep() {
+        func deletes(_ text: String) -> Bool? {
+            guard case .transcribe(_, _, _, let d) = actions([.transcribe], text).first else { return nil }
+            return d
+        }
+        #expect(deletes("transcribe the clips and delete the transcripts when it's done") == true)
+        #expect(deletes("transcribe everything, then get rid of the transcript files afterwards") == true)
+        #expect(deletes("transcribe them, don't keep the transcripts") == true)
+        #expect(deletes("transcribe them but keep the transcripts") == false)
+        #expect(deletes("transcribe everything") == false)
+        let r = build([.transcribe, .cleanup], "transcribe the clips and delete the transcripts when it's done")
+        #expect(r.workflow.steps.map(\.kind) == [.transcribe])
+    }
+
     @Test func transcriptionSettingsComeFromTheRequest() {
         func transcribe(_ text: String) -> (String, Bool, Bool)? {
-            guard case .transcribe(let l, let srt, let skip) = actions([.transcribe], text).first else { return nil }
+            guard case .transcribe(let l, let srt, let skip, _) = actions([.transcribe], text).first else { return nil }
             return (l, srt, skip)
         }
         #expect(transcribe("transcribe the spanish interviews")?.0 == "es-ES")

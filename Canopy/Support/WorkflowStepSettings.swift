@@ -278,7 +278,7 @@ enum WorkflowEfficiency {
         }
         if steps.contains(where: { $0.kind == .findClips }),
            let t = steps.first(where: { $0.kind == .transcribe }),
-           case .transcribe(_, let writeSRT, _) = t.action, !writeSRT {
+           case .transcribe(_, let writeSRT, _, _) = t.action, !writeSRT {
             notes.append("Find Clips transcribes any clip that has no transcript, so the Transcribe step is only needed if you want the transcripts for other uses.")
         }
         return notes
@@ -294,8 +294,8 @@ enum WorkflowEfficiency {
             case .convert(let preset, let delete, let current, let inPlace) where current < jobs:
                 workflow.steps[i].action = .convert(preset: preset, deleteOriginal: delete, maxParallelJobs: jobs, convertInPlace: inPlace)
                 changes.append("Make Proxies now runs \(jobs) at a time (was \(current))")
-            case .transcribe(let locale, let srt, false):
-                workflow.steps[i].action = .transcribe(locale: locale, writeSRT: srt, skipExisting: true)
+            case .transcribe(let locale, let srt, false, let deleteWhenDone):
+                workflow.steps[i].action = .transcribe(locale: locale, writeSRT: srt, skipExisting: true, deleteWhenDone: deleteWhenDone)
                 changes.append("Transcribe now skips clips that already have a transcript")
             case .notify(let header, let message, let recipients, true) where hasSeveralDecks(context):
                 workflow.steps[i].action = .notify(header: header, message: message, recipients: recipients, sendPerDrive: false)

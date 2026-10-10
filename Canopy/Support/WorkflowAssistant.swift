@@ -75,6 +75,11 @@ struct RequestDetails {
     /// what step detection reads, so "when the deck stops recording" isn't a
     /// Stop Recording step and "after Card Ingest finishes" isn't an Offload.
     let stepText: String
+    /// "delete the transcripts when it's done" (true), "keep the
+    /// transcripts" (false), or nil when the request doesn't say. Read here
+    /// because the phrase is blanked out of `stepText`, so its "delete"
+    /// isn't mistaken for a Cleanup step.
+    let deletesTranscripts: Bool?
     /// What the request says about when the workflow starts.
     let schedule: TriggerIntent
     let context: TriggerContext
@@ -82,7 +87,9 @@ struct RequestDetails {
     init(_ request: String, context: TriggerContext = .empty, now: Date = Date()) {
         let parsed = WorkflowTriggerParser.parse(request, context: context, now: now)
         text = request.lowercased()
-        stepText = parsed.stepText
+        let transcriptDeletion = Self.transcriptDeletion(in: parsed.stepText)
+        deletesTranscripts = transcriptDeletion.value
+        stepText = transcriptDeletion.remaining
         schedule = parsed.intent
         self.context = context
         urlInRequest = request.range(of: #"https?://[^\s"'<>]+"#, options: .regularExpression)
@@ -90,6 +97,23 @@ struct RequestDetails {
     }
 
     func mentions(_ words: [String]) -> Bool { words.contains { stepText.contains($0) } }
+
+    private static let transcriptNoun = #"(?:(?:new|temporary|temp|generated|those|these|the|any|all|its|their|my)\s+){0,3}(?:transcripts?|transcriptions?|transcript\s+files?|subtitles?|srt(?:\s+files?)?)"#
+
+    /// Finds a statement about what happens to the transcript files and
+    /// returns it with that phrase blanked out of the text.
+    private static func transcriptDeletion(in text: String) -> (value: Bool?, remaining: String) {
+        let dontDelete = #"\b(?:don'?t|do\s+not|never)\s+(?:delete|remove|discard|clear|get\s+rid\s+of|throw\s+away)\s+\#(transcriptNoun)"#
+        let keep = #"\b(?:keep|save|retain|leave)\s+(?:around\s+)?\#(transcriptNoun)"#
+        let drop = #"\b(?:delete|remove|discard|clear(?:\s+out)?|erase|get\s+rid\s+of|throw\s+(?:away|out)|trash|clean\s+up)\s+\#(transcriptNoun)|\b(?:don'?t|do\s+not|no\s+need\s+to)\s+(?:keep|save|retain|leave)\s+(?:around\s+)?\#(transcriptNoun)|\b(?:temporary|temp|throwaway|disposable)\s+(?:transcripts?|transcriptions?)\b"#
+        for (pattern, value) in [(dontDelete, false), (drop, true), (keep, false)] {
+            guard let range = text.range(of: pattern, options: .regularExpression) else { continue }
+            var remaining = text
+            remaining.replaceSubrange(range, with: String(repeating: " ", count: text.distance(from: range.lowerBound, to: range.upperBound)))
+            return (value, remaining)
+        }
+        return (nil, text)
+    }
 
     /// Deliberately avoids "shorts"/"reels"/"tiktok", which mean the *format*
     /// (Resize for Social) rather than picking the moments.
@@ -390,7 +414,8 @@ enum WorkflowDraftBuilder {
             return WorkflowStep(action: .transcribe(
                 locale: details.transcriptionLocale ?? Locale.current.identifier,
                 writeSRT: details.writesSRT ?? true,
-                skipExisting: details.skipsExistingTranscripts ?? true))
+                skipExisting: details.skipsExistingTranscripts ?? true,
+                deleteWhenDone: details.deletesTranscripts ?? false))
         case .findClips:
             let lengths = details.clipLengths
             var minSeconds = lengths.min ?? 20
@@ -467,8 +492,8 @@ enum WorkflowDraftBuilder {
         switch action {
         case .convert(let preset, let delete, let jobs, let inPlace):
             return preset == .fast && !delete && !inPlace && jobs == WorkflowEfficiency.parallelJobs
-        case .transcribe(let locale, let srt, let skip):
-            return locale == Locale.current.identifier && srt && skip
+        case .transcribe(let locale, let srt, let skip, let deleteWhenDone):
+            return locale == Locale.current.identifier && srt && skip && !deleteWhenDone
         case .createFolder(_, _, _, let group):
             return !group
         case .notify(_, _, _, let perDrive):
@@ -776,10 +801,11 @@ enum WorkflowEditBuilder {
                 preset: details.proxyPreset ?? preset, deleteOriginal: newDelete,
                 maxParallelJobs: details.parallelJobs ?? jobs, convertInPlace: details.convertsInPlace ?? inPlace)
             return set(&step, to: new)
-        case .transcribe(let locale, let srt, let skip):
+        case .transcribe(let locale, let srt, let skip, let deleteWhenDone):
             let new = StepAction.transcribe(
                 locale: details.transcriptionLocale ?? locale, writeSRT: details.writesSRT ?? srt,
-                skipExisting: details.skipsExistingTranscripts ?? skip)
+                skipExisting: details.skipsExistingTranscripts ?? skip,
+                deleteWhenDone: details.deletesTranscripts ?? deleteWhenDone)
             return set(&step, to: new)
         case .findClips(let count, let minS, let maxS, let format, let captions):
             let lengths = details.clipLengths

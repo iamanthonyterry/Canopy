@@ -36,6 +36,7 @@ struct WorkflowStepConfigSheet: View {
     @State private var transcribeLocale = Locale.current.identifier
     @State private var transcribeWriteSRT = true
     @State private var transcribeSkipExisting = true
+    @State private var transcribeDeleteWhenDone = false
     @State private var findClipsMax = 5
     @State private var findClipsMinSeconds = 20
     @State private var findClipsMaxSeconds = 60
@@ -578,6 +579,7 @@ struct WorkflowStepConfigSheet: View {
             }
             Toggle("Also write an .srt subtitle file", isOn: $transcribeWriteSRT)
             Toggle("Skip clips that already have a transcript", isOn: $transcribeSkipExisting)
+            Toggle("Delete the new transcript files when the workflow is over", isOn: $transcribeDeleteWhenDone)
             Text("Runs entirely on this Mac. A .transcript.json file is saved next to each clip for later steps to use. The first run in a language downloads its speech model.")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -976,8 +978,9 @@ struct WorkflowStepConfigSheet: View {
             preset = p; deleteOriginal = del; maxParallelJobs = jobs; convertInPlace = inPlace
         case .rename(let pat):
             pattern = pat
-        case .transcribe(let locale, let writeSRT, let skipExisting):
+        case .transcribe(let locale, let writeSRT, let skipExisting, let deleteWhenDone):
             transcribeLocale = locale; transcribeWriteSRT = writeSRT; transcribeSkipExisting = skipExisting
+            transcribeDeleteWhenDone = deleteWhenDone
         case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions):
             findClipsMax = maxClips; findClipsMinSeconds = minSeconds; findClipsMaxSeconds = maxSeconds
             findClipsExport = exportFormat != nil
@@ -1045,7 +1048,7 @@ struct WorkflowStepConfigSheet: View {
             step.action = .sync(destination: destination, verify: syncVerify || syncDeleteFromDevice, deleteFromDevice: syncDeleteFromDevice)
         case .convert: step.action = .convert(preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs, convertInPlace: convertInPlace)
         case .rename:  step.action = .rename(pattern: pattern.isEmpty ? "{name}" : pattern)
-        case .transcribe: step.action = .transcribe(locale: transcribeLocale, writeSRT: transcribeWriteSRT, skipExisting: transcribeSkipExisting)
+        case .transcribe: step.action = .transcribe(locale: transcribeLocale, writeSRT: transcribeWriteSRT, skipExisting: transcribeSkipExisting, deleteWhenDone: transcribeDeleteWhenDone)
         case .findClips: step.action = .findClips(maxClips: findClipsMax, minSeconds: findClipsMinSeconds, maxSeconds: max(findClipsMaxSeconds, findClipsMinSeconds),
                                                    exportFormat: findClipsExport ? findClipsFormat : nil, captions: findClipsCaptions)
         case .queueClips: step.action = .queueClips(minScore: queueClipsMinScore)

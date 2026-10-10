@@ -40,4 +40,14 @@ struct TranscriptTests {
         #expect(try JSONDecoder().decode(StepAction.self, from: data) == action)
         #expect(action.kind == .transcribe)
     }
+
+    @Test func deleteWhenDoneRoundTripsAndDefaultsOff() throws {
+        let action = StepAction.transcribe(locale: "en-US", writeSRT: true, skipExisting: true, deleteWhenDone: true)
+        let data = try JSONEncoder().encode(action)
+        #expect(try JSONDecoder().decode(StepAction.self, from: data) == action)
+        // Workflows saved before the option existed decode with it off.
+        let old = #"{"transcribe":{"locale":"en-US","writeSRT":true,"skipExisting":true}}"#
+        let decoded = try JSONDecoder().decode(StepAction.self, from: Data(old.utf8))
+        #expect(decoded == .transcribe(locale: "en-US", writeSRT: true, skipExisting: true))
+    }
 }
