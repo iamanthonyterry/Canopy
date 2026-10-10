@@ -19,7 +19,7 @@ enum DeckCommand: String, Codable, CaseIterable, Identifiable {
 // MARK: - Step Kind
 // The catalog of step types users can drag into a workflow.
 enum StepKind: String, Codable, CaseIterable, Identifiable {
-    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, findClips, reframe, format, cleanup, notify, triggerWorkflow
+    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, reframe, format, cleanup, notify, triggerWorkflow
 
     var id: String { rawValue }
 
@@ -33,6 +33,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .rename:          return "Rename"
         case .transcribe:      return "Transcribe"
         case .findClips:       return "Find Clips"
+        case .queueClips:      return "Queue Clips"
         case .reframe:         return "Resize for Social"
         case .format:          return "Format Drive"
         case .cleanup:         return "Cleanup"
@@ -51,6 +52,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .rename:          return "Rename files using a pattern"
         case .transcribe:      return "Generate a timed transcript for each clip, on this Mac"
         case .findClips:       return "Find moments in long videos that work as short social posts"
+        case .queueClips:      return "Add the suggested clips to the Export Queue as trimmed items"
         case .reframe:         return "Crop clips to a social media size, keeping the main subject in frame"
         case .format:          return "Permanently erase the device's drive"
         case .cleanup:         return "Delete files older than N days in the destination folder"
@@ -69,6 +71,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .rename:          return "textformat"
         case .transcribe:      return "text.bubble"
         case .findClips:       return "sparkles.rectangle.stack"
+        case .queueClips:      return "tray.and.arrow.up"
         case .reframe:         return "rectangle.portrait.crop"
         case .format:          return "externaldrive.badge.xmark"
         case .cleanup:         return "trash"
@@ -87,6 +90,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .rename:          return .purple
         case .transcribe:      return .pink
         case .findClips:       return .yellow
+        case .queueClips:      return .brown
         case .reframe:         return .green
         case .format:          return .red
         case .cleanup:         return .gray
@@ -225,6 +229,9 @@ enum StepAction: Hashable {
     /// finished post (cropped to that format, optionally captioned) into a
     /// `Social Posts` folder next to the video.
     case findClips(maxClips: Int, minSeconds: Int, maxSeconds: Int, exportFormat: SocialFormat? = nil, captions: Bool = true)
+    /// Adds each video's suggested clips (from a Find Clips step) to the
+    /// Export Queue as trimmed items. `minScore` skips weaker suggestions.
+    case queueClips(minScore: Int)
     /// Writes a cropped MP4 per clip into a `Reframed` folder. With
     /// `followSubject` the crop window tracks people (or the most salient
     /// object) through the shot; otherwise it stays centered.
@@ -244,6 +251,7 @@ enum StepAction: Hashable {
         case .rename:          return .rename
         case .transcribe:      return .transcribe
         case .findClips:       return .findClips
+        case .queueClips:      return .queueClips
         case .reframe:         return .reframe
         case .format:          return .format
         case .cleanup:         return .cleanup
@@ -262,6 +270,7 @@ enum StepAction: Hashable {
         case .rename:          return .rename(pattern: "{device}_{date}_{index}")
         case .transcribe:      return .transcribe(locale: Locale.current.identifier, writeSRT: true, skipExisting: true)
         case .findClips:       return .findClips(maxClips: 5, minSeconds: 20, maxSeconds: 60)
+        case .queueClips:      return .queueClips(minScore: 0)
         case .reframe:         return .reframe(format: .vertical, followSubject: true)
         case .format:          return .format
         case .cleanup:         return .cleanup(retentionDays: 30)
@@ -326,6 +335,10 @@ enum StepAction: Hashable {
                 text += " · exports \(exportFormat.title) posts" + (captions ? " with captions" : "")
             }
             return text
+        case .queueClips(let minScore):
+            return minScore > 0
+                ? "Adds suggested clips scoring \(minScore)+ to the Export Queue"
+                : "Adds every suggested clip to the Export Queue"
         case .reframe(let format, let followSubject):
             return "\(format.title) · \(format.detail)" + (followSubject ? " · follows the subject" : " · centered crop")
         case .format:
@@ -348,7 +361,7 @@ enum StepAction: Hashable {
 // MARK: - StepAction Codable Implementation
 extension StepAction: Codable {
     enum CodingKeys: String, CodingKey {
-        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, findClips, reframe, format, cleanup, notify, triggerWorkflow
+        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, reframe, format, cleanup, notify, triggerWorkflow
     }
 
     enum ControlDeckKeys: String, CodingKey {
@@ -390,6 +403,10 @@ extension StepAction: Codable {
 
     enum FindClipsKeys: String, CodingKey {
         case maxClips, minSeconds, maxSeconds, exportFormat, captions
+    }
+
+    enum QueueClipsKeys: String, CodingKey {
+        case minScore
     }
 
     enum ReframeKeys: String, CodingKey {
@@ -478,6 +495,9 @@ extension StepAction: Codable {
             let exportFormat = try nested.decodeIfPresent(SocialFormat.self, forKey: .exportFormat)
             let captions = try nested.decodeIfPresent(Bool.self, forKey: .captions) ?? true
             self = .findClips(maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds, exportFormat: exportFormat, captions: captions)
+        } else if container.contains(.queueClips) {
+            let nested = try container.nestedContainer(keyedBy: QueueClipsKeys.self, forKey: .queueClips)
+            self = .queueClips(minScore: try nested.decodeIfPresent(Int.self, forKey: .minScore) ?? 0)
         } else if container.contains(.reframe) {
             let nested = try container.nestedContainer(keyedBy: ReframeKeys.self, forKey: .reframe)
             let format = try nested.decodeIfPresent(SocialFormat.self, forKey: .format) ?? .vertical
@@ -547,6 +567,9 @@ extension StepAction: Codable {
             try nested.encode(maxSeconds, forKey: .maxSeconds)
             try nested.encodeIfPresent(exportFormat, forKey: .exportFormat)
             try nested.encode(captions, forKey: .captions)
+        case .queueClips(let minScore):
+            var nested = container.nestedContainer(keyedBy: QueueClipsKeys.self, forKey: .queueClips)
+            try nested.encode(minScore, forKey: .minScore)
         case .reframe(let format, let followSubject):
             var nested = container.nestedContainer(keyedBy: ReframeKeys.self, forKey: .reframe)
             try nested.encode(format, forKey: .format)

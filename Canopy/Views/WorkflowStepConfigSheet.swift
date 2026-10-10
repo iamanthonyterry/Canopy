@@ -39,6 +39,7 @@ struct WorkflowStepConfigSheet: View {
     @State private var findClipsMinSeconds = 20
     @State private var findClipsMaxSeconds = 60
     @State private var findClipsExport = false
+    @State private var queueClipsMinScore = 0
     @State private var findClipsFormat = SocialFormat.vertical
     @State private var findClipsCaptions = true
     @State private var reframeFormat = SocialFormat.vertical
@@ -109,6 +110,9 @@ struct WorkflowStepConfigSheet: View {
 
                 case .findClips:
                     findClipsFields
+
+                case .queueClips:
+                    queueClipsFields
 
                 case .reframe:
                     reframeFields
@@ -536,6 +540,17 @@ struct WorkflowStepConfigSheet: View {
         }
     }
 
+    private var queueClipsFields: some View {
+        Group {
+            Stepper(
+                queueClipsMinScore == 0 ? "Queue every suggested clip" : "Only clips scoring \(queueClipsMinScore)+",
+                value: $queueClipsMinScore, in: 0...100, step: 5
+            )
+            Text("Adds each video's clips from a Find Clips step to the Export Queue as trimmed items. Put this after Find Clips. Nothing exports until you choose a destination in the Export Queue and start it.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     private var findClipsFields: some View {
         Group {
             Stepper("Up to \(findClipsMax) clip\(findClipsMax == 1 ? "" : "s") per video", value: $findClipsMax, in: 1...10)
@@ -803,6 +818,8 @@ struct WorkflowStepConfigSheet: View {
             findClipsExport = exportFormat != nil
             if let exportFormat { findClipsFormat = exportFormat }
             findClipsCaptions = captions
+        case .queueClips(let minScore):
+            queueClipsMinScore = minScore
         case .reframe(let format, let followSubject):
             reframeFormat = format; reframeFollowSubject = followSubject
         case .cleanup(let days):
@@ -850,6 +867,7 @@ struct WorkflowStepConfigSheet: View {
         case .transcribe: step.action = .transcribe(locale: transcribeLocale, writeSRT: transcribeWriteSRT, skipExisting: transcribeSkipExisting)
         case .findClips: step.action = .findClips(maxClips: findClipsMax, minSeconds: findClipsMinSeconds, maxSeconds: max(findClipsMaxSeconds, findClipsMinSeconds),
                                                    exportFormat: findClipsExport ? findClipsFormat : nil, captions: findClipsCaptions)
+        case .queueClips: step.action = .queueClips(minScore: queueClipsMinScore)
         case .reframe: step.action = .reframe(format: reframeFormat, followSubject: reframeFollowSubject)
         case .format:  step.action = .format
         case .cleanup: step.action = .cleanup(retentionDays: retentionDays)

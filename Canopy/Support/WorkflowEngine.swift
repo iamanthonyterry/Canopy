@@ -537,6 +537,8 @@ final class WorkflowEngine: ObservableObject {
         case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions):
             await runFindClips(context: &context, maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds,
                                exportFormat: exportFormat, captions: captions)
+        case .queueClips(let minScore):
+            runQueueClips(context: &context, minScore: minScore)
         case .reframe(let format, let followSubject):
             await runReframe(context: &context, format: format, followSubject: followSubject)
         case .format:
@@ -1196,6 +1198,53 @@ final class WorkflowEngine: ObservableObject {
                 session.errors += 1
             }
         }
+    }
+
+    // MARK: - Queue Clips step
+
+    /// Adds each video's saved clip suggestions to the Export Queue as
+    /// trimmed items. Doesn't search for clips itself — that's the Find Clips
+    /// step — and doesn't start the export; the queue's destination is
+    /// chosen in the Export Queue panel.
+    private func runQueueClips(context: inout StepContext, minScore: Int) {
+        let session = context.session
+
+        var files = context.files
+        if files.isEmpty, context.device.hyperDeck == nil {
+            files = ((try? FileManager.default.contentsOfDirectory(at: context.destDir, includingPropertiesForKeys: nil)) ?? [])
+                .filter { ConversionService.canConvert(url: $0) }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        }
+        guard !files.isEmpty else {
+            session.log("  ⏭ Queue Clips: no video files found in \(context.device.name)")
+            return
+        }
+
+        // Files are always local by now (a deck's footage was offloaded),
+        // so queue them against the local place they live in.
+        let device: DeviceSource
+        switch context.device {
+        case .localFolder(let folder):
+            device = .localFolder(folder)
+        case .cloudStore(let store, _):
+            device = .cloudStore(store)
+        case .hyperDeck:
+            if let id = context.cloudStoreID, let store = appState.cloudStores.first(where: { $0.id == id }) {
+                device = .cloudStore(store)
+            } else {
+                device = .localFolder(LocalFolder(name: "Workflow output", path: context.destDir.path))
+            }
+        }
+
+        var queued = 0
+        for url in files {
+            guard let added = ExportQueueManager.shared.addSuggestedClips(for: url, device: device, minScore: minScore) else {
+                session.log("  ⏭ \(url.lastPathComponent): no clip suggestions — add a Find Clips step before this one")
+                continue
+            }
+            queued += added
+        }
+        session.log("  📥 \(queued) clip(s) added to the Export Queue — open it to choose a destination and start")
     }
 
     // MARK: - Resize for Social step
