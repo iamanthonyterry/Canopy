@@ -19,7 +19,7 @@ enum DeckCommand: String, Codable, CaseIterable, Identifiable {
 // MARK: - Step Kind
 // The catalog of step types users can drag into a workflow.
 enum StepKind: String, Codable, CaseIterable, Identifiable {
-    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, writeCopy, reframe, format, cleanup, notify, triggerWorkflow
+    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, writeCopy, webhook, reframe, format, cleanup, notify, triggerWorkflow
 
     var id: String { rawValue }
 
@@ -35,6 +35,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .findClips:       return "Find Clips"
         case .queueClips:      return "Queue Clips"
         case .writeCopy:       return "Write Post Copy"
+        case .webhook:         return "Send Webhook"
         case .reframe:         return "Resize for Social"
         case .format:          return "Format Drive"
         case .cleanup:         return "Cleanup"
@@ -55,6 +56,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .findClips:       return "Find moments in long videos that work as short social posts"
         case .queueClips:      return "Add the suggested clips to the Export Queue as trimmed items"
         case .writeCopy:       return "Draft a title, caption and hashtags for each suggested clip"
+        case .webhook:         return "Send the run's details to a URL — Slack, Discord, Zapier, Make and more"
         case .reframe:         return "Crop clips to a social media size, keeping the main subject in frame"
         case .format:          return "Permanently erase the device's drive"
         case .cleanup:         return "Delete files older than N days in the destination folder"
@@ -75,6 +77,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .findClips:       return "sparkles.rectangle.stack"
         case .queueClips:      return "tray.and.arrow.up"
         case .writeCopy:       return "text.quote"
+        case .webhook:         return "paperplane"
         case .reframe:         return "rectangle.portrait.crop"
         case .format:          return "externaldrive.badge.xmark"
         case .cleanup:         return "trash"
@@ -95,6 +98,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .findClips:       return .yellow
         case .queueClips:      return .brown
         case .writeCopy:       return .mint
+        case .webhook:         return .gray
         case .reframe:         return .green
         case .format:          return .red
         case .cleanup:         return .gray
@@ -140,6 +144,21 @@ nonisolated enum CopyPlatform: String, Codable, CaseIterable, Identifiable {
         case .instagram: return "Warm and personal, conversational, a little emoji is fine."
         case .youtube:   return "A short, searchable title-style line."
         case .linkedin:  return "Professional but human, with a takeaway."
+        }
+    }
+}
+
+// MARK: - Webhook Format
+nonisolated enum WebhookFormat: String, Codable, CaseIterable, Identifiable {
+    case json, slack, discord
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .json:    return "JSON (full details)"
+        case .slack:   return "Slack message"
+        case .discord: return "Discord message"
         }
     }
 }
@@ -279,6 +298,9 @@ enum StepAction: Hashable {
     /// Drafts a title, caption and hashtags for each suggested clip, saved
     /// with the clip suggestions.
     case writeCopy(platform: CopyPlatform, hashtagCount: Int)
+    /// POSTs the run's details to `url`. Doesn't stop the workflow if the
+    /// request fails.
+    case webhook(url: String, format: WebhookFormat)
     /// Writes a cropped MP4 per clip into a `Reframed` folder. With
     /// `followSubject` the crop window tracks people (or the most salient
     /// object) through the shot; otherwise it stays centered.
@@ -300,6 +322,7 @@ enum StepAction: Hashable {
         case .findClips:       return .findClips
         case .queueClips:      return .queueClips
         case .writeCopy:       return .writeCopy
+        case .webhook:         return .webhook
         case .reframe:         return .reframe
         case .format:          return .format
         case .cleanup:         return .cleanup
@@ -320,6 +343,7 @@ enum StepAction: Hashable {
         case .findClips:       return .findClips(maxClips: 5, minSeconds: 20, maxSeconds: 60)
         case .queueClips:      return .queueClips(minScore: 0)
         case .writeCopy:       return .writeCopy(platform: .general, hashtagCount: 5)
+        case .webhook:         return .webhook(url: "", format: .json)
         case .reframe:         return .reframe(format: .vertical, followSubject: true)
         case .format:          return .format
         case .cleanup:         return .cleanup(retentionDays: 30)
@@ -390,6 +414,9 @@ enum StepAction: Hashable {
                 : "Adds every suggested clip to the Export Queue"
         case .writeCopy(let platform, let hashtagCount):
             return "\(platform.title) style · up to \(hashtagCount) hashtag\(hashtagCount == 1 ? "" : "s")"
+        case .webhook(let url, let format):
+            guard let host = URL(string: url)?.host else { return "No URL set yet" }
+            return "Sends \(format.title) to \(host)"
         case .reframe(let format, let followSubject):
             return "\(format.title) · \(format.detail)" + (followSubject ? " · follows the subject" : " · centered crop")
         case .format:
@@ -412,7 +439,7 @@ enum StepAction: Hashable {
 // MARK: - StepAction Codable Implementation
 extension StepAction: Codable {
     enum CodingKeys: String, CodingKey {
-        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, writeCopy, reframe, format, cleanup, notify, triggerWorkflow
+        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, writeCopy, webhook, reframe, format, cleanup, notify, triggerWorkflow
     }
 
     enum ControlDeckKeys: String, CodingKey {
@@ -458,6 +485,10 @@ extension StepAction: Codable {
 
     enum WriteCopyKeys: String, CodingKey {
         case platform, hashtagCount
+    }
+
+    enum WebhookKeys: String, CodingKey {
+        case url, format
     }
 
     enum QueueClipsKeys: String, CodingKey {
@@ -555,6 +586,11 @@ extension StepAction: Codable {
             let platform = try nested.decodeIfPresent(CopyPlatform.self, forKey: .platform) ?? .general
             let count = try nested.decodeIfPresent(Int.self, forKey: .hashtagCount) ?? 5
             self = .writeCopy(platform: platform, hashtagCount: count)
+        } else if container.contains(.webhook) {
+            let nested = try container.nestedContainer(keyedBy: WebhookKeys.self, forKey: .webhook)
+            let url = try nested.decodeIfPresent(String.self, forKey: .url) ?? ""
+            let format = try nested.decodeIfPresent(WebhookFormat.self, forKey: .format) ?? .json
+            self = .webhook(url: url, format: format)
         } else if container.contains(.queueClips) {
             let nested = try container.nestedContainer(keyedBy: QueueClipsKeys.self, forKey: .queueClips)
             self = .queueClips(minScore: try nested.decodeIfPresent(Int.self, forKey: .minScore) ?? 0)
@@ -631,6 +667,10 @@ extension StepAction: Codable {
             var nested = container.nestedContainer(keyedBy: WriteCopyKeys.self, forKey: .writeCopy)
             try nested.encode(platform, forKey: .platform)
             try nested.encode(hashtagCount, forKey: .hashtagCount)
+        case .webhook(let url, let format):
+            var nested = container.nestedContainer(keyedBy: WebhookKeys.self, forKey: .webhook)
+            try nested.encode(url, forKey: .url)
+            try nested.encode(format, forKey: .format)
         case .queueClips(let minScore):
             var nested = container.nestedContainer(keyedBy: QueueClipsKeys.self, forKey: .queueClips)
             try nested.encode(minScore, forKey: .minScore)
@@ -815,7 +855,7 @@ struct Workflow: Identifiable, Codable, Hashable {
 
     /// True if any step needs the shared sync destination mounted.
     var needsDestinationMount: Bool {
-        steps.contains { ![.format, .controlDeck, .wait, .notify, .triggerWorkflow].contains($0.kind) }
+        steps.contains { ![.format, .controlDeck, .wait, .notify, .triggerWorkflow, .webhook].contains($0.kind) }
     }
 
     /// The destination configured on this workflow's Sync step. Falls back

@@ -541,6 +541,8 @@ final class WorkflowEngine: ObservableObject {
             runQueueClips(context: &context, minScore: minScore)
         case .writeCopy(let platform, let hashtagCount):
             await runWriteCopy(context: &context, platform: platform, hashtagCount: hashtagCount)
+        case .webhook(let url, let format):
+            await runWebhook(context: &context, url: url, format: format)
         case .reframe(let format, let followSubject):
             await runReframe(context: &context, format: format, followSubject: followSubject)
         case .format:
@@ -1261,6 +1263,42 @@ final class WorkflowEngine: ObservableObject {
                 }
             }
             session.log("  ✍️ \(url.lastPathComponent): wrote copy for \(written) clip(s)")
+        }
+    }
+
+    // MARK: - Send Webhook step
+
+    private func runWebhook(context: inout StepContext, url: String, format: WebhookFormat) async {
+        let session = context.session
+        guard !url.trimmingCharacters(in: .whitespaces).isEmpty else {
+            session.log("  ⏭ Send Webhook: no URL set")
+            return
+        }
+
+        let files: [WebhookReport.File] = context.files.map { file in
+            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { $0 } ?? 0
+            let clips = (ClipSuggestions.load(for: file)?.candidates ?? []).sorted { $0.start < $1.start }.map {
+                WebhookReport.Clip(
+                    title: $0.title, start: $0.start, end: $0.end, score: $0.score,
+                    caption: $0.copy?.caption, hashtags: $0.copy?.hashtags ?? []
+                )
+            }
+            return WebhookReport.File(name: file.lastPathComponent, sizeBytes: Int64(size), clips: clips)
+        }
+        let report = WebhookReport(
+            workflow: session.workflow.name, device: context.device.name,
+            errors: session.errors, files: files
+        )
+
+        // The URL itself can be a secret (Slack and Discord webhook URLs
+        // are), so only the host goes in the log.
+        let host = URL(string: url)?.host ?? "webhook"
+        do {
+            try await WebhookService.send(report, to: url, format: format)
+            session.log("  📡 Webhook sent to \(host)")
+        } catch {
+            session.log("  ⚠️ Webhook to \(host) failed: \(error.localizedDescription)")
+            session.errors += 1
         }
     }
 

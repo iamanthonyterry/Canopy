@@ -42,7 +42,11 @@ struct WorkflowStepConfigSheet: View {
     @State private var queueClipsMinScore = 0
     @State private var copyPlatform = CopyPlatform.general
     @State private var copyHashtagCount = 5
+    @State private var webhookURL = ""
+    @State private var webhookFormat = WebhookFormat.json
+    @State private var webhookTestState: WebhookTestState = .idle
 
+    private enum WebhookTestState: Equatable { case idle, sending, sent, failed(String) }
     @State private var findClipsFormat = SocialFormat.vertical
     @State private var findClipsCaptions = true
     @State private var reframeFormat = SocialFormat.vertical
@@ -119,6 +123,9 @@ struct WorkflowStepConfigSheet: View {
 
                 case .writeCopy:
                     writeCopyFields
+
+                case .webhook:
+                    webhookFields
 
                 case .reframe:
                     reframeFields
@@ -559,6 +566,53 @@ struct WorkflowStepConfigSheet: View {
         }
     }
 
+    private var webhookFields: some View {
+        Group {
+            TextField("https://hooks.example.com/…", text: $webhookURL)
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
+            Picker("Format", selection: $webhookFormat) {
+                ForEach(WebhookFormat.allCases) { format in
+                    Text(format.title).tag(format)
+                }
+            }
+            HStack {
+                Button("Send Test") { sendWebhookTest() }
+                    .disabled(webhookURL.trimmingCharacters(in: .whitespaces).isEmpty || webhookTestState == .sending)
+                switch webhookTestState {
+                case .idle:           EmptyView()
+                case .sending:        ProgressView().controlSize(.small)
+                case .sent:           Label("Delivered", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
+                case .failed(let why): Text(why).font(.caption).foregroundStyle(Color.canopyRust).lineLimit(2)
+                }
+            }
+            Text("Sends one request per device when this step runs, with the workflow name, the files it handled, and any clip suggestions and copy. A failed request is logged but doesn't stop the workflow. Treat the URL as a secret — it's stored with the workflow.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func sendWebhookTest() {
+        webhookTestState = .sending
+        let url = webhookURL
+        let format = webhookFormat
+        Task {
+            let sample = WebhookReport(
+                workflow: "Canopy test", device: "Test device", errors: 0,
+                files: [WebhookReport.File(
+                    name: "A001.mov", sizeBytes: 1_234_567,
+                    clips: [WebhookReport.Clip(title: "Sample clip", start: 12, end: 42, score: 88,
+                                               caption: "A sample caption", hashtags: ["canopy"])]
+                )]
+            )
+            do {
+                try await WebhookService.send(sample, to: url, format: format)
+                webhookTestState = .sent
+            } catch {
+                webhookTestState = .failed(error.localizedDescription)
+            }
+        }
+    }
+
     private var queueClipsFields: some View {
         Group {
             Stepper(
@@ -841,6 +895,8 @@ struct WorkflowStepConfigSheet: View {
             queueClipsMinScore = minScore
         case .writeCopy(let platform, let hashtagCount):
             copyPlatform = platform; copyHashtagCount = hashtagCount
+        case .webhook(let url, let format):
+            webhookURL = url; webhookFormat = format
         case .reframe(let format, let followSubject):
             reframeFormat = format; reframeFollowSubject = followSubject
         case .cleanup(let days):
@@ -890,6 +946,7 @@ struct WorkflowStepConfigSheet: View {
                                                    exportFormat: findClipsExport ? findClipsFormat : nil, captions: findClipsCaptions)
         case .queueClips: step.action = .queueClips(minScore: queueClipsMinScore)
         case .writeCopy: step.action = .writeCopy(platform: copyPlatform, hashtagCount: copyHashtagCount)
+        case .webhook: step.action = .webhook(url: webhookURL.trimmingCharacters(in: .whitespacesAndNewlines), format: webhookFormat)
         case .reframe: step.action = .reframe(format: reframeFormat, followSubject: reframeFollowSubject)
         case .format:  step.action = .format
         case .cleanup: step.action = .cleanup(retentionDays: retentionDays)
