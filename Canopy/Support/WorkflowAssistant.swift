@@ -93,7 +93,7 @@ struct RequestDetails {
 
     /// Deliberately avoids "shorts"/"reels"/"tiktok", which mean the *format*
     /// (Resize for Social) rather than picking the moments.
-    private static let queueClipsWords = ["export queue", "add to the queue", "add them to the queue", "queue the clips", "queue them", "queue clips", "to the queue"]
+    private static let queueClipsWords = ["export queue", "add to the queue", "add them to the queue", "queue the clips", "queue them", "queue clips", "to the queue", "queue only", "queue the best", "queue the top"]
     private static let writeCopyWords = ["write copy", "post copy", "caption for each", "captions for each", "write captions", "write the captions", "hashtag", "write a caption", "post text", "titles and descriptions", "write descriptions"]
     private static let webhookWords = ["webhook", "slack", "discord", "zapier", "post to a url", "send to a url", "ping a url"]
     private static let copyToWords = ["copy to", "back up to", "backup to", "second copy", "copy them to", "copy it to", "mirror", "duplicate to", "secondary drive", "second drive", "nas"]
@@ -114,7 +114,7 @@ struct RequestDetails {
         case .writeCopy:   return mentions(Self.writeCopyWords)
         case .webhook:     return mentions(Self.webhookWords)
         case .copyTo:      return mentions(Self.copyToWords)
-        case .resizeForSocial: return mentions(["social", "vertical", "reel", "tiktok", "shorts", "instagram", "9:16", "square crop", "4:5"])
+        case .resizeForSocial: return mentions(["social", "vertical", "reel", "tiktok", "shorts", "instagram", "9:16", "square crop", "4:5", "resize", "reframe", "aspect ratio", "16:9", "1:1"])
         case .formatDrive: return mentions(["format", "erase", "wipe", "clear the", "empty the"])
         case .cleanup:     return mentions(["delete", "clean", "remove", "older than", "old files", "purge", "clear out"])
         case .notify:      return mentions(["email", "notify", "tell me", "let me know", "alert", "message me"])
@@ -172,7 +172,14 @@ struct RequestDetails {
         mentions(["delete the original", "delete originals", "delete the source", "remove the original", "replace the original", "get rid of the original"])
     }
 
-    var wantsVerification: Bool { mentions(["verif", "checksum", "hash", "integrity"]) }
+    var wantsVerification: Bool {
+        mentions(["verif", "checksum", "hash", "integrity"]) && !negatesVerification
+    }
+
+    /// "without verification", "skip verifying", "don't verify".
+    var negatesVerification: Bool {
+        mentions(["without verif", "no verif", "skip verif", "don't verify", "do not verify", "turn off verif", "without a checksum", "without checksum"])
+    }
 
     /// "older than 30 days" / "after 2 weeks".
     var retentionDays: Int? {
@@ -318,13 +325,15 @@ enum WorkflowDraftBuilder {
             .sorted { ($0.element.runOrder, $0.offset) < ($1.element.runOrder, $1.offset) }
             .map(\.element)
 
+        let kept = Set(kinds.filter { details.supports($0) })
         for kind in kinds {
             guard details.supports(kind) else {
                 dropped.append(title(for: kind))
                 continue
             }
-            steps.append(makeStep(kind, details: details))
+            steps.append(makeStep(kind, details: details, alongside: kept))
         }
+        applyWorkflowName(draft.name, to: &steps)
 
         if !dropped.isEmpty {
             notes.append("Left out \(dropped.joined(separator: ", ")) — your request didn't mention it.")
@@ -332,6 +341,8 @@ enum WorkflowDraftBuilder {
 
         linkOffloadsToCreatedFolder(&steps)
         notes += followUpNotes(for: steps, details: details)
+        notes += settingsNotes(for: steps, details: details)
+        notes += WorkflowEfficiency.advisories(for: steps)
 
         let triggers = details.schedule.newTriggers()
         notes += details.schedule.notes
@@ -344,8 +355,11 @@ enum WorkflowDraftBuilder {
         return WorkflowDraftResult(workflow: workflow, notes: notes)
     }
 
-    /// One new step for a kind, with details read from the request.
-    static func makeStep(_ kind: DraftStepKind, details: RequestDetails) -> WorkflowStep {
+    /// One new step for a kind. Settings come from what the request says
+    /// about how the step should run; where it says nothing, from the
+    /// efficient choice for this workflow and this Mac, and otherwise the
+    /// step's own default. `alongside` is every step kind being built with it.
+    static func makeStep(_ kind: DraftStepKind, details: RequestDetails, alongside: Set<DraftStepKind> = []) -> WorkflowStep {
         switch kind {
         case .startRecording:
             return WorkflowStep(action: .controlDeck(command: .start, stopAfterMinutes: details.stopAfterMinutes))
@@ -354,36 +368,113 @@ enum WorkflowDraftBuilder {
         case .wait:
             return WorkflowStep(action: .wait(minutes: details.waitMinutes ?? 60))
         case .createFolder:
-            return WorkflowStep(action: .createFolder(cloudStoreID: nil, parentPath: "", nameTemplate: details.folderName, groupByDevice: false))
+            return WorkflowStep(action: .createFolder(
+                cloudStoreID: nil, parentPath: "", nameTemplate: details.folderName,
+                groupByDevice: details.groupsByDevice ?? WorkflowEfficiency.hasSeveralDecks(details.context)))
         case .offload:
             return WorkflowStep(action: .sync(destination: .global, verify: details.wantsVerification))
         case .makeProxies:
             // The app's own default deletes the originals; a plain-language
-            // request has to say so explicitly.
-            return WorkflowStep(action: .convert(preset: .fast, deleteOriginal: details.deletesOriginals, maxParallelJobs: 2, convertInPlace: false))
+            // request has to say so explicitly. When it does, the proxy
+            // replaces the original in place rather than also leaving a
+            // second copy in a Converted folder.
+            let deletes = details.deletesOriginals && !details.keepsOriginals
+            return WorkflowStep(action: .convert(
+                preset: details.proxyPreset ?? .fast,
+                deleteOriginal: deletes,
+                maxParallelJobs: details.parallelJobs ?? WorkflowEfficiency.parallelJobs,
+                convertInPlace: details.convertsInPlace ?? deletes))
         case .rename:
             return WorkflowStep(action: .rename(pattern: details.renamePattern))
         case .transcribe:
-            return WorkflowStep(action: StepAction.defaultAction(for: .transcribe))
+            return WorkflowStep(action: .transcribe(
+                locale: details.transcriptionLocale ?? Locale.current.identifier,
+                writeSRT: details.writesSRT ?? true,
+                skipExisting: details.skipsExistingTranscripts ?? true))
         case .findClips:
-            return WorkflowStep(action: StepAction.defaultAction(for: .findClips))
+            let lengths = details.clipLengths
+            var minSeconds = lengths.min ?? 20
+            var maxSeconds = lengths.max ?? 60
+            // Only one end stated: keep the other end sensible around it.
+            if lengths.max != nil, lengths.min == nil, minSeconds >= maxSeconds { minSeconds = max(10, maxSeconds / 2) }
+            if lengths.min != nil, lengths.max == nil, maxSeconds <= minSeconds { maxSeconds = min(180, minSeconds * 2) }
+            // A Resize for Social step already produces the cropped clips, so
+            // rendering finished posts here as well would do the work twice.
+            let export: SocialFormat? = details.wantsFinishedPosts && !alongside.contains(.resizeForSocial)
+                ? (details.postFormat ?? .vertical) : nil
+            return WorkflowStep(action: .findClips(
+                maxClips: details.clipCount ?? 5, minSeconds: minSeconds, maxSeconds: maxSeconds,
+                exportFormat: export, captions: details.captionsOnPosts ?? true))
         case .queueClips:
-            return WorkflowStep(action: StepAction.defaultAction(for: .queueClips))
+            return WorkflowStep(action: .queueClips(minScore: details.minClipScore ?? 0))
         case .writeCopy:
-            return WorkflowStep(action: StepAction.defaultAction(for: .writeCopy))
+            return WorkflowStep(action: .writeCopy(
+                platform: details.copyPlatform ?? .general, hashtagCount: details.hashtagCount ?? 5))
         case .webhook:
             // Only a URL the request actually contains; never made up.
             return WorkflowStep(action: .webhook(url: details.urlInRequest ?? "", format: details.webhookFormat))
         case .copyTo:
-            return WorkflowStep(action: StepAction.defaultAction(for: .copyTo))
+            return WorkflowStep(action: .copyTo(
+                destination: .global, verify: details.copyVerifies ?? true,
+                includeSidecars: details.copyIncludesSidecars ?? true))
         case .resizeForSocial:
-            return WorkflowStep(action: StepAction.defaultAction(for: .reframe))
+            return WorkflowStep(action: .reframe(
+                format: details.postFormat ?? .vertical, followSubject: details.followsSubject ?? true))
         case .formatDrive:
             return WorkflowStep(action: .format, requiresConfirmation: true)
         case .cleanup:
             return WorkflowStep(action: .cleanup(retentionDays: details.retentionDays ?? 30), requiresConfirmation: true)
         case .notify:
-            return WorkflowStep(action: .notify(header: "Workflow update", message: "", recipients: [], sendPerDrive: true))
+            // With several decks, one email per deck is the noisy choice
+            // unless the request asks for it.
+            let perDrive = details.notifiesPerDrive ?? !WorkflowEfficiency.hasSeveralDecks(details.context)
+            return WorkflowStep(action: .notify(header: "Workflow update", message: "", recipients: [], sendPerDrive: perDrive))
+        }
+    }
+
+    /// A notification's subject line defaults to the workflow's name, so the
+    /// email says which workflow it came from.
+    static func applyWorkflowName(_ name: String, to steps: inout [WorkflowStep]) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        for i in steps.indices {
+            if case .notify(let header, let message, let recipients, let perDrive) = steps[i].action,
+               header == "Workflow update" {
+                steps[i].action = .notify(header: trimmed, message: message, recipients: recipients, sendPerDrive: perDrive)
+            }
+        }
+    }
+
+    /// The settings that differ from a step's defaults, so the user can see
+    /// what was decided for them. Only the kinds whose settings are inferred.
+    static func settingsNotes(for steps: [WorkflowStep], details: RequestDetails) -> [String] {
+        var notes: [String] = []
+        let inferred: Set<StepKind> = [.convert, .transcribe, .findClips, .queueClips, .writeCopy, .copyTo, .reframe, .notify, .createFolder]
+        for step in steps where inferred.contains(step.kind) {
+            guard !isDefault(step.action) else { continue }
+            notes.append("\(step.kind.title): \(step.action.summary)")
+        }
+        if details.postFormatCount > 1, steps.contains(where: { $0.kind == .reframe }) {
+            notes.append("Resize for Social makes one format per step — I used the first one you named; add another step for the rest.")
+        }
+        return notes
+    }
+
+    /// Whether an action is exactly what the step would have by default (apart
+    /// from settings that are never inferred, like the transcription language
+    /// the Mac already uses).
+    private static func isDefault(_ action: StepAction) -> Bool {
+        switch action {
+        case .convert(let preset, let delete, let jobs, let inPlace):
+            return preset == .fast && !delete && !inPlace && jobs == WorkflowEfficiency.parallelJobs
+        case .transcribe(let locale, let srt, let skip):
+            return locale == Locale.current.identifier && srt && skip
+        case .createFolder(_, _, _, let group):
+            return !group
+        case .notify(_, _, _, let perDrive):
+            return perDrive
+        default:
+            return action == StepAction.defaultAction(for: action.kind)
         }
     }
 
@@ -474,7 +565,8 @@ enum WorkflowEditBuilder {
                     notes.append("Didn't add \(title) — your request didn't mention it.")
                     continue
                 }
-                let step = WorkflowDraftBuilder.makeStep(edit.step, details: details)
+                let siblings = Set(result.steps.compactMap { DraftStepKind(step: $0) })
+                let step = WorkflowDraftBuilder.makeStep(edit.step, details: details, alongside: siblings.union([edit.step]))
                 let index = insertionIndex(for: edit, in: result.steps)
                 result.steps.insert(step, at: index)
                 added.append(step)
@@ -529,7 +621,13 @@ enum WorkflowEditBuilder {
             summary.append("Renamed to \(name)")
         }
 
+        if details.wantsOptimization {
+            summary += WorkflowEfficiency.optimize(&result, context: context)
+            notes += WorkflowEfficiency.advisories(for: result.steps)
+        }
+
         notes += WorkflowDraftBuilder.followUpNotes(for: added, details: details)
+        notes += WorkflowDraftBuilder.settingsNotes(for: added, details: details)
         return WorkflowDraftResult(workflow: result, notes: summary + notes)
     }
 
@@ -672,9 +770,59 @@ enum WorkflowEditBuilder {
         case .rename:
             step.action = .rename(pattern: details.renamePattern)
             return true
+        case .convert(let preset, let delete, let jobs, let inPlace):
+            let newDelete = details.keepsOriginals ? false : (details.deletesOriginals ? true : delete)
+            let new = StepAction.convert(
+                preset: details.proxyPreset ?? preset, deleteOriginal: newDelete,
+                maxParallelJobs: details.parallelJobs ?? jobs, convertInPlace: details.convertsInPlace ?? inPlace)
+            return set(&step, to: new)
+        case .transcribe(let locale, let srt, let skip):
+            let new = StepAction.transcribe(
+                locale: details.transcriptionLocale ?? locale, writeSRT: details.writesSRT ?? srt,
+                skipExisting: details.skipsExistingTranscripts ?? skip)
+            return set(&step, to: new)
+        case .findClips(let count, let minS, let maxS, let format, let captions):
+            let lengths = details.clipLengths
+            var newMin = lengths.min ?? minS
+            var newMax = lengths.max ?? maxS
+            if newMin >= newMax {
+                if lengths.max != nil { newMin = max(10, newMax / 2) } else { newMax = min(180, newMin * 2) }
+            }
+            let newFormat = details.wantsFinishedPosts ? (details.postFormat ?? format ?? .vertical) : format
+            let new = StepAction.findClips(
+                maxClips: details.clipCount ?? count, minSeconds: newMin, maxSeconds: newMax,
+                exportFormat: newFormat, captions: details.captionsOnPosts ?? captions)
+            return set(&step, to: new)
+        case .queueClips(let score):
+            return set(&step, to: .queueClips(minScore: details.minClipScore ?? score))
+        case .writeCopy(let platform, let tags):
+            return set(&step, to: .writeCopy(
+                platform: details.copyPlatform ?? platform, hashtagCount: details.hashtagCount ?? tags))
+        case .copyTo(let destination, let verify, let sidecars):
+            return set(&step, to: .copyTo(
+                destination: destination, verify: details.copyVerifies ?? (details.wantsVerification ? true : verify),
+                includeSidecars: details.copyIncludesSidecars ?? sidecars))
+        case .reframe(let format, let follow):
+            return set(&step, to: .reframe(
+                format: details.postFormat ?? format, followSubject: details.followsSubject ?? follow))
+        case .notify(let header, let message, let recipients, let perDrive):
+            return set(&step, to: .notify(
+                header: header, message: message, recipients: recipients,
+                sendPerDrive: details.notifiesPerDrive ?? perDrive))
+        case .createFolder(let store, let path, let name, let group):
+            return set(&step, to: .createFolder(
+                cloudStoreID: store, parentPath: path, nameTemplate: name,
+                groupByDevice: details.groupsByDevice ?? group))
         default:
             return false
         }
+    }
+
+    /// Replaces a step's action, reporting whether anything actually changed.
+    private static func set(_ step: inout WorkflowStep, to action: StepAction) -> Bool {
+        guard step.action != action else { return false }
+        step.action = action
+        return true
     }
 }
 
@@ -721,7 +869,8 @@ enum WorkflowAssistant {
     You are given the workflow's current steps and a request to change it. List ONLY the changes the \
     request asks for. Do not change anything it doesn't mention.
     Actions: add (a new step), remove (delete a step), move (change where a step runs), update (change a \
-    setting on a step, such as how long to wait, verification, or days to keep files).
+    setting on a step, such as how long to wait, verification, days to keep files, proxy quality, how many \
+    clips or how long they are, the social format, the language, or one summary email instead of one per drive).
     Step names: startRecording, stopRecording, wait, createFolder, offload, makeProxies, rename, transcribe, \
     findClips, queueClips, writeCopy, webhook, copyTo, resizeForSocial, formatDrive, cleanup, notify.
     Use placement automatic unless the request says where. A change to when the workflow starts (a time, \
@@ -732,6 +881,9 @@ enum WorkflowAssistant {
     steps: offload. "add a notification" -> add notify, automatic
     steps: offload, makeProxies, notify. "remove the proxies" -> remove makeProxies
     steps: offload, wait. "make the wait 30 minutes" -> update wait
+    steps: offload, makeProxies. "make the proxies smaller" -> update makeProxies
+    steps: findClips, resizeForSocial. "only 3 clips under 30 seconds" -> update findClips
+    steps: offload, notify. "send one summary email" -> update notify
     steps: offload, makeProxies. "do the proxies before the offload" -> move makeProxies, before, relativeTo offload
     steps: offload, cleanup. "run every night at 2am" -> no edits
     steps: offload. "only run it on weekdays" -> no edits
