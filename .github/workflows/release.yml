@@ -1,0 +1,135 @@
+name: Release
+
+# Builds, signs, notarizes and publishes Canopy whenever main is pushed with a
+# MARKETING_VERSION that has no GitHub Release yet (i.e. after a version bump).
+# Pushes that don't change the version are a no-op.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  SCHEME: Canopy
+  TEAM_ID: GAYT638PXY
+  PBXPROJ: Canopy.xcodeproj/project.pbxproj
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(grep -m1 'MARKETING_VERSION' "$PBXPROJ" | sed -E 's/.*= "?([^";]*)"?;.*/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::v$VERSION is already released, nothing to do. Bump MARKETING_VERSION to cut a new release."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        if: steps.version.outputs.exists == 'false'
+        with:
+          xcode-version: latest-stable
+
+      - name: Import Developer ID certificate
+        if: steps.version.outputs.exists == 'false'
+        env:
+          CERT_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Set build number
+        if: steps.version.outputs.exists == 'false'
+        run: |
+          BUILD_NUMBER=$(date -u +%Y%m%d%H%M)
+          sed -i '' "s/CURRENT_PROJECT_VERSION = [^;]*;/CURRENT_PROJECT_VERSION = $BUILD_NUMBER;/g" "$PBXPROJ"
+
+      - name: Archive
+        if: steps.version.outputs.exists == 'false'
+        run: |
+          xcodebuild archive \
+            -scheme "$SCHEME" \
+            -archivePath build/Canopy.xcarchive \
+            -derivedDataPath build/DerivedData \
+            -configuration Release \
+            -destination "generic/platform=macOS" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            CODE_SIGN_STYLE=Manual
+
+      - name: Export
+        if: steps.version.outputs.exists == 'false'
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/Canopy.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist exportOptions.plist
+
+      - name: Notarize and staple
+        if: steps.version.outputs.exists == 'false'
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          ditto -c -k --keepParent build/export/Canopy.app build/Canopy-notarize.zip
+          xcrun notarytool submit build/Canopy-notarize.zip \
+            --apple-id "$NOTARY_APPLE_ID" \
+            --team-id "$TEAM_ID" \
+            --password "$NOTARY_PASSWORD" \
+            --wait
+          xcrun stapler staple build/export/Canopy.app
+          rm build/Canopy-notarize.zip
+
+      - name: Zip and generate Sparkle appcast
+        if: steps.version.outputs.exists == 'false'
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SPARKLE_BIN=$(find build/DerivedData -path '*artifacts/sparkle/Sparkle/bin' -maxdepth 8 | head -n 1)
+          test -n "$SPARKLE_BIN" || { echo "Sparkle tools not found in DerivedData"; exit 1; }
+          mkdir build/appcast
+          ditto -c -k --keepParent build/export/Canopy.app "build/appcast/Canopy-$VERSION.zip"
+          echo "$SPARKLE_PRIVATE_KEY" | "$SPARKLE_BIN/generate_appcast" --ed-key-file - build/appcast
+
+      - name: Publish GitHub Release
+        if: steps.version.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          gh release create "v$VERSION" \
+            "build/appcast/Canopy-$VERSION.zip" build/appcast/appcast.xml \
+            --target "$GITHUB_SHA" \
+            --title "$VERSION" \
+            --generate-notes
+
+      - name: Clean up keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain-db" || true
