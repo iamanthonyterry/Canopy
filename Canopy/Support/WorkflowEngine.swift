@@ -569,11 +569,32 @@ final class WorkflowEngine: ObservableObject {
         }
     }
 
+    /// The deck's `.mov` files, minus the one it's recording right now. A
+    /// clip still being written can't be offloaded safely — it would copy
+    /// half-written (or fail verification) — so while the deck is recording,
+    /// the newest file is left alone; a later run picks it up once it's
+    /// finished. Recording state is read both before and after listing, so a
+    /// recording that starts mid-scan is still caught.
+    private func listFinishedClips(on deck: HyperDeck, session: WorkflowRunSession) async -> [FTPService.FTPEntry] {
+        let recordingBefore = await HyperDeckService.isRecording(host: deck.ipAddress)
+        let files = await FTPService.listMovFiles(on: deck)
+        let recordingAfter = recordingBefore ? true : await HyperDeckService.isRecording(host: deck.ipAddress)
+
+        // The listing carries no modification dates, so "newest" is the
+        // highest file name — HyperDeck numbers clips sequentially.
+        guard recordingAfter,
+              let inProgress = files.max(by: { $0.name.localizedStandardCompare($1.name) == .orderedAscending }) else {
+            return files
+        }
+        session.log("  ⏺ \(deck.name) is recording — leaving \(inProgress.name) for a later run")
+        return files.filter { $0.name != inProgress.name }
+    }
+
     private func runSyncFromDeck(context: inout StepContext, deck: HyperDeck, convertInPlace: Bool) async {
         let session = context.session
         session.log("  📡 Scanning \(deck.name) (\(deck.ipAddress))...")
 
-        let remoteFiles = await FTPService.listMovFiles(on: deck)
+        let remoteFiles = await listFinishedClips(on: deck, session: session)
         guard !remoteFiles.isEmpty else {
             session.log("  \(deck.name): no .mov files found")
             return
@@ -875,7 +896,7 @@ final class WorkflowEngine: ObservableObject {
         let session = context.session
         session.log("  📡 Scanning \(deck.name) (\(deck.ipAddress))...")
 
-        let remoteFiles = await FTPService.listMovFiles(on: deck)
+        let remoteFiles = await listFinishedClips(on: deck, session: session)
         guard !remoteFiles.isEmpty else {
             session.log("  \(deck.name): no .mov files found")
             return
