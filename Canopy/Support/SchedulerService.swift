@@ -33,16 +33,18 @@ class SchedulerService: ObservableObject {
     private var lastEventFire: [String: Date] = [:]
 
     /// An event that should start a run but couldn't yet because a device it
-    /// needs was busy. Retried on every tick until it starts or expires.
+    /// needs was busy. Retried on every tick until it starts — it never
+    /// times out, since a long offload can keep a deck busy well past the
+    /// moment the next recording ends — or until its trigger is turned off
+    /// or removed. Events for the same trigger and device collapse into one.
     private struct PendingFire {
         let key: String
+        let triggerID: UUID
         let workflowID: UUID
         let device: WorkflowEngine.WorkflowTargetDevice?
         let reason: String
-        let expires: Date
     }
     private var pending: [String: PendingFire] = [:]
-    private static let pendingLifetime: TimeInterval = 10 * 60
 
     /// Per watched folder: files already handled, and files seen last tick
     /// with their size (a clip only counts once its size stops changing, so
@@ -195,28 +197,25 @@ class SchedulerService: ObservableObject {
             return
         }
         let event = PendingFire(
-            key: key, workflowID: workflow.id, device: device, reason: reason,
-            expires: Date().addingTimeInterval(Self.pendingLifetime)
+            key: key, triggerID: trigger.id, workflowID: workflow.id, device: device, reason: reason
         )
         if attempt(event) { return }
         pending[key] = event
     }
 
     /// Returns true once the event has been handled (started, or no longer
-    /// relevant because the workflow was removed).
+    /// relevant because its workflow or trigger was removed or turned off).
     private func attempt(_ event: PendingFire) -> Bool {
-        guard let workflow = appState.workflows.first(where: { $0.id == event.workflowID }) else { return true }
+        guard let workflow = appState.workflows.first(where: { $0.id == event.workflowID }),
+              workflow.triggers.contains(where: { $0.id == event.triggerID && $0.isEnabled }) else { return true }
         guard fire(workflow, device: event.device, reason: event.reason) else { return false }
         lastEventFire[event.key] = Date()
         return true
     }
 
     private func retryPending() {
-        let now = Date()
-        for (key, event) in pending {
-            if event.expires <= now || attempt(event) {
-                pending.removeValue(forKey: key)
-            }
+        for (key, event) in pending where attempt(event) {
+            pending.removeValue(forKey: key)
         }
     }
 
@@ -362,8 +361,8 @@ class SchedulerService: ObservableObject {
                 guard cooledDown else { continue }
 
                 let event = PendingFire(
-                    key: key, workflowID: workflow.id, device: .localFolder(folder),
-                    reason: reason, expires: .distantFuture
+                    key: key, triggerID: trigger.id, workflowID: workflow.id,
+                    device: .localFolder(folder), reason: reason
                 )
                 // Only mark clips as handled once a run actually started, so
                 // a busy workflow picks them up on the next tick.
