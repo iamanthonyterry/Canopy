@@ -195,7 +195,7 @@ enum ClipFinder {
                 let session = LanguageModelSession(instructions: instructions)
                 let response = try await session.respond(
                     to: prompt, generating: ClipPicks.self,
-                    options: GenerationOptions(sampling: .greedy)
+                    options: GenerationOptions(samplingMode: .greedy)
                 )
                 for pick in response.content.picks {
                     let raw = RawClipPick(startIndex: pick.startIndex, endIndex: pick.endIndex,

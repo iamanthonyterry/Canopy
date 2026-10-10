@@ -62,7 +62,7 @@ enum PostCopyWriter {
         let response = try await session.respond(
             to: "Clip transcript:\n\(spoken)\n\nWrite the post copy.",
             generating: GeneratedPostCopy.self,
-            options: GenerationOptions(sampling: .greedy)
+            options: GenerationOptions(samplingMode: .greedy)
         )
         return normalize(response.content, platform: platform, hashtagCount: hashtagCount, fallbackTitle: clip.title)
     }

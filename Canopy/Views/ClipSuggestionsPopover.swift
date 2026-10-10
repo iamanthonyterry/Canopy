@@ -63,8 +63,8 @@ final class ClipSuggestionsModel: ObservableObject {
                 let found = try await ClipFinder.findClips(in: transcript) { pct in
                     // Progress hops back to the main actor asynchronously, so it can
                     // land after the run has finished — only apply it while still finding.
-                    Task { @MainActor [weak self] in
-                        if case .finding = self?.status { self?.status = .finding(pct) }
+                    Task { @MainActor in
+                        if case .finding = self.status { self.status = .finding(pct) }
                     }
                 }
                 try? ClipSuggestions(sourceFileName: url.lastPathComponent, generatedAt: Date(), candidates: found).write(for: url)

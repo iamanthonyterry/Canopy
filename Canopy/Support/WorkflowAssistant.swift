@@ -396,7 +396,7 @@ enum WorkflowAssistant {
         if let reason = unavailableReason { throw WorkflowAssistantError.modelUnavailable(reason) }
 
         let session = LanguageModelSession(instructions: instructions)
-        let response = try await session.respond(to: request, generating: WorkflowDraft.self, options: GenerationOptions(sampling: .greedy))
+        let response = try await session.respond(to: request, generating: WorkflowDraft.self, options: GenerationOptions(samplingMode: .greedy))
         let result = WorkflowDraftBuilder.build(from: response.content, request: request)
         guard !result.workflow.steps.isEmpty else { throw WorkflowAssistantError.emptyResult }
         return result

@@ -225,20 +225,22 @@ nonisolated enum ReframeService {
                 .concatenating(CGAffineTransform(scaleX: scale, y: scale))
         }
 
-        let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
+        var layerConfig = AVVideoCompositionLayerInstruction.Configuration(assetTrack: track)
         for i in 0..<(times.count - 1) {
             let range = CMTimeRange(start: times[i], end: times[i + 1])
             guard range.duration > .zero else { continue }
-            layer.setTransformRamp(fromStart: transforms[i], toEnd: transforms[i + 1], timeRange: range)
+            layerConfig.addTransformRamp(.init(timeRange: range, start: transforms[i], end: transforms[i + 1]))
         }
-        let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRange(start: .zero, duration: duration)
-        instruction.layerInstructions = [layer]
+        let instruction = AVVideoCompositionInstruction(configuration: .init(
+            layerInstructions: [AVVideoCompositionLayerInstruction(configuration: layerConfig)],
+            timeRange: CMTimeRange(start: .zero, duration: duration)
+        ))
 
-        let composition = AVMutableVideoComposition()
-        composition.renderSize = outputSize
-        composition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(frameRate > 0 ? min(frameRate, 60).rounded() : 30))
-        composition.instructions = [instruction]
+        var compositionConfig = AVVideoComposition.Configuration(
+            frameDuration: CMTime(value: 1, timescale: CMTimeScale(frameRate > 0 ? min(frameRate, 60).rounded() : 30)),
+            instructions: [instruction],
+            renderSize: outputSize
+        )
 
         if !captions.isEmpty {
             let parent = CALayer()
@@ -247,10 +249,11 @@ nonisolated enum ReframeService {
             videoLayer.frame = parent.frame
             parent.addSublayer(videoLayer)
             for layer in CaptionLayers.layers(for: captions, canvas: outputSize) { parent.addSublayer(layer) }
-            composition.animationTool = AVVideoCompositionCoreAnimationTool(
+            compositionConfig.animationTool = AVVideoCompositionCoreAnimationTool(
                 postProcessingAsVideoLayer: videoLayer, in: parent
             )
         }
+        let composition = AVVideoComposition(configuration: compositionConfig)
 
         guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
             throw ReframeError.exportFailed("no export session")
