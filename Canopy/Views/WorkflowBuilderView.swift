@@ -344,12 +344,14 @@ struct WorkflowBuilderView: View {
         let building = assistantIsBuilding
         let current = Workflow(name: name, steps: steps, triggers: triggers)
 
+        let context = TriggerContext(appState: appState, workflowID: existingWorkflow?.id)
+
         Task {
             defer { isAssisting = false }
             do {
                 let result = building
-                    ? try await WorkflowAssistant.draft(from: request)
-                    : try await WorkflowAssistant.edit(current, request: request)
+                    ? try await WorkflowAssistant.draft(from: request, context: context)
+                    : try await WorkflowAssistant.edit(current, request: request, context: context)
                 withAnimation(.snappy) {
                     steps = result.workflow.steps
                     triggers = result.workflow.triggers

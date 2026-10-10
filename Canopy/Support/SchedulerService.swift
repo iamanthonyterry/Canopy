@@ -63,6 +63,7 @@ class SchedulerService: ObservableObject {
     func sync() {
         timer?.invalidate()
         pruneFolderWatches()
+        seedFolderWatches()
         guard hasAnyScheduleEnabled else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
@@ -388,6 +389,22 @@ class SchedulerService: ObservableObject {
             result[entry.path] = Int64(size)
         }
         return result
+    }
+
+    /// Records what's already in each watched folder the moment a trigger is
+    /// saved or turned on, rather than on the first tick up to 30 seconds
+    /// later — otherwise a clip dropped in right after saving would be
+    /// swallowed into the baseline and never fire.
+    private func seedFolderWatches() {
+        for workflow in appState.workflows {
+            for trigger in workflow.triggers where trigger.isEnabled && trigger.mode == .folderChanged {
+                guard folderWatches[trigger.id] == nil,
+                      let folderID = trigger.deviceID,
+                      let folder = appState.localFolders.first(where: { $0.id == folderID }),
+                      folder.exists else { continue }
+                folderWatches[trigger.id] = FolderWatch(known: Set(Self.clipSizes(in: folder.path).keys))
+            }
+        }
     }
 
     /// Drops watch state for triggers that no longer exist or were turned

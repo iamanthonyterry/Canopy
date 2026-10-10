@@ -4,6 +4,7 @@ import SwiftUI
 /// the result opens in the normal workflow editor for review before saving.
 struct WorkflowAssistantSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var appState: AppState
     var onDraft: (Workflow) -> Void
 
     @State private var request = ""
@@ -17,6 +18,8 @@ struct WorkflowAssistantSheet: View {
     private let examples = [
         "Offload new clips, make proxies, and email me when it's done",
         "Every night at 2am offload with verification, then delete files older than 30 days",
+        "On weekdays at 6pm, offload and make proxies",
+        "When the deck stops recording, offload and email me",
         "Offload, rename files with the shoot name, and transcribe them",
     ]
 
@@ -91,8 +94,9 @@ struct WorkflowAssistantSheet: View {
                     }
                 }
             }
-            if let trigger = result.workflow.triggers.first {
-                Label("Runs daily at \(trigger.displayTime)", systemImage: "clock.fill")
+            ForEach(result.workflow.triggers) { trigger in
+                Label("Starts \(TriggerContext(appState: appState).describe(trigger))",
+                      systemImage: trigger.mode.icon)
                     .font(.caption).foregroundStyle(.secondary)
             }
             ForEach(result.notes, id: \.self) { note in
@@ -137,7 +141,8 @@ struct WorkflowAssistantSheet: View {
         errorMessage = nil
         defer { isWorking = false }
         do {
-            result = try await WorkflowAssistant.draft(from: request)
+            result = try await WorkflowAssistant.draft(
+                from: request, context: TriggerContext(appState: appState))
         } catch {
             result = nil
             errorMessage = error.localizedDescription

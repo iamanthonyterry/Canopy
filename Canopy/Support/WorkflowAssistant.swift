@@ -69,15 +69,27 @@ struct WorkflowEditDraft {
 // nobody asked for.
 
 struct RequestDetails {
+    /// The whole request, lowercased.
     let text: String
+    /// The request with the phrasing that says *when* it runs blanked out —
+    /// what step detection reads, so "when the deck stops recording" isn't a
+    /// Stop Recording step and "after Card Ingest finishes" isn't an Offload.
+    let stepText: String
+    /// What the request says about when the workflow starts.
+    let schedule: TriggerIntent
+    let context: TriggerContext
 
-    init(_ request: String) {
+    init(_ request: String, context: TriggerContext = .empty, now: Date = Date()) {
+        let parsed = WorkflowTriggerParser.parse(request, context: context, now: now)
         text = request.lowercased()
+        stepText = parsed.stepText
+        schedule = parsed.intent
+        self.context = context
         urlInRequest = request.range(of: #"https?://[^\s"'<>]+"#, options: .regularExpression)
             .map { String(request[$0]) }
     }
 
-    func mentions(_ words: [String]) -> Bool { words.contains { text.contains($0) } }
+    func mentions(_ words: [String]) -> Bool { words.contains { stepText.contains($0) } }
 
     /// Deliberately avoids "shorts"/"reels"/"tiktok", which mean the *format*
     /// (Resize for Social) rather than picking the moments.
@@ -175,32 +187,15 @@ struct RequestDetails {
     /// Needs both a recurrence word and a clock time so a stray "at 5" can't
     /// create a schedule. A bare hour is read from the time of day mentioned
     /// ("morning" → AM, "evening" → PM); `ambiguousTime` reports when it can't.
-    var dailyTime: (hour: Int, minute: Int)? {
-        guard mentions(["every", "each", "daily", "nightly", "nights", "mornings"]),
-              let m = capture(#"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?"#),
-              var hour = Int(m[0]), (0...23).contains(hour) else { return nil }
-        let minute = min(Int(m[1]) ?? 0, 59)
-        if m[2].hasPrefix("p") {
-            if hour < 12 { hour += 12 }
-        } else if m[2].hasPrefix("a") {
-            if hour == 12 { hour = 0 }
-        } else if hour > 12 || m[1] != "" && hour == 0 {
-            // already 24-hour
-        } else if mentions(["morning"]) {
-            if hour == 12 { hour = 0 }
-        } else if mentions(["afternoon", "evening"]) {
-            if hour < 12 { hour += 12 }
-        } else if mentions(["night", "nightly"]) {
-            hour = hour >= 6 && hour <= 11 ? hour + 12 : (hour == 12 ? 0 : hour)
-        } else {
-            return nil
-        }
-        return (hour, minute)
-    }
+    var dailyTime: (hour: Int, minute: Int)? { schedule.daily }
 
-    /// True when the request names a recurring time we couldn't pin to AM/PM.
+    /// True when the request names a time to start at that couldn't be pinned
+    /// to AM or PM — for a recurring run or a dated one-time run.
     var ambiguousTime: Bool {
-        mentions(["every", "each", "daily"]) && capture(#"\bat\s+\d{1,2}(?::\d{2})?\b"#) != nil && dailyTime == nil
+        let dated = WorkflowTriggerParser.isRecurring(text) || schedule.oneTime != nil
+            || text.contains("tomorrow") || text.contains("tonight") || text.contains("next ")
+        return dated && WorkflowTriggerParser.hasBareClockTime(in: text)
+            && WorkflowTriggerParser.clockTime(in: text) == nil
     }
 
     var folderName: String {
@@ -224,7 +219,21 @@ struct RequestDetails {
 
     /// "remove the schedule" / "only run it manually".
     var removesSchedule: Bool {
-        mentions(["remove the schedule", "remove the trigger", "no schedule", "no longer run on a schedule", "stop running every", "run it manually", "only run manually", "manual only", "turn off the schedule", "unschedule", "delete the schedule"])
+        let words = ["remove the schedule", "remove the trigger", "no schedule", "no longer run on a schedule", "stop running every", "run it manually", "only run manually", "manual only", "turn off the schedule", "unschedule", "delete the schedule"]
+        return words.contains { text.contains($0) }
+    }
+
+    /// Days of the week were named but no time to run at (and no half-written
+    /// time that `ambiguousTime` already reports).
+    var needsTimeForDays: Bool {
+        schedule.daily == nil && !schedule.weekdays.isEmpty
+            && !WorkflowTriggerParser.hasBareClockTime(in: text)
+    }
+
+    /// "also run it…", "add another schedule" — a new trigger rather than a
+    /// change to the one it already has.
+    var addsAnotherTrigger: Bool {
+        ["also", "another", "additionally", "as well", "in addition", "on top of"].contains { text.contains($0) }
     }
 
     /// "rename the workflow to Friday Ingest" / "call this workflow Friday Ingest".
@@ -264,9 +273,9 @@ struct RequestDetails {
 
     private func capture(_ pattern: String) -> [String]? {
         guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else { return nil }
+              let match = regex.firstMatch(in: stepText, range: NSRange(stepText.startIndex..., in: stepText)) else { return nil }
         return (1..<match.numberOfRanges).map { i in
-            Range(match.range(at: i), in: text).map { String(text[$0]) } ?? ""
+            Range(match.range(at: i), in: stepText).map { String(stepText[$0]) } ?? ""
         }
     }
 
@@ -291,8 +300,11 @@ enum WorkflowDraftBuilder {
     /// - Format Drive / Cleanup delete data, so they always ask for
     ///   confirmation before running.
     /// - An Offload after a Create Folder step is pointed at that folder.
-    static func build(from draft: WorkflowDraft, request: String) -> WorkflowDraftResult {
-        let details = RequestDetails(request)
+    static func build(
+        from draft: WorkflowDraft, request: String,
+        context: TriggerContext = .empty, now: Date = Date()
+    ) -> WorkflowDraftResult {
+        let details = RequestDetails(request, context: context, now: now)
         var notes: [String] = []
         var steps: [WorkflowStep] = []
         var dropped: [String] = []
@@ -321,15 +333,10 @@ enum WorkflowDraftBuilder {
         linkOffloadsToCreatedFolder(&steps)
         notes += followUpNotes(for: steps, details: details)
 
-        var triggers: [ScheduleSettings] = []
-        if let time = details.dailyTime {
-            var trigger = ScheduleSettings()
-            trigger.isEnabled = true
-            trigger.mode = .daily
-            trigger.hour = time.hour
-            trigger.minute = time.minute
-            trigger.repeatDaily = true
-            triggers = [trigger]
+        let triggers = details.schedule.newTriggers()
+        notes += details.schedule.notes
+        if details.needsTimeForDays {
+            notes.append("Say what time it should run on those days — I didn't schedule it.")
         }
 
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -448,8 +455,11 @@ enum WorkflowEditBuilder {
     /// - Anything the request doesn't refer to is left alone.
     /// - New steps and their details are built the same way as for a draft.
     /// - Schedules, renames and step settings are read from the request text.
-    static func apply(_ draft: WorkflowEditDraft, to workflow: Workflow, request: String) -> WorkflowDraftResult {
-        let details = RequestDetails(request)
+    static func apply(
+        _ draft: WorkflowEditDraft, to workflow: Workflow, request: String,
+        context: TriggerContext = .empty, now: Date = Date()
+    ) -> WorkflowDraftResult {
+        let details = RequestDetails(request, context: context, now: now)
         var result = workflow
         var notes: [String] = []
         var summary: [String] = []
@@ -511,27 +521,8 @@ enum WorkflowEditBuilder {
             WorkflowDraftBuilder.linkOffloadsToCreatedFolder(&result.steps)
         }
 
-        // Schedule: read straight from the request, never from the model.
-        if details.removesSchedule, !result.triggers.isEmpty {
-            result.triggers.removeAll()
-            summary.append("Removed the schedule")
-        } else if let time = details.dailyTime {
-            if let i = result.triggers.firstIndex(where: { $0.mode == .daily }) {
-                result.triggers[i].hour = time.hour
-                result.triggers[i].minute = time.minute
-                result.triggers[i].isEnabled = true
-                summary.append("Changed the schedule to \(result.triggers[i].displayTime)")
-            } else {
-                var trigger = ScheduleSettings()
-                trigger.isEnabled = true
-                trigger.mode = .daily
-                trigger.hour = time.hour
-                trigger.minute = time.minute
-                trigger.repeatDaily = true
-                result.triggers.append(trigger)
-                summary.append("Scheduled daily at \(trigger.displayTime)")
-            }
-        }
+        // Triggers: read straight from the request, never from the model.
+        applyTriggers(details, to: &result, summary: &summary, notes: &notes)
 
         if let name = details.newWorkflowName, name.caseInsensitiveCompare(result.name) != .orderedSame {
             result.name = name
@@ -540,6 +531,92 @@ enum WorkflowEditBuilder {
 
         notes += WorkflowDraftBuilder.followUpNotes(for: added, details: details)
         return WorkflowDraftResult(workflow: result, notes: summary + notes)
+    }
+
+    /// Adds or changes the workflow's triggers from what the request says.
+    /// - A new time changes the existing daily trigger, unless the request
+    ///   says "also"/"another", in which case it's added beside it.
+    /// - Days alone ("only on weekdays") limit the daily triggers it has.
+    /// - One-time and event triggers are added, skipping any it already has.
+    private static func applyTriggers(
+        _ details: RequestDetails, to workflow: inout Workflow,
+        summary: inout [String], notes: inout [String]
+    ) {
+        let intent = details.schedule
+        let context = details.context
+
+        if details.removesSchedule, !workflow.triggers.isEmpty {
+            workflow.triggers.removeAll()
+            summary.append("Removed the schedule")
+            return
+        }
+
+        if let time = intent.daily {
+            let dailyIndexes = workflow.triggers.indices.filter { workflow.triggers[$0].mode == .daily }
+            let wantedDays = intent.weekdays.isEmpty ? Set(Weekday.allCases) : intent.weekdays
+            let duplicate = dailyIndexes.contains {
+                let t = workflow.triggers[$0]
+                return t.hour == time.hour && t.minute == time.minute && t.activeWeekdays == wantedDays
+            }
+            if let i = dailyIndexes.first, !details.addsAnotherTrigger {
+                workflow.triggers[i].hour = time.hour
+                workflow.triggers[i].minute = time.minute
+                workflow.triggers[i].isEnabled = true
+                if !intent.weekdays.isEmpty { workflow.triggers[i].selectedWeekdays = intent.storedWeekdays }
+                summary.append("Changed the schedule to \(context.describe(workflow.triggers[i]))")
+            } else if !duplicate {
+                var trigger = ScheduleSettings()
+                trigger.isEnabled = true
+                trigger.mode = .daily
+                trigger.hour = time.hour
+                trigger.minute = time.minute
+                trigger.repeatDaily = true
+                trigger.selectedWeekdays = intent.storedWeekdays
+                workflow.triggers.append(trigger)
+                summary.append("Scheduled \(context.describe(trigger))")
+            }
+        } else if !intent.weekdays.isEmpty {
+            let dailyIndexes = workflow.triggers.indices.filter { workflow.triggers[$0].mode == .daily }
+            if dailyIndexes.isEmpty {
+                if details.needsTimeForDays {
+                    notes.append("Say what time it should run on those days — it has no daily schedule yet.")
+                }
+            } else {
+                for i in dailyIndexes { workflow.triggers[i].selectedWeekdays = intent.storedWeekdays }
+                summary.append("Limited the schedule to run \(context.describe(workflow.triggers[dailyIndexes[0]]))")
+            }
+        }
+
+        if let date = intent.oneTime {
+            let exists = workflow.triggers.contains {
+                $0.mode == .oneTime && abs($0.oneTimeDate.timeIntervalSince(date)) < 60
+            }
+            if !exists {
+                var trigger = ScheduleSettings()
+                trigger.isEnabled = true
+                trigger.mode = .oneTime
+                trigger.oneTimeDate = date
+                workflow.triggers.append(trigger)
+                summary.append("Scheduled it to run \(context.describe(trigger))")
+            }
+        }
+
+        for event in intent.events {
+            if let i = workflow.triggers.firstIndex(where: {
+                $0.mode == event.mode && $0.deviceID == event.deviceID && $0.sourceWorkflowID == event.sourceWorkflowID
+            }) {
+                if event.mode == .workflowFinished { workflow.triggers[i].finishCondition = event.finishCondition }
+                if !workflow.triggers[i].isEnabled {
+                    workflow.triggers[i].isEnabled = true
+                    summary.append("Turned the trigger back on: \(context.describe(workflow.triggers[i]))")
+                }
+            } else {
+                workflow.triggers.append(event)
+                summary.append("Starts \(context.describe(event))")
+            }
+        }
+
+        notes += intent.notes
     }
 
     /// Where a step should land: next to the step it's relative to, at an
@@ -625,10 +702,14 @@ enum WorkflowAssistant {
     crop for social media that keeps the subject in frame), formatDrive (erases the recorder), cleanup (deletes old files), notify (sends an email).
     Include ONLY steps the request asks for. Do not add recording, waiting, folders, or anything else that \
     was not mentioned. Keep them in the order the request describes.
+    Words about WHEN it starts are not steps: times, days of the week, "tomorrow", "when the recording \
+    stops", "when the deck comes online", "after another workflow finishes", "when new clips arrive".
     Examples:
     "offload my clips" -> offload
     "copy the footage, make proxies and email me" -> offload, makeProxies, notify
     "every night offload then delete files older than 30 days" -> offload, cleanup
+    "when the deck stops recording, offload and make proxies" -> offload, makeProxies
+    "every weekday at 6pm, offload" -> offload
     "offload and transcribe everything" -> offload, transcribe
     """
 
@@ -643,18 +724,24 @@ enum WorkflowAssistant {
     setting on a step, such as how long to wait, verification, or days to keep files).
     Step names: startRecording, stopRecording, wait, createFolder, offload, makeProxies, rename, transcribe, \
     findClips, queueClips, writeCopy, webhook, copyTo, resizeForSocial, formatDrive, cleanup, notify.
-    Use placement automatic unless the request says where. A change to the schedule or the workflow's name \
-    is not a step change: return no edits for it.
+    Use placement automatic unless the request says where. A change to when the workflow starts (a time, \
+    days of the week, a one-time run, "when recording stops", "when it comes online", "after another \
+    workflow finishes", "when new clips arrive") or to the workflow's name is not a step change: return no \
+    edits for it.
     Examples:
     steps: offload. "add a notification" -> add notify, automatic
     steps: offload, makeProxies, notify. "remove the proxies" -> remove makeProxies
     steps: offload, wait. "make the wait 30 minutes" -> update wait
     steps: offload, makeProxies. "do the proxies before the offload" -> move makeProxies, before, relativeTo offload
     steps: offload, cleanup. "run every night at 2am" -> no edits
+    steps: offload. "only run it on weekdays" -> no edits
+    steps: offload, notify. "start it when the deck stops recording" -> no edits
     """
 
     /// Applies a plain-language change to an existing workflow.
-    static func edit(_ workflow: Workflow, request: String) async throws -> WorkflowDraftResult {
+    static func edit(
+        _ workflow: Workflow, request: String, context: TriggerContext = .empty
+    ) async throws -> WorkflowDraftResult {
         if let reason = unavailableReason { throw WorkflowAssistantError.modelUnavailable(reason) }
 
         let current = workflow.steps.isEmpty
@@ -664,7 +751,7 @@ enum WorkflowAssistant {
 
         let edits = try await AIModels.shared.generate(
             WorkflowEditDraft.self, instructions: editInstructions, prompt: prompt)
-        let result = WorkflowEditBuilder.apply(edits, to: workflow, request: request)
+        let result = WorkflowEditBuilder.apply(edits, to: workflow, request: request, context: context)
         guard result.workflow.steps != workflow.steps
                 || result.workflow.triggers != workflow.triggers
                 || result.workflow.name != workflow.name else {
@@ -673,12 +760,12 @@ enum WorkflowAssistant {
         return result
     }
 
-    static func draft(from request: String) async throws -> WorkflowDraftResult {
+    static func draft(from request: String, context: TriggerContext = .empty) async throws -> WorkflowDraftResult {
         if let reason = unavailableReason { throw WorkflowAssistantError.modelUnavailable(reason) }
 
         let draft = try await AIModels.shared.generate(
             WorkflowDraft.self, instructions: instructions, prompt: request)
-        let result = WorkflowDraftBuilder.build(from: draft, request: request)
+        let result = WorkflowDraftBuilder.build(from: draft, request: request, context: context)
         guard !result.workflow.steps.isEmpty else { throw WorkflowAssistantError.emptyResult }
         return result
     }
