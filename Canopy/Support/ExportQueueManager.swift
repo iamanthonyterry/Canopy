@@ -25,15 +25,39 @@ final class ExportQueueManager: ObservableObject {
     /// deduplicated against an existing not-yet-finished whole-file entry
     /// for the same source, so re-selecting a file already in the queue is
     /// a no-op rather than a second copy of it.
-    func add(node: FileNode, device: DeviceSource, trimRange: CMTimeRange? = nil) {
-        if trimRange == nil {
-            let alreadyQueued = items.contains {
-                $0.node.id == node.id && $0.device.id == device.id && $0.trimRange == nil
-                    && $0.phase != .done && $0.phase != .error
-            }
-            guard !alreadyQueued else { return }
+    func add(node: FileNode, device: DeviceSource, trimRange: CMTimeRange? = nil, label: String? = nil) {
+        // The same source + range already waiting in the queue is a no-op,
+        // so re-running a workflow doesn't queue its clips twice.
+        let alreadyQueued = items.contains {
+            $0.node.id == node.id && $0.device.id == device.id && $0.trimRange == trimRange
+                && $0.phase != .done && $0.phase != .error
         }
-        items.append(ExportQueueItem(node: node, device: device, trimRange: trimRange))
+        guard !alreadyQueued else { return }
+        items.append(ExportQueueItem(node: node, device: device, trimRange: trimRange, label: label))
+    }
+
+    /// Queues the saved clip suggestions for `video` as trimmed items.
+    /// - Returns: how many were added, or nil if the video has no
+    ///   suggestions yet (nothing for Find Clips to have produced).
+    @discardableResult
+    func addSuggestedClips(for video: URL, device: DeviceSource, minScore: Int = 0) -> Int? {
+        guard let suggestions = ClipSuggestions.load(for: video) else { return nil }
+        let values = try? video.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let node = FileNode(
+            id: video.path, name: video.lastPathComponent, url: video, ftpPath: nil, isDirectory: false,
+            size: Int64(values?.fileSize ?? 0), modified: values?.contentModificationDate ?? Date(), children: nil
+        )
+        var added = 0
+        for clip in suggestions.candidates.sorted(by: { $0.start < $1.start }) where clip.score >= minScore {
+            let range = CMTimeRange(
+                start: CMTime(seconds: clip.start, preferredTimescale: 600),
+                end: CMTime(seconds: clip.end, preferredTimescale: 600)
+            )
+            let before = items.count
+            add(node: node, device: device, trimRange: range, label: clip.title)
+            if items.count > before { added += 1 }
+        }
+        return added
     }
 
     func addMultiple(_ nodes: [FileNode], device: DeviceSource) {
@@ -147,7 +171,8 @@ final class ExportQueueManager: ObservableObject {
         let isCompressed: Bool
         if case .compressed = mode { isCompressed = true } else { isCompressed = false }
         let ext = isCompressed ? "mp4" : sourceExt
-        let suggestedName = item.isTrimmed ? "\(base)_clip.\(ext)" : "\(base).\(ext)"
+        let clipSuffix = item.label.map { "_clip_\(SocialPostExporter.slug($0))" } ?? "_clip"
+        let suggestedName = item.isTrimmed ? "\(base)\(clipSuffix).\(ext)" : "\(base).\(ext)"
         let outputURL = Self.uniqueURL(for: suggestedName, in: destination)
 
         let outcome: ConversionOutcome

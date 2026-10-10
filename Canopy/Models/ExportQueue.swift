@@ -35,6 +35,9 @@ struct ExportQueueItem: Identifiable {
     let device: DeviceSource
     /// nil = export the whole file; set = export just this sub-range.
     let trimRange: CMTimeRange?
+    /// Names a suggested clip (e.g. its title) so several trims of one video
+    /// stay distinguishable in the queue and in the exported file names.
+    var label: String? = nil
 
     var phase: Phase = .queued
     var progress: Double = 0

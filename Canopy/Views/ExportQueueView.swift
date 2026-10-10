@@ -158,7 +158,7 @@ private struct ExportQueueRow: View {
                                 .clipShape(Capsule())
                         }
                     }
-                    Text(item.deviceName)
+                    Text(item.label.map { "\(item.deviceName) · \($0)" } ?? item.deviceName)
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
