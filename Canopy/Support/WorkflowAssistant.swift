@@ -10,7 +10,7 @@ import FoundationModels
 @Generable
 enum DraftStepKind {
     case startRecording, stopRecording, wait, createFolder, offload
-    case makeProxies, rename, transcribe, findClips, queueClips, resizeForSocial, formatDrive, cleanup, notify
+    case makeProxies, rename, transcribe, findClips, queueClips, writeCopy, webhook, copyTo, resizeForSocial, formatDrive, cleanup, notify
 }
 
 @Generable
@@ -30,13 +30,20 @@ struct WorkflowDraft {
 struct RequestDetails {
     let text: String
 
-    init(_ request: String) { text = request.lowercased() }
+    init(_ request: String) {
+        text = request.lowercased()
+        urlInRequest = request.range(of: #"https?://[^\s"'<>]+"#, options: .regularExpression)
+            .map { String(request[$0]) }
+    }
 
     func mentions(_ words: [String]) -> Bool { words.contains { text.contains($0) } }
 
     /// Deliberately avoids "shorts"/"reels"/"tiktok", which mean the *format*
     /// (Resize for Social) rather than picking the moments.
     private static let queueClipsWords = ["export queue", "add to the queue", "add them to the queue", "queue the clips", "queue them", "queue clips", "to the queue"]
+    private static let writeCopyWords = ["write copy", "post copy", "caption for each", "captions for each", "write captions", "write the captions", "hashtag", "write a caption", "post text", "titles and descriptions", "write descriptions"]
+    private static let webhookWords = ["webhook", "slack", "discord", "zapier", "post to a url", "send to a url", "ping a url"]
+    private static let copyToWords = ["copy to", "back up to", "backup to", "second copy", "copy them to", "copy it to", "mirror", "duplicate to", "secondary drive", "second drive", "nas"]
     private static let findClipsWords = ["highlight", "best moment", "find clips", "find the clips", "find the best", "find moments", "key moments", "short-form", "social clips", "viral", "social posts", "find short"]
 
     /// Whether the request gives any reason to include this kind of step.
@@ -48,9 +55,12 @@ struct RequestDetails {
         case .offload:     return mentions(["offload", "copy", "download", "sync", "import", "ingest", "transfer", "clip", "footage", "card", "back up", "backup", "grab", "pull"])
         case .makeProxies: return mentions(["proxy", "proxies", "convert", "transcode", "mp4", "compress", "small version", "smaller", "low-res", "lower res", "low res", "editing cop", "edit cop"])
         case .rename:      return mentions(["rename", "name the", "naming", "called"])
-        case .transcribe:  return mentions(["transcri", "caption", "subtitle", "speech to text", "srt"])
+        case .transcribe:  return wantsTranscript
         case .findClips:   return mentions(Self.findClipsWords) || mentions(Self.queueClipsWords)
         case .queueClips:  return mentions(Self.queueClipsWords)
+        case .writeCopy:   return mentions(Self.writeCopyWords)
+        case .webhook:     return mentions(Self.webhookWords)
+        case .copyTo:      return mentions(Self.copyToWords)
         case .resizeForSocial: return mentions(["social", "vertical", "reel", "tiktok", "shorts", "instagram", "9:16", "square crop", "4:5"])
         case .formatDrive: return mentions(["format", "erase", "wipe", "clear the", "empty the"])
         case .cleanup:     return mentions(["delete", "clean", "remove", "older than", "old files", "purge", "clear out"])
@@ -68,9 +78,12 @@ struct RequestDetails {
         if mentions(["offload", "ingest", "download the", "copy the footage", "copy everything", "copy the clips", "copy new", "grab the footage", "grab the clips", "grab everything", "pull the footage", "pull the clips"]) { kinds.append(.offload) }
         if mentions(["proxy", "proxies", "small version", "low-res", "lower res", "editing cop"]) { kinds.append(.makeProxies) }
         if mentions(["rename"]) { kinds.append(.rename) }
-        if mentions(["transcri", "caption", "subtitle"]) { kinds.append(.transcribe) }
+        if wantsTranscript { kinds.append(.transcribe) }
         if mentions(Self.findClipsWords) { kinds.append(.findClips) }
         if mentions(Self.queueClipsWords) { kinds.append(.queueClips) }
+        if mentions(Self.writeCopyWords) { kinds.append(.writeCopy) }
+        if mentions(Self.webhookWords) { kinds.append(.webhook) }
+        if mentions(Self.copyToWords) { kinds.append(.copyTo) }
         if mentions(["email me", "notify me", "let me know", "tell me when", "message me"]) { kinds.append(.notify) }
         return kinds
     }
@@ -83,6 +96,23 @@ struct RequestDetails {
     /// "wait 10 minutes" / "after 2 hours".
     var waitMinutes: Int? {
         minutes(matching: #"(?:wait(?:s|ing)?(?:\s+for)?|pause(?:\s+for)?|then\s+after|delay(?:\s+of)?)\s+(\d+)\s*(minutes?|mins?|hours?|hrs?)"#)
+    }
+
+    /// "Captions" means subtitles unless the request is clearly about
+    /// writing caption text for posts, which is Write Post Copy.
+    private var wantsTranscript: Bool {
+        if mentions(["transcri", "subtitle", "speech to text", "srt"]) { return true }
+        return mentions(["caption"]) && !mentions(Self.writeCopyWords)
+    }
+
+    /// An http(s) address typed into the request, taken from the original
+    /// text so its case is preserved.
+    var urlInRequest: String?
+
+    var webhookFormat: WebhookFormat {
+        if mentions(["slack"]) { return .slack }
+        if mentions(["discord"]) { return .discord }
+        return .json
     }
 
     var deletesOriginals: Bool {
@@ -225,6 +255,13 @@ enum WorkflowDraftBuilder {
                 steps.append(WorkflowStep(action: StepAction.defaultAction(for: .findClips)))
             case .queueClips:
                 steps.append(WorkflowStep(action: StepAction.defaultAction(for: .queueClips)))
+            case .writeCopy:
+                steps.append(WorkflowStep(action: StepAction.defaultAction(for: .writeCopy)))
+            case .webhook:
+                // Only a URL the request actually contains; never made up.
+                steps.append(WorkflowStep(action: .webhook(url: details.urlInRequest ?? "", format: details.webhookFormat)))
+            case .copyTo:
+                steps.append(WorkflowStep(action: StepAction.defaultAction(for: .copyTo)))
             case .resizeForSocial:
                 steps.append(WorkflowStep(action: StepAction.defaultAction(for: .reframe)))
             case .formatDrive:
@@ -251,6 +288,15 @@ enum WorkflowDraftBuilder {
 
         if details.ambiguousTime {
             notes.append("Couldn't tell if the schedule time is AM or PM — set it under Schedule in the editor.")
+        }
+        if steps.contains(where: { step in
+            if case .webhook(let url, _) = step.action { return url.isEmpty }
+            return false
+        }) {
+            notes.append("Paste the webhook URL into the Send Webhook step.")
+        }
+        if steps.contains(where: { $0.kind == .copyTo }) {
+            notes.append("Choose where the Copy To step should copy to — it defaults to the global destination.")
         }
         if steps.contains(where: { $0.kind == .notify }) {
             notes.append("Add recipients to the Notification step — I can't pick email addresses for you.")
@@ -287,6 +333,9 @@ enum WorkflowDraftBuilder {
         case .transcribe:     return "Transcribe"
         case .findClips:      return "Find Clips"
         case .queueClips:     return "Queue Clips"
+        case .writeCopy:      return "Write Post Copy"
+        case .webhook:        return "Send Webhook"
+        case .copyTo:         return "Copy To"
         case .resizeForSocial: return "Resize for Social"
         case .formatDrive:    return "Format Drive"
         case .cleanup:        return "Cleanup"
@@ -313,7 +362,7 @@ enum WorkflowAssistant {
     private static let instructions = """
     You turn a request into a workflow for Canopy, an app that offloads footage from HyperDeck recorders.
     Choose steps from: startRecording, stopRecording, wait, createFolder, offload (copy new clips from the \
-    device), makeProxies (small MP4 copies), rename, transcribe (speech to text), findClips (suggest short social clips from a long video), queueClips (add those clips to the export queue), resizeForSocial (vertical or square \
+    device), makeProxies (small MP4 copies), rename, transcribe (speech to text), findClips (suggest short social clips from a long video), queueClips (add those clips to the export queue), writeCopy (draft captions and hashtags for clips), webhook (send details to a URL), copyTo (make a second copy of the files somewhere else), resizeForSocial (vertical or square \
     crop for social media that keeps the subject in frame), formatDrive (erases the recorder), cleanup (deletes old files), notify (sends an email).
     Include ONLY steps the request asks for. Do not add recording, waiting, folders, or anything else that \
     was not mentioned. Keep them in the order the request describes.
@@ -365,10 +414,13 @@ private extension DraftStepKind {
         case .transcribe:     return 7
         case .findClips:      return 8
         case .queueClips:     return 9
-        case .resizeForSocial: return 10
-        case .formatDrive:    return 11
-        case .cleanup:        return 12
-        case .notify:         return 13
+        case .writeCopy:      return 10
+        case .resizeForSocial: return 11
+        case .copyTo:         return 12
+        case .formatDrive:    return 13
+        case .cleanup:        return 14
+        case .webhook:        return 15
+        case .notify:         return 16
         }
     }
 }

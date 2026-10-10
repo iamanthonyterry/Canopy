@@ -112,4 +112,24 @@ struct WorkflowAssistantTests {
         )
         #expect(r.workflow.steps.map(\.kind) == [.sync, .findClips, .queueClips])
     }
+
+    @Test func integrationStepsAreRecognisedAndOrderedSensibly() {
+        let r = build([.notify, .webhook, .copyTo, .writeCopy, .findClips, .offload],
+                      "offload, find the best moments, write captions for each, make a second copy to the nas and ping my slack")
+        #expect(r.workflow.steps.map(\.kind) == [.sync, .findClips, .writeCopy, .copyTo, .webhook])
+    }
+
+    @Test func webhookUrlIsOnlyTakenFromTheRequestNeverInvented() {
+        func url(_ text: String) -> String? {
+            guard case .webhook(let u, let f) = build([.webhook], text).workflow.steps.first?.action else { return nil }
+            return f == .slack ? "slack:" + u : u
+        }
+        #expect(url("send a webhook to https://hooks.example.com/Abc123") == "https://hooks.example.com/Abc123")
+        #expect(url("ping my slack when it finishes") == "slack:")
+    }
+
+    @Test func nothingIntegrationRelatedIsAddedUnlessAsked() {
+        let r = build([.offload, .webhook, .copyTo, .writeCopy], "offload my clips")
+        #expect(r.workflow.steps.map(\.kind) == [.sync])
+    }
 }
