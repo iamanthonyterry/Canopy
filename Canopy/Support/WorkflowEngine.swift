@@ -63,6 +63,9 @@ final class WorkflowEngine: ObservableObject {
         var files: [URL] = []
         /// Set from the Sync step: hash each download against the source.
         var verifyOffload = false
+        /// Set from the Sync step: remove each file from the device once
+        /// its copy has been verified.
+        var deleteAfterOffload = false
         let session: WorkflowRunSession
     }
 
@@ -225,7 +228,7 @@ final class WorkflowEngine: ObservableObject {
             // checkpoint is a deliberate whole-run pause a person needs to
             // see and approve before conversion starts — pipelining ahead
             // of it would silently bypass that. See `runSyncAndConvert`.
-            if case .sync(_, let verifyPair) = step.action,
+            if case .sync(_, let verifyPair, let deletePair) = step.action,
                stepIndex + 1 < workflow.steps.count,
                case .convert(let preset, let deleteOriginal, let maxParallelJobs, let pairConvertInPlace) = workflow.steps[stepIndex + 1].action,
                !step.requiresConfirmation, !workflow.steps[stepIndex + 1].requiresConfirmation {
@@ -237,7 +240,8 @@ final class WorkflowEngine: ObservableObject {
                     for context in contexts {
                         group.addTask {
                             var context = context
-                            context.verifyOffload = verifyPair
+                            context.verifyOffload = verifyPair || deletePair
+                            context.deleteAfterOffload = deletePair
                             await self.runSyncAndConvert(
                                 context: &context, preset: preset, deleteOriginal: deleteOriginal,
                                 maxParallelJobs: maxParallelJobs, convertInPlace: pairConvertInPlace
@@ -519,8 +523,10 @@ final class WorkflowEngine: ObservableObject {
             break // handled once per run, before the per-deck fan-out — see `start`
         case .triggerWorkflow:
             break // handled once per run, before the per-deck fan-out — see `start`
-        case .sync(_, let verify):
-            context.verifyOffload = verify
+        case .sync(_, let verify, let deleteFromDevice):
+            // Removing an original is only safe against a verified copy.
+            context.verifyOffload = verify || deleteFromDevice
+            context.deleteAfterOffload = deleteFromDevice
             // The destination for this step (from the workflow's Sync step
             // config) is already resolved into context.destDir before the
             // run loop begins. `convertInPlace` here is the *workflow's*
@@ -590,6 +596,19 @@ final class WorkflowEngine: ObservableObject {
         return files.filter { $0.name != inProgress.name }
     }
 
+    /// Removes an original from the deck after its copy has been verified.
+    /// A failure leaves the file where it is and is reported as an error, so
+    /// it's clear the space wasn't freed.
+    private func removeFromDevice(fileName: String, deck: HyperDeck, session: WorkflowRunSession) async {
+        let removed = await FTPService.deleteEntry(atRelativePath: fileName, isDirectory: false, on: deck)
+        if removed {
+            session.log("  🗑 Removed \(fileName) from \(deck.name)")
+        } else {
+            session.log("  ⚠️ Copied \(fileName), but couldn't remove it from \(deck.name)")
+            session.errors += 1
+        }
+    }
+
     private func runSyncFromDeck(context: inout StepContext, deck: HyperDeck, convertInPlace: Bool) async {
         let session = context.session
         session.log("  📡 Scanning \(deck.name) (\(deck.ipAddress))...")
@@ -654,6 +673,10 @@ final class WorkflowEngine: ObservableObject {
             if context.verifyOffload {
                 let ok = await verifyCopy(taskID: taskID, fileName: entry.name, deck: deck, destURL: destURL, session: session)
                 guard ok else { continue }
+            }
+
+            if context.deleteAfterOffload {
+                await removeFromDevice(fileName: entry.name, deck: deck, session: session)
             }
 
             updateTask(id: taskID, phase: .done, syncProgress: 1)
@@ -937,6 +960,7 @@ final class WorkflowEngine: ObservableObject {
         let deckName = deck.name
         let settings = ConversionSettings(preset: preset)
         let verifyDownloads = context.verifyOffload
+        let deleteAfterOffload = context.deleteAfterOffload
 
         let outcomes: [PipelineFileOutcome] = await withTaskGroup(of: [PipelineFileOutcome].self) { group in
             // Producer: downloads each file in order, pushing it to the
@@ -972,6 +996,10 @@ final class WorkflowEngine: ObservableObject {
                             destURL: item.destURL, session: session
                         )
                         guard ok else { continue }
+                    }
+
+                    if deleteAfterOffload {
+                        await self.removeFromDevice(fileName: item.entry.name, deck: deck, session: session)
                     }
 
                     await MainActor.run {

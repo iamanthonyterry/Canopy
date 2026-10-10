@@ -280,8 +280,8 @@ enum WorkflowDraftBuilder {
         if let folderIndex = steps.firstIndex(where: { $0.kind == .createFolder }) {
             let folderID = steps[folderIndex].id
             for i in steps.indices where i > folderIndex {
-                if case .sync(.global, let verify) = steps[i].action {
-                    steps[i].action = .sync(destination: .createdFolder(stepID: folderID), verify: verify)
+                if case .sync(.global, let verify, let deleteFromDevice) = steps[i].action {
+                    steps[i].action = .sync(destination: .createdFolder(stepID: folderID), verify: verify, deleteFromDevice: deleteFromDevice)
                 }
             }
         }

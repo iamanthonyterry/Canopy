@@ -19,6 +19,7 @@ struct WorkflowStepConfigSheet: View {
     @State private var syncCreatedFolderStepID: UUID? = nil
     @State private var syncCloudStoreID: UUID? = nil   // nil = global destination
     @State private var syncVerify = false
+    @State private var syncDeleteFromDevice = false
     @State private var syncCloudStorePath = ""
     @State private var showFolderPicker = false
     @State private var createFolderCloudStoreID: UUID? = nil   // nil = global destination
@@ -227,8 +228,16 @@ struct WorkflowStepConfigSheet: View {
             Text("Downloads any files not already synced.")
                 .font(.callout).foregroundStyle(.secondary)
 
-            Toggle("Verify with SHA-256", isOn: $syncVerify)
+            Toggle("Verify with SHA-256", isOn: Binding(
+                get: { syncVerify || syncDeleteFromDevice },
+                set: { syncVerify = $0 }
+            ))
+            .disabled(syncDeleteFromDevice)
             Text("Re-reads each file from the device and compares it with the copy on the destination, then writes a checksums.sha256 manifest next to the footage. Adds time to every offload.")
+                .font(.caption).foregroundStyle(.secondary)
+
+            Toggle("Remove from device after offload", isOn: $syncDeleteFromDevice)
+            Text("Deletes each file from the HyperDeck once its copy has been verified — an alternative to a Format Drive step. Always verifies first, and a file that fails verification is left on the device. A clip that's still recording is never touched. Doesn't apply to Local Folder or Cloud Store Folder targets.")
                 .font(.caption).foregroundStyle(.secondary)
 
             if !availableFolderSteps.isEmpty {
@@ -945,8 +954,9 @@ struct WorkflowStepConfigSheet: View {
             createFolderParentPath = parentPath
             createFolderNameTemplate = nameTemplate
             createFolderGroupByDevice = groupByDevice
-        case .sync(let destination, let verify):
-            syncVerify = verify
+        case .sync(let destination, let verify, let deleteFromDevice):
+            syncVerify = verify || deleteFromDevice
+            syncDeleteFromDevice = deleteFromDevice
             switch destination {
             case .global:
                 syncUsesCreatedFolder = false
@@ -1032,7 +1042,7 @@ struct WorkflowStepConfigSheet: View {
             } else {
                 destination = .global
             }
-            step.action = .sync(destination: destination, verify: syncVerify)
+            step.action = .sync(destination: destination, verify: syncVerify || syncDeleteFromDevice, deleteFromDevice: syncDeleteFromDevice)
         case .convert: step.action = .convert(preset: preset, deleteOriginal: deleteOriginal, maxParallelJobs: maxParallelJobs, convertInPlace: convertInPlace)
         case .rename:  step.action = .rename(pattern: pattern.isEmpty ? "{name}" : pattern)
         case .transcribe: step.action = .transcribe(locale: transcribeLocale, writeSRT: transcribeWriteSRT, skipExisting: transcribeSkipExisting)
