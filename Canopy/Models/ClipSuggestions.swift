@@ -4,6 +4,20 @@ import Foundation
 // Moments in a long video that could stand alone as a short social post.
 // Saved as a `.clips.json` sidecar next to the video, like transcripts.
 
+/// Ready-to-post text for a clip.
+nonisolated struct PostCopy: Codable, Hashable {
+    var headline: String
+    var caption: String
+    /// Without the leading "#".
+    var hashtags: [String]
+
+    /// What to paste into a post: the caption followed by the hashtags.
+    var postText: String {
+        let tags = hashtags.map { "#\($0)" }.joined(separator: " ")
+        return tags.isEmpty ? caption : "\(caption)\n\n\(tags)"
+    }
+}
+
 struct ClipCandidate: Codable, Hashable, Identifiable {
     var id = UUID()
     var start: TimeInterval
@@ -14,6 +28,8 @@ struct ClipCandidate: Codable, Hashable, Identifiable {
     var score: Int
     /// The first line spoken, for the review list.
     var openingLine: String
+    /// Drafted by the Write Post Copy step; nil until then.
+    var copy: PostCopy? = nil
 
     var duration: TimeInterval { end - start }
 }

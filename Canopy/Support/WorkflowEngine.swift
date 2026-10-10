@@ -539,6 +539,8 @@ final class WorkflowEngine: ObservableObject {
                                exportFormat: exportFormat, captions: captions)
         case .queueClips(let minScore):
             runQueueClips(context: &context, minScore: minScore)
+        case .writeCopy(let platform, let hashtagCount):
+            await runWriteCopy(context: &context, platform: platform, hashtagCount: hashtagCount)
         case .reframe(let format, let followSubject):
             await runReframe(context: &context, format: format, followSubject: followSubject)
         case .format:
@@ -1197,6 +1199,68 @@ final class WorkflowEngine: ObservableObject {
                 session.log("  ❌ Find Clips failed for \(url.lastPathComponent): \(error.localizedDescription)")
                 session.errors += 1
             }
+        }
+    }
+
+    // MARK: - Shared: which videos a step works on
+
+    /// The working set handed down from earlier steps; failing that, for a
+    /// target that's a real folder, the video files in it. (A HyperDeck's
+    /// destDir is only a placeholder until Offload runs.)
+    private func workingVideos(for context: StepContext) -> [URL] {
+        if !context.files.isEmpty { return context.files }
+        guard context.device.hyperDeck == nil else { return [] }
+        return ((try? FileManager.default.contentsOfDirectory(at: context.destDir, includingPropertiesForKeys: nil)) ?? [])
+            .filter { ConversionService.canConvert(url: $0) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    // MARK: - Write Post Copy step
+
+    /// Drafts a title, caption and hashtags for each suggested clip and saves
+    /// them back into the video's clip suggestions. Clips that already have
+    /// copy are left alone.
+    private func runWriteCopy(context: inout StepContext, platform: CopyPlatform, hashtagCount: Int) async {
+        let session = context.session
+        let files = workingVideos(for: context)
+        guard !files.isEmpty else {
+            session.log("  ⏭ Write Post Copy: no video files found in \(context.device.name)")
+            return
+        }
+
+        for url in files {
+            if session.isCancelled { return }
+            guard var suggestions = ClipSuggestions.load(for: url) else {
+                session.log("  ⏭ \(url.lastPathComponent): no clip suggestions — add a Find Clips step before this one")
+                continue
+            }
+            guard let transcript = Transcript.load(for: url) else {
+                session.log("  ⏭ \(url.lastPathComponent): no transcript to write copy from")
+                continue
+            }
+
+            var written = 0
+            for index in suggestions.candidates.indices where suggestions.candidates[index].copy == nil {
+                if session.isCancelled { return }
+                let clip = suggestions.candidates[index]
+                do {
+                    suggestions.candidates[index].copy = try await PostCopyWriter.write(
+                        for: clip, transcript: transcript, platform: platform, hashtagCount: hashtagCount
+                    )
+                    written += 1
+                } catch {
+                    session.log("  ❌ Couldn't write copy for \"\(clip.title)\": \(error.localizedDescription)")
+                    session.errors += 1
+                }
+            }
+            if written > 0 {
+                do { try suggestions.write(for: url) } catch {
+                    session.log("  ❌ Couldn't save copy for \(url.lastPathComponent): \(error.localizedDescription)")
+                    session.errors += 1
+                    continue
+                }
+            }
+            session.log("  ✍️ \(url.lastPathComponent): wrote copy for \(written) clip(s)")
         }
     }
 

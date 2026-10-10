@@ -14,6 +14,7 @@ final class ClipSuggestionsModel: ObservableObject {
         case transcribing
         case finding(Double)
         case exporting(done: Int, total: Int)
+        case writingCopy(done: Int, total: Int)
         case failed(String)
     }
 
@@ -21,10 +22,11 @@ final class ClipSuggestionsModel: ObservableObject {
     @Published var selected: Set<UUID> = []
     @Published var status: Status = .idle
     @Published var postOptions = SocialPostExporter.Options()
+    @Published var copyPlatform = CopyPlatform.general
 
     var isBusy: Bool {
         switch status {
-        case .transcribing, .finding, .exporting: return true
+        case .transcribing, .finding, .exporting, .writingCopy: return true
         default: return false
         }
     }
@@ -150,6 +152,37 @@ final class ClipSuggestionsModel: ObservableObject {
         }
     }
 
+    /// Drafts post copy for every clip that doesn't have any yet, saving it
+    /// with the suggestions.
+    func writeCopy(for source: URL) {
+        guard let transcript = Transcript.load(for: source) else {
+            status = .failed("There's no transcript for this video yet — find clips first.")
+            return
+        }
+        let pending = candidates.indices.filter { candidates[$0].copy == nil }
+        guard !pending.isEmpty else { return }
+        let platform = copyPlatform
+
+        status = .writingCopy(done: 0, total: pending.count)
+        task = Task {
+            var firstError: String?
+            for (n, index) in pending.enumerated() {
+                if Task.isCancelled { break }
+                do {
+                    candidates[index].copy = try await PostCopyWriter.write(
+                        for: candidates[index], transcript: transcript, platform: platform, hashtagCount: 5
+                    )
+                } catch {
+                    firstError = firstError ?? error.localizedDescription
+                }
+                status = .writingCopy(done: n + 1, total: pending.count)
+            }
+            try? ClipSuggestions(sourceFileName: source.lastPathComponent, generatedAt: Date(), candidates: candidates)
+                .write(for: source)
+            status = firstError.map { .failed($0) } ?? .idle
+        }
+    }
+
     static func slug(_ title: String) -> String { SocialPostExporter.slug(title) }
 }
 
@@ -178,6 +211,8 @@ struct ClipSuggestionsPopover: View {
                 progressRow("Looking for standalone moments…", value: pct)
             case .exporting(let done, let total):
                 progressRow("Exporting \(done) of \(total)…", value: Double(done) / Double(max(total, 1)))
+            case .writingCopy(let done, let total):
+                progressRow("Writing copy \(done) of \(total)…", value: Double(done) / Double(max(total, 1)))
             case .failed(let message):
                 Text(message).font(.callout).foregroundStyle(Color.canopyRust)
             case .idle:
@@ -237,6 +272,23 @@ struct ClipSuggestionsPopover: View {
                 if !clip.reason.isEmpty {
                     Text(clip.reason).font(.caption).foregroundStyle(.secondary.opacity(0.8)).lineLimit(2)
                 }
+                if let copy = clip.copy {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text(copy.headline).font(.caption.weight(.semibold)).lineLimit(1)
+                            Spacer()
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(copy.postText, forType: .string)
+                            } label: { Image(systemName: "doc.on.doc") }
+                                .buttonStyle(.plain)
+                                .help("Copy the caption and hashtags")
+                        }
+                        Text(copy.postText).font(.caption).foregroundStyle(.secondary).lineLimit(4)
+                    }
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.06)))
+                }
             }
             Button { onPreview(clip) } label: { Image(systemName: "play.circle.fill").font(.title3) }
                 .buttonStyle(.plain)
@@ -265,6 +317,9 @@ struct ClipSuggestionsPopover: View {
             HStack {
                 Text("\(model.selected.count) selected").font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                Button("Write Copy") { if let sourceURL { model.writeCopy(for: sourceURL) } }
+                    .disabled(model.isBusy || sourceURL == nil || !model.candidates.contains { $0.copy == nil })
+                    .help("Draft a caption and hashtags for each clip")
                 Button("Export Clips…") { chooseFolder { model.exportSelected(from: $0, to: $1) } }
                     .disabled(model.selected.isEmpty || model.isBusy || sourceURL == nil)
                     .help("Plain trimmed copies, same shape as the original")

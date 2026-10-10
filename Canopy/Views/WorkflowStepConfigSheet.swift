@@ -40,6 +40,9 @@ struct WorkflowStepConfigSheet: View {
     @State private var findClipsMaxSeconds = 60
     @State private var findClipsExport = false
     @State private var queueClipsMinScore = 0
+    @State private var copyPlatform = CopyPlatform.general
+    @State private var copyHashtagCount = 5
+
     @State private var findClipsFormat = SocialFormat.vertical
     @State private var findClipsCaptions = true
     @State private var reframeFormat = SocialFormat.vertical
@@ -113,6 +116,9 @@ struct WorkflowStepConfigSheet: View {
 
                 case .queueClips:
                     queueClipsFields
+
+                case .writeCopy:
+                    writeCopyFields
 
                 case .reframe:
                     reframeFields
@@ -540,6 +546,19 @@ struct WorkflowStepConfigSheet: View {
         }
     }
 
+    private var writeCopyFields: some View {
+        Group {
+            Picker("Style", selection: $copyPlatform) {
+                ForEach(CopyPlatform.allCases) { platform in
+                    Text(platform.title).tag(platform)
+                }
+            }
+            Stepper("Up to \(copyHashtagCount) hashtag\(copyHashtagCount == 1 ? "" : "s")", value: $copyHashtagCount, in: 0...10)
+            Text("Drafts a headline, caption and hashtags for each suggested clip from what's said in it, on this Mac. Put this after Find Clips. The copy is saved with the clip suggestions and shown in the player's clip panel; rendered posts also get a matching .txt file.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     private var queueClipsFields: some View {
         Group {
             Stepper(
@@ -820,6 +839,8 @@ struct WorkflowStepConfigSheet: View {
             findClipsCaptions = captions
         case .queueClips(let minScore):
             queueClipsMinScore = minScore
+        case .writeCopy(let platform, let hashtagCount):
+            copyPlatform = platform; copyHashtagCount = hashtagCount
         case .reframe(let format, let followSubject):
             reframeFormat = format; reframeFollowSubject = followSubject
         case .cleanup(let days):
@@ -868,6 +889,7 @@ struct WorkflowStepConfigSheet: View {
         case .findClips: step.action = .findClips(maxClips: findClipsMax, minSeconds: findClipsMinSeconds, maxSeconds: max(findClipsMaxSeconds, findClipsMinSeconds),
                                                    exportFormat: findClipsExport ? findClipsFormat : nil, captions: findClipsCaptions)
         case .queueClips: step.action = .queueClips(minScore: queueClipsMinScore)
+        case .writeCopy: step.action = .writeCopy(platform: copyPlatform, hashtagCount: copyHashtagCount)
         case .reframe: step.action = .reframe(format: reframeFormat, followSubject: reframeFollowSubject)
         case .format:  step.action = .format
         case .cleanup: step.action = .cleanup(retentionDays: retentionDays)

@@ -33,6 +33,12 @@ nonisolated enum SocialPostExporter {
             format: options.format, followSubject: options.followSubject,
             range: range, captions: cues
         )
+        // Copy that goes with the post, beside it, ready to paste.
+        if let copy = clip.copy {
+            let text = "\(copy.headline)\n\n\(copy.postText)\n"
+            let sidecar = output.deletingPathExtension().appendingPathExtension("txt")
+            try? text.write(to: sidecar, atomically: true, encoding: .utf8)
+        }
     }
 
     /// `A001.mov`, clip 2 "Big Idea", vertical → `A001_clip02_Big-Idea_9x16.mp4`.
