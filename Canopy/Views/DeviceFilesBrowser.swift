@@ -251,126 +251,212 @@ struct DeviceFilesBrowser: View {
 
     // MARK: - Toolbar
 
+    /// How much of the toolbar fits. `ViewThatFits` picks the first tier whose
+    /// natural width fits the pane, so controls collapse into icons and menus
+    /// instead of wrapping letter-by-letter when the window gets narrow.
+    private enum ToolbarDensity { case regular, compact, minimal }
+
     private var toolbar: some View {
-        HStack(spacing: 12) {
-            Text("Files").font(.headline)
-            if device.supportsFileBrowsing {
-                StorageSummaryView(info: storageInfo, isLoading: isLoadingStorage)
-            }
-            Spacer()
-            if device.supportsFileBrowsing {
-                if isSelecting {
-                    Text(selectedIDs.isEmpty ? "Select files…" : "\(selectedIDs.count) selected")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if isProcessingOperation {
-                        ProgressView().controlSize(.small)
-                    }
-                    if appState.isAdmin {
-                        Button("Move…") {
-                            moveNodes = selectedNodes()
-                            showMoveSheet = true
-                        }
-                        .controlSize(.small)
-                        .disabled(selectedIDs.isEmpty || isProcessingOperation)
-                        Button("Delete", role: .destructive) {
-                            deletePending = selectedNodes()
-                        }
-                        .controlSize(.small)
-                        .tint(Color.canopyRust)
-                        .disabled(selectedIDs.isEmpty || isProcessingOperation)
-                    }
-                    Button("Add to Queue") { addSelectionToQueue() }
-                        .buttonStyle(.canopyPrimary)
-                        .controlSize(.small)
-                        .disabled(selectedIDs.isEmpty)
-                    Button("Cancel") { isSelecting = false; selectedIDs.removeAll() }
-                        .controlSize(.small)
-                } else {
-                    ViewModeButton(icon: starredOnly ? "star.fill" : "star", selected: starredOnly) {
-                        starredOnly.toggle()
-                    }
-                    .help("Starred Only")
-
-                    Menu {
-                        Button {
-                            labelFilter = nil
-                        } label: {
-                            Label("All Labels", systemImage: labelFilter == nil ? "checkmark" : "")
-                        }
-                        Divider()
-                        ForEach(ClipLabel.allCases) { label in
-                            Button {
-                                labelFilter = label
-                            } label: {
-                                Label(label.title, systemImage: labelFilter == label ? "checkmark.circle.fill" : "circle.fill")
-                                    .foregroundStyle(label.color)
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "tag.fill")
-                            .foregroundStyle(labelFilter?.color ?? Color.secondary)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .help("Filter by Label")
-
-                    HStack(spacing: 0) {
-                        ViewModeButton(icon: "list.bullet", selected: viewMode == .list) {
-                            viewMode = .list
-                        }
-                        ViewModeButton(icon: "square.grid.2x2", selected: viewMode == .gallery) {
-                            viewMode = .gallery
-                        }
-                    }
-                    if viewMode == .gallery {
-                        ViewModeButton(icon: "calendar", selected: groupByDay) { groupByDay.toggle() }
-                            .help("Group by Day")
-                        Slider(value: $tileSize, in: 80...220)
-                            .frame(width: 80)
-                            .controlSize(.mini)
-                            .help("Thumbnail Size")
-                    }
-                    HStack(spacing: 0) {
-                        ForEach(SortOrder.allCases, id: \.self) { order in
-                            SortOrderButton(order: order, selected: sortOrder == order) {
-                                sortOrder = order
-                            }
-                        }
-                    }
-                    Button("Select") { isSelecting = true }
-                        .buttonStyle(.borderless)
-                    Button {
-                        loadFiles()
-                        refreshStorageInfo()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(isLoadingFiles)
-                }
-
-                Button {
-                    showExportQueue = true
-                } label: {
-                    ZStack(alignment: .topTrailing) {
-                        Image(systemName: "square.and.arrow.up.on.square")
-                        if exportQueue.activeCount > 0 {
-                            Text("\(exportQueue.activeCount)")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(.white)
-                                .padding(3)
-                                .background(Color.accentColor, in: Circle())
-                                .offset(x: 8, y: -8)
-                        }
-                    }
-                }
-                .buttonStyle(.borderless)
-                .help("Export Queue")
-            }
+        ViewThatFits(in: .horizontal) {
+            toolbarRow(.regular)
+            toolbarRow(.compact)
+            toolbarRow(.minimal)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    private func toolbarRow(_ density: ToolbarDensity) -> some View {
+        HStack(spacing: density == .regular ? 12 : 8) {
+            if density != .minimal {
+                Text("Files").font(.headline).lineLimit(1).fixedSize()
+            }
+            if device.supportsFileBrowsing && density != .minimal {
+                StorageSummaryView(info: storageInfo, isLoading: isLoadingStorage,
+                                   showsText: density == .regular)
+            }
+            Spacer(minLength: 0)
+            if device.supportsFileBrowsing {
+                if isSelecting {
+                    selectionControls(density)
+                } else {
+                    browseControls(density)
+                }
+                exportQueueButton
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func selectionControls(_ density: ToolbarDensity) -> some View {
+        let iconOnly = density != .regular
+        let count = selectedIDs.count
+        if density == .regular {
+            Text(count == 0 ? "Select files…" : "\(count) selected")
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+        } else if count > 0 {
+            Text("\(count)").font(.caption).foregroundStyle(.secondary).fixedSize()
+        }
+        if isProcessingOperation {
+            ProgressView().controlSize(.small)
+        }
+        if appState.isAdmin {
+            Button {
+                moveNodes = selectedNodes()
+                showMoveSheet = true
+            } label: {
+                AdaptiveLabel(title: "Move…", icon: "folder", iconOnly: iconOnly)
+            }
+            .controlSize(.small)
+            .disabled(selectedIDs.isEmpty || isProcessingOperation)
+            .help("Move Selected")
+            Button(role: .destructive) {
+                deletePending = selectedNodes()
+            } label: {
+                AdaptiveLabel(title: "Delete", icon: "trash", iconOnly: iconOnly)
+            }
+            .controlSize(.small)
+            .tint(Color.canopyRust)
+            .disabled(selectedIDs.isEmpty || isProcessingOperation)
+            .help("Delete Selected")
+        }
+        Button { addSelectionToQueue() } label: {
+            AdaptiveLabel(title: "Add to Queue", icon: "plus.circle", iconOnly: iconOnly)
+        }
+        .buttonStyle(.canopyPrimary)
+        .controlSize(.small)
+        .disabled(selectedIDs.isEmpty)
+        .help("Add to Queue")
+        Button { isSelecting = false; selectedIDs.removeAll() } label: {
+            AdaptiveLabel(title: "Cancel", icon: "xmark", iconOnly: iconOnly)
+        }
+        .controlSize(.small)
+        .help("Cancel Selection")
+    }
+
+    @ViewBuilder
+    private func browseControls(_ density: ToolbarDensity) -> some View {
+        ViewModeButton(icon: starredOnly ? "star.fill" : "star", selected: starredOnly) {
+            starredOnly.toggle()
+        }
+        .help("Starred Only")
+
+        Menu {
+            Button {
+                labelFilter = nil
+            } label: {
+                Label("All Labels", systemImage: labelFilter == nil ? "checkmark" : "")
+            }
+            Divider()
+            ForEach(ClipLabel.allCases) { label in
+                Button {
+                    labelFilter = label
+                } label: {
+                    Label(label.title, systemImage: labelFilter == label ? "checkmark.circle.fill" : "circle.fill")
+                        .foregroundStyle(label.color)
+                }
+            }
+        } label: {
+            Image(systemName: "tag.fill")
+                .foregroundStyle(labelFilter?.color ?? Color.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Filter by Label")
+
+        HStack(spacing: 0) {
+            ViewModeButton(icon: "list.bullet", selected: viewMode == .list) {
+                viewMode = .list
+            }
+            ViewModeButton(icon: "square.grid.2x2", selected: viewMode == .gallery) {
+                viewMode = .gallery
+            }
+        }
+        if viewMode == .gallery {
+            if density != .minimal {
+                ViewModeButton(icon: "calendar", selected: groupByDay) { groupByDay.toggle() }
+                    .help("Group by Day")
+            }
+            if density == .regular {
+                Slider(value: $tileSize, in: 80...220)
+                    .frame(width: 80)
+                    .controlSize(.mini)
+                    .help("Thumbnail Size")
+            }
+        }
+
+        if density == .regular {
+            HStack(spacing: 0) {
+                ForEach(SortOrder.allCases, id: \.self) { order in
+                    SortOrderButton(order: order, selected: sortOrder == order) {
+                        sortOrder = order
+                    }
+                }
+            }
+            Button("Select") { isSelecting = true }
+                .buttonStyle(.borderless)
+                .lineLimit(1).fixedSize()
+        } else {
+            Menu {
+                Picker("Sort By", selection: $sortOrder) {
+                    ForEach(SortOrder.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.inline)
+                if viewMode == .gallery {
+                    Divider()
+                    if density == .minimal {
+                        Toggle("Group by Day", isOn: $groupByDay)
+                    }
+                    Picker("Thumbnail Size", selection: $tileSize) {
+                        Text("Small").tag(96.0)
+                        Text("Medium").tag(140.0)
+                        Text("Large").tag(200.0)
+                    }
+                    .pickerStyle(.inline)
+                }
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Sort & Thumbnail Size")
+            Button { isSelecting = true } label: {
+                Image(systemName: "checkmark.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("Select Files")
+        }
+        Button {
+            loadFiles()
+            refreshStorageInfo()
+        } label: {
+            Image(systemName: "arrow.clockwise")
+        }
+        .buttonStyle(.borderless)
+        .disabled(isLoadingFiles)
+        .help("Refresh")
+    }
+
+    private var exportQueueButton: some View {
+        Button {
+            showExportQueue = true
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "square.and.arrow.up.on.square")
+                if exportQueue.activeCount > 0 {
+                    Text("\(exportQueue.activeCount)")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(3)
+                        .background(Color.accentColor, in: Circle())
+                        .offset(x: 8, y: -8)
+                }
+            }
+        }
+        .buttonStyle(.borderless)
+        .help("Export Queue")
     }
 
     private var searchBar: some View {
@@ -1149,6 +1235,8 @@ private struct SortOrderButton: View {
     var body: some View {
         Button(order.rawValue, action: action)
             .buttonStyle(.borderless)
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 8).padding(.vertical, 4)
             .background(selected ? Color.accentColor.opacity(0.15) : Color.clear)
             .foregroundStyle(selected ? Color.accentColor : Color.secondary)
@@ -1156,6 +1244,23 @@ private struct SortOrderButton: View {
     }
 }
 
+
+// MARK: - Adaptive Label
+// Text at regular widths, just the icon once the toolbar tightens.
+
+struct AdaptiveLabel: View {
+    let title: String
+    let icon: String
+    let iconOnly: Bool
+
+    var body: some View {
+        if iconOnly {
+            Image(systemName: icon)
+        } else {
+            Text(title).lineLimit(1).fixedSize()
+        }
+    }
+}
 
 // MARK: - View Mode Button
 
@@ -1372,6 +1477,8 @@ struct FileThumbnailView: View {
 struct StorageSummaryView: View {
     let info: StorageInfo?
     var isLoading: Bool = false
+    /// Drop the text and keep just the gauge when space is tight.
+    var showsText: Bool = true
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1380,10 +1487,15 @@ struct StorageSummaryView: View {
                     Gauge(value: fraction) { EmptyView() }
                         .gaugeStyle(.accessoryLinearCapacity)
                         .frame(width: 60)
+                        .help(info.summary)
                 }
-                Text(info.summary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if showsText || info.fraction == nil {
+                    Text(info.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             } else if isLoading {
                 ProgressView().controlSize(.small)
             }

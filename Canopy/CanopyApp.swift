@@ -8,6 +8,7 @@ struct CanopyApp: App {
     var body: some Scene {
         Window("Canopy by Roses as Humans", id: "main") {
             ContentView()
+                .frame(minWidth: 760, minHeight: 480)
                 .environmentObject(appState)
                 .onAppear {
                     NotificationService.requestPermission()

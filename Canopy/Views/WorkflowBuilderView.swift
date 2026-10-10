@@ -79,11 +79,16 @@ struct WorkflowBuilderView: View {
         VStack(spacing: 0) {
             topBar
             Rectangle().fill(Color.canopyRule).frame(height: 1)
-            HStack(spacing: 0) {
-                palette
-                    .frame(width: 270)
-                Rectangle().fill(Color.canopyRule).frame(width: 1)
-                workspace
+            GeometryReader { geo in
+                // Shrink the block palette on narrow windows so the canvas
+                // keeps room for steps.
+                let paletteWidth = min(270, max(200, geo.size.width * 0.3))
+                HStack(spacing: 0) {
+                    palette
+                        .frame(width: paletteWidth)
+                    Rectangle().fill(Color.canopyRule).frame(width: 1)
+                    workspace
+                }
             }
         }
         .background(Color.canopyPaper)
@@ -127,8 +132,10 @@ struct WorkflowBuilderView: View {
                 if isDirty { confirmingDiscard = true } else { onClose() }
             } label: {
                 Label("All Workflows", systemImage: "chevron.left")
+                    .lineLimit(1)
             }
             .keyboardShortcut(.cancelAction)
+            .fixedSize()
 
             Rectangle().fill(Color.canopyRule).frame(width: 1, height: 22)
 
@@ -141,9 +148,12 @@ struct WorkflowBuilderView: View {
 
             if isDirty {
                 Text("Unsaved changes").font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .layoutPriority(-1)
             }
             Button(existingWorkflow == nil ? "Create Workflow" : "Save Workflow") { save() }
                 .buttonStyle(.canopyPrimary)
+                .fixedSize()
                 .disabled(!canSave)
                 .keyboardShortcut("s", modifiers: .command)
                 .help(canSave ? "" : "Give the workflow a name and at least one step")

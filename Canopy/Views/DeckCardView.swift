@@ -93,7 +93,9 @@ struct DeckContentPane: View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
                 Text(deck.name).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
+                    .lineLimit(1).truncationMode(.tail)
                 Text(deck.ipAddress).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
             }
             Spacer()
             StatusBadge(status: liveStatus)

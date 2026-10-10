@@ -15,7 +15,7 @@ struct ShootSettingsView: View {
                 LabeledContent("Project name") {
                     TextField("e.g. Spring Campaign", text: $appState.shoot.name)
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 220)
+                        .frame(minWidth: 120, maxWidth: 220)
                 }
 
                 if !deviceNames.isEmpty {

@@ -87,6 +87,7 @@ struct ExportQueueView: View {
             } else {
                 Text("\(manager.items.count) item\(manager.items.count == 1 ? "" : "s") queued")
                     .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Spacer()
                 Button("Clear Completed") { manager.clearCompleted() }
                     .disabled(!manager.items.contains { $0.phase == .done || $0.phase == .error })

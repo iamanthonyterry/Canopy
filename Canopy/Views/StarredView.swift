@@ -236,6 +236,7 @@ private struct StarredClipCard: View {
 
                 HStack(spacing: 6) {
                     Text(metadata.deviceLabel).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
                     if !deviceAvailable {
                         CanopyPill(label: "Device no longer configured", color: .canopyRust)
                     }
@@ -270,6 +271,7 @@ private struct StarredClipCard: View {
                     }
                     .buttonStyle(.borderless)
                     .font(.caption)
+                    .lineLimit(1)
 
                     if metadata.isVideo || metadata.isImage {
                         Button("Play", action: onPlay)
@@ -277,7 +279,7 @@ private struct StarredClipCard: View {
                             .font(.caption)
                             .disabled(!deviceAvailable)
 
-                        Button("Add to Export Queue", action: onQueue)
+                        Button("Add to Queue", action: onQueue)
                             .buttonStyle(.borderless)
                             .font(.caption)
                             .disabled(!deviceAvailable)

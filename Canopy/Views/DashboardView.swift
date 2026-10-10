@@ -91,12 +91,17 @@ struct DashboardView: View {
             if totalDevices == 0 && !hasDiscovered {
                 emptyState
             } else {
-                HStack(spacing: 0) {
-                    deviceList
-                        .frame(width: 300)
-                    Rectangle().fill(Color.canopyRule).frame(width: 1)
-                    detailPane
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                GeometryReader { geo in
+                    // The list takes ~30% of the pane, clamped so rows stay
+                    // readable on small windows and don't sprawl on big ones.
+                    let listWidth = min(300, max(190, geo.size.width * 0.3))
+                    HStack(spacing: 0) {
+                        deviceList
+                            .frame(width: listWidth)
+                        Rectangle().fill(Color.canopyRule).frame(width: 1)
+                        detailPane
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
             }
 
@@ -144,49 +149,9 @@ struct DashboardView: View {
     // MARK: - Header
     private var headerBar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Dashboard").font(.canopyTitle).foregroundStyle(Color.canopyInk)
-                    Text(appState.isAdmin
-                        ? "\(appState.hyperDecks.count) decks · \(appState.cloudStores.count) network storage · \(appState.localFolders.count) local folders"
-                        : "\(appState.cloudStores.count) network storage · \(appState.localFolders.count) local folders")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                }
-                Spacer()
-
-                if !inProgress.isEmpty {
-                    HStack(spacing: 10) {
-                        statPill("\(inProgress.count) running", color: .accentColor)
-                        statPill("\(activeCount) active", color: .accentColor)
-                        statPill("\(doneCount) done", color: .canopySage)
-                        if errorCount > 0 { statPill("\(errorCount) errors", color: .canopyRust) }
-                    }
-                } else {
-                    HStack(spacing: 6) {
-                        Circle().fill(Color.gray.opacity(0.4)).frame(width: 9, height: 9)
-                        Text("Idle").font(.subheadline).foregroundStyle(.secondary)
-                    }
-                }
-
-                if appState.isAdmin {
-                    scanButton
-
-                    Button {
-                        showMode = true
-                    } label: {
-                        Label("Show Mode", systemImage: "tv")
-                    }
-                    .buttonStyle(.canopySecondary)
-
-                    Menu {
-                        Button("HyperDeck") { showingAddDeck = true }
-                        Button("Cloud Store") { addCloudStoreKind = .blackmagicCloudStore; showingAddCloudStore = true }
-                        Button("Synology NAS") { addCloudStoreKind = .synologyNAS; showingAddCloudStore = true }
-                        Button("Local Folder") { showingAddLocalFolder = true }
-                    } label: {
-                        Label("Add Device", systemImage: "plus")
-                    }.buttonStyle(.canopyPrimary)
-                }
+            ViewThatFits(in: .horizontal) {
+                headerRow(compact: false)
+                headerRow(compact: true)
             }
 
             if let earliest = inProgress.map(\.startedAt).min() {
@@ -196,13 +161,77 @@ struct DashboardView: View {
         .padding()
     }
 
+    /// `compact` trades button text for icons and trims the run pills so the
+    /// title row stays on one line when the window is narrow.
+    private func headerRow(compact: Bool) -> some View {
+        HStack(spacing: compact ? 8 : 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Dashboard").font(.canopyTitle).foregroundStyle(Color.canopyInk)
+                    .lineLimit(1)
+                if !compact {
+                    Text(appState.isAdmin
+                        ? "\(appState.hyperDecks.count) decks · \(appState.cloudStores.count) network storage · \(appState.localFolders.count) local folders"
+                        : "\(appState.cloudStores.count) network storage · \(appState.localFolders.count) local folders")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .fixedSize()
+            Spacer(minLength: 0)
 
-    @ViewBuilder private var scanButton: some View {
+            if !inProgress.isEmpty {
+                HStack(spacing: compact ? 6 : 10) {
+                    statPill("\(inProgress.count) running", color: .accentColor)
+                    if !compact {
+                        statPill("\(activeCount) active", color: .accentColor)
+                        statPill("\(doneCount) done", color: .canopySage)
+                    }
+                    if errorCount > 0 { statPill("\(errorCount) errors", color: .canopyRust) }
+                }
+                .fixedSize()
+            } else if !compact {
+                HStack(spacing: 6) {
+                    Circle().fill(Color.gray.opacity(0.4)).frame(width: 9, height: 9)
+                    Text("Idle").font(.subheadline).foregroundStyle(.secondary)
+                }
+                .fixedSize()
+            }
+
+            if appState.isAdmin {
+                scanButton(compact: compact)
+
+                Button {
+                    showMode = true
+                } label: {
+                    AdaptiveLabel(title: "Show Mode", icon: "tv", iconOnly: compact)
+                }
+                .buttonStyle(.canopySecondary)
+                .help("Show Mode")
+
+                Menu {
+                    Button("HyperDeck") { showingAddDeck = true }
+                    Button("Cloud Store") { addCloudStoreKind = .blackmagicCloudStore; showingAddCloudStore = true }
+                    Button("Synology NAS") { addCloudStoreKind = .synologyNAS; showingAddCloudStore = true }
+                    Button("Local Folder") { showingAddLocalFolder = true }
+                } label: {
+                    AdaptiveLabel(title: "Add Device", icon: "plus", iconOnly: compact)
+                }
+                .buttonStyle(.canopyPrimary)
+                .help("Add Device")
+            }
+        }
+    }
+
+
+    @ViewBuilder private func scanButton(compact: Bool) -> some View {
         Button {
             if discovery.isScanning { discovery.stopScanning() }
             else { discovery.startScanning() }
         } label: {
-            if discovery.isScanning {
+            if compact {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .symbolEffect(.pulse, isActive: discovery.isScanning)
+            } else if discovery.isScanning {
                 Label("Scanning…", systemImage: "antenna.radiowaves.left.and.right")
                     .symbolEffect(.pulse)
             } else {
@@ -210,6 +239,7 @@ struct DashboardView: View {
             }
         }
         .buttonStyle(.canopySecondary)
+        .help(discovery.isScanning ? "Stop Scanning" : "Scan Network")
     }
 
     // MARK: - Hairline rule
@@ -359,13 +389,16 @@ struct DashboardView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Last run: \(last.workflowName) · \(last.finishedAt.formatted(.relative(presentation: .named)))")
                             .font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.tail)
                         Text("\(last.processed) processed · \(last.durationFormatted)")
                             .font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                     .padding(.leading)
+                    .layoutPriority(-1)
                 }
 
-                Spacer()
+                Spacer(minLength: 0)
 
                 if appState.isAdmin {
                     // Retry button — visible whenever there are failed tasks
@@ -375,10 +408,11 @@ struct DashboardView: View {
                             Task { await workflowEngine.retryFailed() }
                         } label: {
                             Label("Retry \(appState.failedTasks.count) Failed", systemImage: "arrow.counterclockwise")
-                                .padding(.horizontal, 16).padding(.vertical, 8)
+                                .padding(.horizontal, 10).padding(.vertical, 8)
                         }
                         .buttonStyle(.bordered)
                         .tint(.orange)
+                        .fixedSize()
                     }
 
                     if !inProgress.isEmpty {
@@ -386,15 +420,16 @@ struct DashboardView: View {
                             workflowEngine.stop()
                         } label: {
                             Label("Stop All", systemImage: "stop.fill")
-                                .padding(.horizontal, 20).padding(.vertical, 8)
+                                .padding(.horizontal, 10).padding(.vertical, 8)
                         }
                         .buttonStyle(.bordered).tint(.canopyRust)
+                        .fixedSize()
                     }
 
                     runWorkflowMenu
                 }
 
-                Spacer()
+                Spacer(minLength: 0)
             }
         }
         .padding()
@@ -409,7 +444,7 @@ struct DashboardView: View {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(session.workflow.name).font(.subheadline).bold()
+                        Text(session.workflow.name).font(.subheadline).bold().lineLimit(1)
                         if let lastLine = session.lines.last {
                             Text(lastLine)
                                 .font(.system(size: 11, design: .monospaced))
@@ -465,7 +500,7 @@ struct DashboardView: View {
                 }
             } label: {
                 Label("Run Workflow", systemImage: "play.fill")
-                    .padding(.horizontal, 28).padding(.vertical, 8)
+                    .padding(.horizontal, 20).padding(.vertical, 8)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()

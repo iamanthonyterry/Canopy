@@ -62,7 +62,9 @@ struct CloudStoreContentPane: View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
                 Text(store.name).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
+                    .lineLimit(1).truncationMode(.tail)
                 Text(store.ipAddress).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
             }
             Spacer()
             StatusBadge(status: liveStatus)
@@ -124,6 +126,7 @@ struct LocalFolderContentPane: View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
                 Text(folder.name).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
+                    .lineLimit(1).truncationMode(.tail)
                 Text(folder.path).font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
@@ -131,6 +134,7 @@ struct LocalFolderContentPane: View {
             Label(folder.exists ? "Available" : "Not Found", systemImage: folder.exists ? "checkmark.circle.fill" : "xmark.circle.fill")
                 .font(.caption).bold()
                 .foregroundStyle(folder.exists ? Color.canopySage : Color.canopyRust)
+                .lineLimit(1).fixedSize()
             if appState.isAdmin {
                 runWorkflowMenu
             }

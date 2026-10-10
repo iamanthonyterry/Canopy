@@ -46,12 +46,12 @@ struct HistoryView: View {
                     .listStyle(.inset)
                 }
             }
-            .frame(minWidth: 260, maxWidth: 320)
+            .frame(minWidth: 220, idealWidth: 280, maxWidth: 320)
 
             // Run detail
             if let run = selectedRun {
                 RunDetailView(run: run)
-                    .frame(minWidth: 400, maxWidth: .infinity)
+                    .frame(minWidth: 280, maxWidth: .infinity)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
@@ -61,7 +61,7 @@ struct HistoryView: View {
                     }
                     .padding()
                 }
-                .frame(minWidth: 400, maxWidth: .infinity)
+                .frame(minWidth: 280, maxWidth: .infinity)
             }
         }
         .background(Color.canopyPaper)
@@ -79,9 +79,11 @@ struct RunRow: View {
                     .foregroundStyle(run.errors == 0 ? Color.canopySage : .orange)
                 Text(run.workflowName)
                     .font(.headline)
-                Spacer()
+                    .lineLimit(1)
+                Spacer(minLength: 4)
                 Text(run.durationFormatted)
                     .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).fixedSize()
             }
             HStack(spacing: 12) {
                 CanopyPill(label: "\(run.processed) processed", color: .canopySage)
@@ -110,7 +112,8 @@ struct RunDetailView: View {
 
                 HStack {
                     Text(run.workflowName).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
-                    Spacer()
+                        .lineLimit(2)
+                    Spacer(minLength: 8)
                     if isBuildingReport {
                         ProgressView().controlSize(.small)
                     } else {
@@ -240,6 +243,8 @@ struct RunDetailView: View {
         HStack(alignment: .top) {
             Text(label).font(.subheadline).foregroundStyle(.secondary).frame(width: 80, alignment: .leading)
             Text(value).font(.subheadline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
         }
     }
 }

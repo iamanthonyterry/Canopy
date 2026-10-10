@@ -104,20 +104,31 @@ struct WorkflowsView: View {
                 Text("\(appState.workflows.count) workflow\(appState.workflows.count == 1 ? "" : "s")")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
-            Spacer()
+            Spacer(minLength: 8)
+            ViewThatFits(in: .horizontal) {
+                headerButtons(iconOnly: false)
+                headerButtons(iconOnly: true)
+            }
+        }
+        .padding()
+    }
+
+    private func headerButtons(iconOnly: Bool) -> some View {
+        HStack(spacing: 8) {
             Button {
                 isDescribing = true
             } label: {
-                Label("Describe It", systemImage: "sparkles")
+                AdaptiveLabel(title: "Describe It", icon: "sparkles", iconOnly: iconOnly)
             }
+            .help("Describe a workflow in plain language")
             Button {
                 builder = .new
             } label: {
-                Label("New Workflow", systemImage: "plus")
+                AdaptiveLabel(title: "New Workflow", icon: "plus", iconOnly: iconOnly)
             }
             .buttonStyle(.canopyPrimary)
+            .help("New Workflow")
         }
-        .padding()
     }
 
     // MARK: - Hairline rule
@@ -151,7 +162,7 @@ struct WorkflowsView: View {
 
     private var workflowList: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 320))], spacing: 16) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 280))], spacing: 16) {
                 ForEach(appState.workflows.sorted { $0.sortOrder < $1.sortOrder }) { workflow in
                     workflowCard(workflow)
                 }
@@ -164,11 +175,12 @@ struct WorkflowsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(workflow.name).font(.headline)
+                    Text(workflow.name).font(.headline).lineLimit(2)
                     Text(targetDeviceLabel(workflow))
                         .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
-                Spacer()
+                Spacer(minLength: 8)
                 if workflow.isScheduled {
                     let active = workflow.activeTriggers
                     let scheduleLabel: String = active.count == 1
@@ -177,6 +189,7 @@ struct WorkflowsView: View {
                     let scheduleIcon = active.count == 1 ? active[0].mode.icon : "bolt"
                     Label(scheduleLabel, systemImage: scheduleIcon)
                         .font(.system(size: 10, weight: .semibold))
+                        .lineLimit(1)
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(Color.canopySage.opacity(0.18))
                         .foregroundStyle(Color.canopySage)
