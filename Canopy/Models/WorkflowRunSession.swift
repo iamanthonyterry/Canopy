@@ -226,9 +226,16 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
         return remainingBytes / avgSpeed
     }
 
+    /// Oldest lines are dropped past this, so a long run's log (which is also
+    /// written into every checkpoint) can't grow without bound.
+    private static let maxLogLines = 2000
+
     func log(_ message: String) {
         let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         lines.append("[\(ts)] \(message)")
+        if lines.count > Self.maxLogLines {
+            lines.removeFirst(lines.count - Self.maxLogLines)
+        }
     }
 
     // MARK: - Step confirmation

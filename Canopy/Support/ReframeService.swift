@@ -135,8 +135,39 @@ nonisolated enum ReframeService {
     private static let maxSamples = 1200
     private static let lowSpaceThresholdBytes: Int64 = 300 * 1024 * 1024
 
+    /// Caps how many reframe renders run at once. Each holds a decoded
+    /// composition, an export session and (when following a subject) a pile
+    /// of Vision work, so several at once can exhaust memory. A separate
+    /// instance from the Convert step's limiter, so a render can't deadlock
+    /// against a conversion that is waiting on its own slot.
+    private static let renderLimiter = ConversionSlotLimiter()
+
     @concurrent
     static func reframe(
+        input: URL,
+        output: URL,
+        format: SocialFormat,
+        followSubject: Bool,
+        /// Only this part of `input` is exported (nil = the whole file).
+        range: CMTimeRange? = nil,
+        /// Burned into the picture; times are relative to the start of the export.
+        captions: [CaptionCue] = [],
+        detector: @escaping @Sendable (CGImage) -> CGPoint? = ReframeService.subjectCenter
+    ) async throws {
+        await renderLimiter.acquire()
+        do {
+            try await render(
+                input: input, output: output, format: format, followSubject: followSubject,
+                range: range, captions: captions, detector: detector
+            )
+        } catch {
+            await renderLimiter.release()
+            throw error
+        }
+        await renderLimiter.release()
+    }
+
+    private static func render(
         input: URL,
         output: URL,
         format: SocialFormat,
@@ -284,7 +315,10 @@ nonisolated enum ReframeService {
         for await item in generator.images(for: times) {
             try Task.checkCancellation()
             if case .success(_, let image, _) = item {
-                results.append(detector(image))
+                // Vision and CoreImage hand back autoreleased objects, and a
+                // Swift concurrency thread doesn't drain a pool between
+                // iterations, so without this they pile up across the clip.
+                results.append(autoreleasepool { detector(image) })
             } else {
                 results.append(nil)
             }
