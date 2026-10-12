@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Testing
 @testable import Canopy
 
@@ -21,6 +22,31 @@ struct OffloadTests {
     @Test func sha256OfMissingFileIsNil() async {
         let hash = await ChecksumService.sha256(ofFileAt: URL(fileURLWithPath: "/nonexistent/x.mov"))
         #expect(hash == nil)
+    }
+
+    @Test func sha256OfMultiChunkFileMatchesOneShotHash() async throws {
+        let dir = tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("big.bin")
+        // Larger than two read chunks, with a ragged tail.
+        let data = Data((0 ..< 9 * 1024 * 1024 + 123).map { UInt8(truncatingIfNeeded: $0 &* 31) })
+        try data.write(to: file)
+        let hash = await ChecksumService.sha256(ofFileAt: file)
+        #expect(hash == ChecksumService.hex(SHA256.hash(data: data)))
+    }
+
+    @Test func limiterDropsToOneSlotUnderMemoryPressure() async {
+        let limiter = ConversionSlotLimiter()
+        await limiter.setLimit(3)
+        await limiter.setMemoryPressure(true)
+        await limiter.acquire()
+
+        let second = Task { await limiter.acquire(); return true }
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(await limiter.waitingCount == 1)
+
+        // Pressure clearing brings the configured limit back.
+        await limiter.setMemoryPressure(false)
+        #expect(await second.value)
     }
 
     @Test func manifestReplacesExistingEntryAndKeepsOthers() throws {

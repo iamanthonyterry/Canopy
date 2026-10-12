@@ -25,14 +25,28 @@ nonisolated enum ChecksumService {
             guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
             defer { try? handle.close() }
             var hasher = SHA256()
-            while true {
-                // nil or empty both mean end of file; only a throw is an error.
-                let chunk: Data?
-                do { chunk = try handle.read(upToCount: chunkSize) } catch { return nil }
-                guard let data = chunk, !data.isEmpty else { break }
-                hasher.update(data: data)
+            var failed = false
+            var atEnd = false
+            while !atEnd {
+                // FileHandle hands back autoreleased chunks, and a Swift
+                // concurrency thread doesn't drain a pool until the task
+                // ends — without this every chunk of the file stays in
+                // memory until the whole hash is done.
+                autoreleasepool {
+                    // nil or empty both mean end of file; only a throw is an error.
+                    do {
+                        guard let data = try handle.read(upToCount: chunkSize), !data.isEmpty else {
+                            atEnd = true
+                            return
+                        }
+                        hasher.update(data: data)
+                    } catch {
+                        failed = true
+                        atEnd = true
+                    }
+                }
             }
-            return hex(hasher.finalize())
+            return failed ? nil : hex(hasher.finalize())
         }.value
     }
 
@@ -60,9 +74,16 @@ nonisolated enum ChecksumService {
 
             var hasher = SHA256()
             let reader = pipe.fileHandleForReading
-            while true {
-                guard let data = try? reader.read(upToCount: chunkSize), !data.isEmpty else { break }
-                hasher.update(data: data)
+            var atEnd = false
+            while !atEnd {
+                // Same per-chunk pool as the local-file hash above.
+                autoreleasepool {
+                    guard let data = try? reader.read(upToCount: chunkSize), !data.isEmpty else {
+                        atEnd = true
+                        return
+                    }
+                    hasher.update(data: data)
+                }
             }
             process.waitUntilExit()
             guard process.terminationStatus == 0 else { return nil }

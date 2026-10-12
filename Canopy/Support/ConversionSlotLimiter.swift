@@ -10,20 +10,51 @@ import Foundation
 /// with each other instead of adding throughput. Every caller acquires a
 /// slot before starting an encode and releases it when done; `setLimit` is
 /// how many can hold a slot at a time.
+///
+/// While macOS reports memory pressure the limiter drops to one slot no
+/// matter what `setLimit` asked for: encodes already running finish, but
+/// new ones start one at a time until the system recovers, then the
+/// configured limit comes back on its own.
 actor ConversionSlotLimiter {
     static let shared = ConversionSlotLimiter()
 
     private var limit = 2
+    private var underMemoryPressure = false
     private var inUse = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
+    private let pressureSource: DispatchSourceMemoryPressure
+
+    private var effectiveLimit: Int { underMemoryPressure ? 1 : limit }
+
+    /// How many callers are queued for a slot.
+    var waitingCount: Int { waiters.count }
+
+    init() {
+        let source = DispatchSource.makeMemoryPressureSource(
+            eventMask: [.normal, .warning, .critical], queue: .global(qos: .utility)
+        )
+        pressureSource = source
+        source.setEventHandler { [weak self, weak source] in
+            guard let event = source?.data else { return }
+            Task { await self?.setMemoryPressure(!event.intersection([.warning, .critical]).isEmpty) }
+        }
+        source.resume()
+    }
+
+    deinit { pressureSource.cancel() }
 
     func setLimit(_ newLimit: Int) {
         limit = max(1, newLimit)
         drain()
     }
 
+    func setMemoryPressure(_ pressured: Bool) {
+        underMemoryPressure = pressured
+        drain()
+    }
+
     func acquire() async {
-        if inUse < limit {
+        if inUse < effectiveLimit {
             inUse += 1
             return
         }
@@ -36,7 +67,7 @@ actor ConversionSlotLimiter {
     }
 
     private func drain() {
-        while inUse < limit, !waiters.isEmpty {
+        while inUse < effectiveLimit, !waiters.isEmpty {
             inUse += 1
             waiters.removeFirst().resume()
         }
