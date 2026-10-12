@@ -299,9 +299,14 @@ class AppState: ObservableObject {
     /// Starts tracking a new run, clearing out any old finished session for
     /// this same workflow first so its previous results don't linger
     /// alongside the new ones.
-    func beginRun(for workflow: Workflow, deckNames: Set<String>, resourceKeys: Set<String> = []) -> WorkflowRunSession {
+    func beginRun(
+        for workflow: Workflow, deckNames: Set<String>, resourceKeys: Set<String> = [],
+        id: UUID = UUID(), startedAt: Date = Date()
+    ) -> WorkflowRunSession {
         activeRuns.removeAll { $0.workflow.id == workflow.id && $0.isFinished }
-        let session = WorkflowRunSession(workflow: workflow, deckNames: deckNames, resourceKeys: resourceKeys)
+        let session = WorkflowRunSession(
+            workflow: workflow, deckNames: deckNames, resourceKeys: resourceKeys, id: id, startedAt: startedAt
+        )
         activeRuns.append(session)
         return session
     }

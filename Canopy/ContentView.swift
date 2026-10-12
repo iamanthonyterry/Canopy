@@ -84,6 +84,7 @@ struct ContentView: View {
             .overlay(Rectangle().strokeBorder(Color.canopyRule, lineWidth: 1))
         } detail: {
             VStack(spacing: 0) {
+                InterruptedRunsBanner()
                 WorkflowConfirmationBanner()
 
                 switch selection {

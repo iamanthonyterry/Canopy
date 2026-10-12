@@ -8,7 +8,7 @@ import Combine
 /// the same time without their progress getting mixed together.
 @MainActor
 final class WorkflowRunSession: ObservableObject, Identifiable {
-    let id = UUID()
+    let id: UUID
     let workflow: Workflow
     /// Names of every device this run touches — used both for display and
     /// to detect conflicts with other runs that want the same device.
@@ -17,7 +17,7 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
     /// `AppState.resourceKey`), shared with other Canopy computers on the
     /// network so they can tell when a run would clash with this one.
     let resourceKeys: Set<String>
-    let startedAt = Date()
+    let startedAt: Date
 
     @Published var tasks: [SyncTask] = []
     @Published var lines: [String] = []
@@ -52,11 +52,33 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
     /// step's state at a glance — not just whichever one is active.
     @Published private(set) var stepRuns: [StepRun]
 
-    init(workflow: Workflow, deckNames: Set<String>, resourceKeys: Set<String> = []) {
+    /// `id` and `startedAt` are only passed when resuming an interrupted run,
+    /// so it carries on as the same run (and keeps the same checkpoint file)
+    /// rather than appearing as a new one.
+    init(
+        workflow: Workflow, deckNames: Set<String>, resourceKeys: Set<String> = [],
+        id: UUID = UUID(), startedAt: Date = Date()
+    ) {
+        self.id = id
+        self.startedAt = startedAt
         self.workflow = workflow
         self.deckNames = deckNames
         self.resourceKeys = resourceKeys
         self.stepRuns = workflow.steps.map { StepRun(step: $0) }
+    }
+
+    /// Reloads the state an interrupted run had reached: its task list, log,
+    /// counters, and which steps had already finished.
+    func restore(from checkpoint: WorkflowCheckpoint) {
+        tasks = checkpoint.tasks
+        lines = checkpoint.lines
+        converted = checkpoint.converted
+        skipped = checkpoint.skipped
+        errors = checkpoint.errors
+        transcriptFilesToDelete = Set(checkpoint.transcriptFilesToDelete.map { URL(fileURLWithPath: $0) })
+        for i in stepRuns.indices where i < checkpoint.nextStepIndex {
+            stepRuns[i].status = .done
+        }
     }
 
     // MARK: - Step tracking

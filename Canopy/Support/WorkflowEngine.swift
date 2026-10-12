@@ -48,6 +48,16 @@ final class WorkflowEngine: ObservableObject {
             if case .hyperDeck(let d) = self { return d }
             return nil
         }
+
+        /// The saved form of this device, as stored in a workflow's target
+        /// list — what a run checkpoint records so it can find it again.
+        var workflowTarget: WorkflowTarget {
+            switch self {
+            case .hyperDeck(let d):            return .hyperDeck(d.id)
+            case .localFolder(let f):          return .localFolder(f.id)
+            case .cloudStore(let s, let path): return .cloudStore(id: s.id, path: path)
+            }
+        }
     }
 
     /// Per-device state threaded through a workflow's steps.
@@ -84,13 +94,37 @@ final class WorkflowEngine: ObservableObject {
         await start(workflow, targets: [target], triggerChain: [workflow.id])
     }
 
+    // MARK: - Resume an interrupted run
+    // A run that was cut short (crash, power loss, force quit) leaves its
+    // checkpoint behind — see `WorkflowCheckpointStore`. Resuming re-enters
+    // the normal run loop at the step it was on, with each device's files
+    // and destination folder put back as they were.
+
+    /// False while any device the interrupted run used is busy elsewhere.
+    func canResume(_ checkpoint: WorkflowCheckpoint) -> Bool {
+        appState.canRun(checkpoint.workflow)
+    }
+
+    func resume(_ checkpoint: WorkflowCheckpoint) async {
+        guard canResume(checkpoint) else { return }
+        WorkflowCheckpointStore.shared.claim(id: checkpoint.id)
+        let targets = checkpoint.targets.compactMap(device(for:))
+        await start(
+            checkpoint.workflow, targets: targets,
+            triggerChain: checkpoint.triggerChain, resuming: checkpoint
+        )
+    }
+
     // MARK: - Shared run loop
 
     /// `triggerChain` accumulates the IDs of every workflow already running
     /// upstream in this call stack (the workflow itself, plus any that
     /// triggered it via a Trigger Workflow step) — checked before honoring
     /// another Trigger Workflow step so A → B → A can't recurse forever.
-    private func start(_ workflow: Workflow, targets: [WorkflowTargetDevice], triggerChain: Set<UUID> = []) async {
+    private func start(
+        _ workflow: Workflow, targets: [WorkflowTargetDevice], triggerChain: Set<UUID> = [],
+        resuming: WorkflowCheckpoint? = nil
+    ) async {
         // The Run buttons are already disabled when this would conflict, so
         // this mainly guards races — e.g. the scheduler firing at the same
         // instant someone taps Run manually.
@@ -99,9 +133,20 @@ final class WorkflowEngine: ObservableObject {
         let session = appState.beginRun(
             for: workflow,
             deckNames: Set(targets.map(\.name)),
-            resourceKeys: Set(targets.map(\.resourceKey))
+            resourceKeys: Set(targets.map(\.resourceKey)),
+            id: resuming?.id ?? UUID(),
+            startedAt: resuming?.startedAt ?? Date()
         )
-        session.log("▶ Workflow started: \(workflow.name)")
+        if let resuming {
+            session.restore(from: resuming)
+            let total = workflow.steps.count
+            let position = min(resuming.nextStepIndex + 1, total)
+            let title = resuming.nextStep?.kind.title ?? "finishing up"
+            session.log("↻ Resuming interrupted run — continuing at step \(position) of \(total) (\(title))")
+        } else {
+            session.log("▶ Workflow started: \(workflow.name)")
+        }
+        let checkpointTargets = targets.map(\.workflowTarget)
 
         guard !targets.isEmpty else {
             session.log("⚠️ No devices configured for this workflow")
@@ -210,8 +255,31 @@ final class WorkflowEngine: ObservableObject {
         }.first ?? false
 
         var stepIndex = 0
+        if let resuming {
+            contexts = await restoreContexts(contexts, from: resuming, session: session, mountedPaths: &mountedPaths)
+            guard !contexts.isEmpty else {
+                finishRun(workflow: workflow, session: session)
+                return
+            }
+            stepIndex = min(resuming.nextStepIndex, workflow.steps.count)
+            if case .sync(_, _, let deleteFromDevice)? = resuming.nextStep?.action, deleteFromDevice {
+                warnAboutUnconvertedLeftovers(contexts: contexts, convertInPlace: convertInPlace, session: session)
+            }
+        }
+
+        // Saved before every step (and once more after the last), so a
+        // crash costs at most the step that was running — see
+        // `WorkflowCheckpointStore`.
+        func checkpoint(at index: Int) {
+            saveCheckpoint(
+                workflow: workflow, targets: checkpointTargets, triggerChain: triggerChain,
+                nextStepIndex: index, contexts: contexts, mountedPaths: mountedPaths, session: session
+            )
+        }
+
         while stepIndex < workflow.steps.count {
             let step = workflow.steps[stepIndex]
+            if !session.isCancelled { checkpoint(at: stepIndex) }
             guard !session.isCancelled else { break }
             await session.waitWhilePaused()
             guard !session.isCancelled else { break }
@@ -340,6 +408,8 @@ final class WorkflowEngine: ObservableObject {
             session.endStep(step.id)
             stepIndex += 1
         }
+
+        if !session.isCancelled { checkpoint(at: workflow.steps.count) }
 
         let allProcessedFiles = contexts.flatMap(\.files)
 
@@ -1710,6 +1780,19 @@ final class WorkflowEngine: ObservableObject {
             return
         }
 
+        // The target may itself have been mid-run when the app died. Pick
+        // that run back up rather than starting a second one beside it.
+        if let interrupted = WorkflowCheckpointStore.shared.interrupted.first(where: { $0.workflow.id == workflowID }) {
+            session.log("  🔗 Resuming interrupted run of \"\(target.name)\"...")
+            if waitForCompletion {
+                await resume(interrupted)
+                session.log("  🔗 \"\(target.name)\" finished")
+            } else {
+                Task { await self.resume(interrupted) }
+            }
+            return
+        }
+
         let nextChain = triggerChain.union([workflowID])
         let targets = targetDevices(for: target)
 
@@ -1840,6 +1923,7 @@ final class WorkflowEngine: ObservableObject {
     }
 
     private func finishRun(workflow: Workflow, session: WorkflowRunSession) {
+        WorkflowCheckpointStore.shared.remove(id: session.id)
         removeTemporaryTranscripts(session: session)
         session.finalizeSteps()
         let c = session.converted
@@ -1887,15 +1971,127 @@ final class WorkflowEngine: ObservableObject {
             return appState.hyperDecks.map(WorkflowTargetDevice.hyperDeck)
                 + appState.localFolders.map(WorkflowTargetDevice.localFolder)
         }
-        return workflow.targets.compactMap { target in
-            switch target {
-            case .hyperDeck(let id):
-                return appState.hyperDecks.first { $0.id == id }.map(WorkflowTargetDevice.hyperDeck)
-            case .localFolder(let id):
-                return appState.localFolders.first { $0.id == id }.map(WorkflowTargetDevice.localFolder)
-            case .cloudStore(let id, let path):
-                return appState.cloudStores.first { $0.id == id }.map { WorkflowTargetDevice.cloudStore($0, path: path) }
+        return workflow.targets.compactMap(device(for:))
+    }
+
+    /// Looks a saved target up among the devices currently configured; nil
+    /// if it has since been deleted.
+    private func device(for target: WorkflowTarget) -> WorkflowTargetDevice? {
+        switch target {
+        case .hyperDeck(let id):
+            return appState.hyperDecks.first { $0.id == id }.map(WorkflowTargetDevice.hyperDeck)
+        case .localFolder(let id):
+            return appState.localFolders.first { $0.id == id }.map(WorkflowTargetDevice.localFolder)
+        case .cloudStore(let id, let path):
+            return appState.cloudStores.first { $0.id == id }.map { WorkflowTargetDevice.cloudStore($0, path: path) }
+        }
+    }
+
+    // MARK: - Checkpointing
+
+    private func saveCheckpoint(
+        workflow: Workflow, targets: [WorkflowTarget], triggerChain: Set<UUID>,
+        nextStepIndex: Int, contexts: [StepContext], mountedPaths: [UUID?: String],
+        session: WorkflowRunSession
+    ) {
+        let devices = contexts.map { context -> WorkflowCheckpoint.DeviceState in
+            // A Local Folder's path is its own and never moves; anything
+            // else may live under a mounted volume whose path can change.
+            var relative: String? = nil
+            if case .localFolder = context.device {} else if let root = mountedPaths[context.cloudStoreID] {
+                let path = context.destDir.path
+                if path == root {
+                    relative = ""
+                } else if path.hasPrefix(root + "/") {
+                    relative = String(path.dropFirst(root.count + 1))
+                }
             }
+            return WorkflowCheckpoint.DeviceState(
+                resourceKey: context.device.resourceKey,
+                deviceName: context.device.name,
+                destPath: context.destDir.path,
+                destRelativePath: relative,
+                cloudStoreID: context.cloudStoreID,
+                filePaths: context.files.map(\.path),
+                verifyOffload: context.verifyOffload,
+                deleteAfterOffload: context.deleteAfterOffload
+            )
+        }
+        WorkflowCheckpointStore.shared.save(WorkflowCheckpoint(
+            id: session.id, workflow: workflow, targets: targets, triggerChain: triggerChain,
+            startedAt: session.startedAt, updatedAt: Date(), nextStepIndex: nextStepIndex,
+            devices: devices, tasks: session.tasks, lines: session.lines,
+            converted: session.converted, skipped: session.skipped, errors: session.errors,
+            transcriptFilesToDelete: session.transcriptFilesToDelete.map(\.path)
+        ))
+    }
+
+    /// Puts each freshly-built device context back the way the interrupted
+    /// run left it: its working files, its Sync flags, and — the one thing
+    /// that can't simply be recomputed — the destination folder a Create
+    /// Folder step had already made. A device that can no longer be
+    /// reached is dropped, as a mount failure would be on a normal start.
+    private func restoreContexts(
+        _ contexts: [StepContext], from checkpoint: WorkflowCheckpoint,
+        session: WorkflowRunSession, mountedPaths: inout [UUID?: String]
+    ) async -> [StepContext] {
+        var restored: [StepContext] = []
+        for var context in contexts {
+            guard let saved = checkpoint.devices.first(where: { $0.resourceKey == context.device.resourceKey }) else {
+                restored.append(context)
+                continue
+            }
+
+            // Skipped when the saved value was only the placeholder a
+            // deck holds until its Create Folder step runs.
+            if saved.destPath != "/dev/null" {
+                if let relative = saved.destRelativePath {
+                    do {
+                        let root = try await mountBase(cloudStoreID: saved.cloudStoreID, session: session, cache: &mountedPaths)
+                        context.destDir = relative.isEmpty ? root : root.appendingPathComponent(relative)
+                        context.cloudStoreID = saved.cloudStoreID
+                    } catch {
+                        session.log("❌ \(context.device.name): \(error.localizedDescription)")
+                        session.mountError = error.localizedDescription
+                        session.errors += 1
+                        continue
+                    }
+                } else {
+                    context.destDir = URL(fileURLWithPath: saved.destPath)
+                    context.cloudStoreID = saved.cloudStoreID
+                }
+            }
+
+            context.verifyOffload = saved.verifyOffload
+            context.deleteAfterOffload = saved.deleteAfterOffload
+
+            let files = saved.filePaths.map { URL(fileURLWithPath: $0) }
+            context.files = files.filter { FileManager.default.fileExists(atPath: $0.path) }
+            let missing = files.count - context.files.count
+            if missing > 0 {
+                session.log("  ⚠️ \(context.device.name): \(missing) file(s) from the interrupted run are no longer on disk")
+            }
+            restored.append(context)
+        }
+        return restored
+    }
+
+    /// With "delete from device after offload" on, a file is removed from
+    /// the deck the moment its copy verifies — so if the run died before
+    /// that file was converted, the resumed Sync won't see it on the deck
+    /// again and it would otherwise be left behind without a word.
+    private func warnAboutUnconvertedLeftovers(contexts: [StepContext], convertInPlace: Bool, session: WorkflowRunSession) {
+        let fm = FileManager.default
+        for context in contexts where context.device.hyperDeck != nil && context.destDir.path != "/dev/null" {
+            let convertedDir = convertInPlace ? context.destDir : context.destDir.appendingPathComponent("Converted")
+            let entries = (try? fm.contentsOfDirectory(at: context.destDir, includingPropertiesForKeys: nil)) ?? []
+            let leftovers = entries.filter { url in
+                guard ConversionService.canConvert(url: url) else { return false }
+                let output = convertedDir.appendingPathComponent((url.lastPathComponent as NSString).deletingPathExtension + ".mp4")
+                return !fm.fileExists(atPath: output.path)
+            }
+            guard !leftovers.isEmpty else { continue }
+            session.log("  ⚠️ \(context.device.name): \(leftovers.count) copied file(s) in \(context.destDir.lastPathComponent) haven't been converted and are no longer on the device — convert them manually if they're from the interrupted run")
         }
     }
 

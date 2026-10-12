@@ -12,6 +12,9 @@ struct CanopyApp: App {
                 .environmentObject(appState)
                 .onAppear {
                     NotificationService.requestPermission()
+                    // Load any runs a previous launch left unfinished before
+                    // anything (e.g. the scheduler) can start a new one.
+                    _ = WorkflowCheckpointStore.shared
                     scheduler.sync()
                     ConnectionMonitor.shared.start()
                     AlertingService.shared.start()

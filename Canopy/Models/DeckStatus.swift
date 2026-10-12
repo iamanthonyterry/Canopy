@@ -155,7 +155,7 @@ struct ConversionSettings: Codable {
 }
 
 // MARK: - Per-file sync task (live, in-memory only)
-struct SyncTask: Identifiable {
+struct SyncTask: Identifiable, Codable {
     var id = UUID()
     var fileName: String
     var deckName: String
@@ -191,14 +191,14 @@ struct SyncTask: Identifiable {
         return remainingBytes / bytesPerSecond
     }
 
-    enum Phase: String {
+    enum Phase: String, Codable {
         case queued, downloading, converting, done, error
         var label: String { rawValue.capitalized }
     }
 
     /// SHA-256 check of the copy against the source, when the Sync step has
     /// Verify turned on. `.none` means verification wasn't requested.
-    enum Verification: Equatable {
+    enum Verification: Equatable, Codable {
         case none, verifying, verified, mismatch, failed
 
         var label: String? {
