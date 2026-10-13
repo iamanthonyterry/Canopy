@@ -29,23 +29,9 @@ enum TranscriptionService {
     /// first because recognition wants plain audio, not a ProRes/H.264 container.
     static func transcribe(video: URL, localeID: String) async throws -> Transcript {
         let asset = AVURLAsset(url: video)
-        guard try await !asset.loadTracks(withMediaType: .audio).isEmpty else {
-            throw TranscriptionError.noAudioTrack
-        }
-        let duration = try await asset.load(.duration).seconds
-
-        let audioURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("canopy-transcribe-\(UUID().uuidString).m4a")
+        let audioURL = try await extractAudio(from: asset)
         defer { try? FileManager.default.removeItem(at: audioURL) }
-
-        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-            throw TranscriptionError.exportFailed("no audio export preset")
-        }
-        do {
-            try await export.export(to: audioURL, as: .m4a)
-        } catch {
-            throw TranscriptionError.exportFailed(error.localizedDescription)
-        }
+        let duration = try await asset.load(.duration).seconds
 
         let locale = Locale(identifier: localeID)
         let segments = try await backend.transcribe(audioFile: audioURL, locale: locale)
@@ -55,6 +41,28 @@ enum TranscriptionService {
             duration: duration,
             segments: segments
         )
+    }
+}
+
+extension TranscriptionService {
+    /// Writes a video's audio track to a temporary `.m4a`, which the caller
+    /// removes when it's done.
+    nonisolated static func extractAudio(from asset: AVURLAsset) async throws -> URL {
+        guard try await !asset.loadTracks(withMediaType: .audio).isEmpty else {
+            throw TranscriptionError.noAudioTrack
+        }
+        let audioURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("canopy-audio-\(UUID().uuidString).m4a")
+        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+            throw TranscriptionError.exportFailed("no audio export preset")
+        }
+        do {
+            try await export.export(to: audioURL, as: .m4a)
+        } catch {
+            try? FileManager.default.removeItem(at: audioURL)
+            throw TranscriptionError.exportFailed(error.localizedDescription)
+        }
+        return audioURL
     }
 }
 

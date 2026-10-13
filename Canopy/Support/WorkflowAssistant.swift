@@ -166,7 +166,8 @@ struct RequestDetails {
     private static let writeCopyWords = ["write copy", "post copy", "caption for each", "captions for each", "write captions", "write the captions", "hashtag", "write a caption", "post text", "titles and descriptions", "write descriptions"]
     private static let webhookWords = ["webhook", "slack", "discord", "zapier", "post to a url", "send to a url", "ping a url"]
     private static let copyToWords = ["copy to", "back up to", "backup to", "second copy", "copy them to", "copy it to", "mirror", "duplicate to", "secondary drive", "second drive", "nas"]
-    private static let findClipsWords = ["highlight", "best moment", "find clips", "find the clips", "find the best", "find moments", "key moments", "short-form", "social clips", "viral", "social posts", "find short"]
+    private static let findClipsWords = ["highlight", "best moment", "find clips", "find the clips", "find the best", "find moments", "key moments", "short-form", "social clips", "viral", "social posts", "find short",
+                                         "funny moments", "emotional moments", "speaker quotes", "best quotes", "find quotes", "find the quotes"]
 
     /// Whether the request gives any reason to include this kind of step.
     func supports(_ kind: DraftStepKind) -> Bool {
@@ -482,7 +483,8 @@ enum WorkflowDraftBuilder {
                 ? (details.postFormat ?? .vertical) : nil
             return WorkflowStep(action: .findClips(
                 maxClips: details.clipCount ?? 5, minSeconds: minSeconds, maxSeconds: maxSeconds,
-                exportFormat: export, captions: details.captionsOnPosts ?? true))
+                exportFormat: export, captions: details.captionsOnPosts ?? true,
+                focus: details.clipFocus ?? ClipFocus()))
         case .queueClips:
             return WorkflowStep(action: .queueClips(minScore: details.minClipScore ?? 0))
         case .writeCopy:
@@ -895,7 +897,7 @@ enum WorkflowEditBuilder {
                 skipExisting: details.skipsExistingTranscripts ?? skip,
                 deleteWhenDone: details.deletesTranscripts ?? deleteWhenDone)
             return set(&step, to: new)
-        case .findClips(let count, let minS, let maxS, let format, let captions):
+        case .findClips(let count, let minS, let maxS, let format, let captions, let focus):
             let lengths = details.clipLengths
             var newMin = lengths.min ?? minS
             var newMax = lengths.max ?? maxS
@@ -905,7 +907,8 @@ enum WorkflowEditBuilder {
             let newFormat = details.wantsFinishedPosts ? (details.postFormat ?? format ?? .vertical) : format
             let new = StepAction.findClips(
                 maxClips: details.clipCount ?? count, minSeconds: newMin, maxSeconds: newMax,
-                exportFormat: newFormat, captions: details.captionsOnPosts ?? captions)
+                exportFormat: newFormat, captions: details.captionsOnPosts ?? captions,
+                focus: details.clipFocus ?? focus)
             return set(&step, to: new)
         case .queueClips(let score):
             return set(&step, to: .queueClips(minScore: details.minClipScore ?? score))

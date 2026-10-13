@@ -108,7 +108,7 @@ struct WorkflowSettingsTests {
 
     @Test func clipCountAndLengthFollowTheRequest() {
         func clips(_ text: String) -> (Int, Int, Int)? {
-            guard case .findClips(let n, let lo, let hi, _, _) = actions([.findClips], text).first else { return nil }
+            guard case .findClips(let n, let lo, let hi, _, _, _) = actions([.findClips], text).first else { return nil }
             return (n, lo, hi)
         }
         #expect(clips("find the best moments") ?? (-1, 0, 0) == (5, 20, 60))
@@ -120,15 +120,27 @@ struct WorkflowSettingsTests {
         #expect(clips("find highlights: the five best clips, up to a minute") ?? (-1, 0, 0) == (5, 20, 60))
     }
 
+    @Test func kindsOfMomentFollowTheRequest() {
+        func kinds(_ text: String) -> [ClipKind]? {
+            guard case .findClips(_, _, _, _, _, let focus) = actions([.findClips], text).first else { return nil }
+            return focus.kinds
+        }
+        #expect(kinds("find the best moments") == [])
+        #expect(kinds("find clips of the speaker quotes and the songs") == [.quotes, .music])
+        #expect(kinds("find the funny moments and personal stories") == [.stories, .funny])
+        // Where it's posted isn't a kind of moment.
+        #expect(kinds("find highlights for instagram stories") == [])
+    }
+
     @Test func timesAndCountsOfOtherStepsAreNotClipSettings() {
-        guard case .findClips(let n, _, _, _, _) = actions([.findClips, .wait], "find highlights, then wait 45 minutes").last
+        guard case .findClips(let n, _, _, _, _, _) = actions([.findClips, .wait], "find highlights, then wait 45 minutes").last
         else { Issue.record("no clips"); return }
         #expect(n == 5)
     }
 
     @Test func finishedPostsAreRenderedOnceNotTwice() {
         func export(_ kinds: [DraftStepKind], _ text: String) -> SocialFormat?? {
-            for case .findClips(_, _, _, let f, _) in actions(kinds, text) { return .some(f) }
+            for case .findClips(_, _, _, let f, _, _) in actions(kinds, text) { return .some(f) }
             return nil
         }
         #expect(export([.findClips], "find highlights and export finished posts for tiktok") == .some(.vertical))
@@ -237,7 +249,7 @@ struct WorkflowSettingsTests {
     @Test func clipSettingsCanBeUpdated() {
         let find = StepAction.findClips(maxClips: 5, minSeconds: 20, maxSeconds: 60)
         let w = edit(.findClips, "only 3 clips under 30 seconds", on: [find])
-        guard case .findClips(let n, let lo, let hi, _, _) = w.steps[0].action else { Issue.record("no clips"); return }
+        guard case .findClips(let n, let lo, let hi, _, _, _) = w.steps[0].action else { Issue.record("no clips"); return }
         #expect(n == 3 && lo == 20 && hi == 30)
     }
 

@@ -123,6 +123,23 @@ extension RequestDetails {
         return (lo, hi)
     }
 
+    private static let clipKindPatterns: [(kind: ClipKind, pattern: String)] = [
+        (.quotes, #"\bquot(?:es?|able)\b|\bone(?:-|\s)liners?\b|\bsound\s?bites?\b"#),
+        // "Instagram stories" is a place to post, not a kind of moment.
+        (.stories, #"(?<!instagram\s)(?<!facebook\s)(?<!ig\s)\b(?:stor(?:y|ies)|anecdotes?|testimon(?:y|ies))\b"#),
+        (.teaching, #"\b(?:tips?|advice|lessons?|teaching|takeaways?|how(?:-|\s)to)\b"#),
+        (.funny, #"\b(?:funny|funniest|jokes?|humou?r|laughs?|bloopers?)\b"#),
+        (.emotional, #"\b(?:emotional|heartfelt|inspiring|inspirational|tear(?:-|\s)?jerk\w*)\b"#),
+        (.music, #"\b(?:music|musical|songs?|singing|sung)\b"#),
+    ]
+
+    /// "find the speaker quotes", "just the songs and funny moments". nil
+    /// when the request names no kind of moment.
+    var clipFocus: ClipFocus? {
+        let kinds = Self.clipKindPatterns.filter { firstMatch($0.pattern) != nil }.map(\.kind)
+        return kinds.isEmpty ? nil : ClipFocus(kinds: kinds)
+    }
+
     /// "ready to post", "burn in the captions" — wants finished, rendered
     /// posts rather than only the suggestions.
     var wantsFinishedPosts: Bool {

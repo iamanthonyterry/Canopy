@@ -77,3 +77,60 @@ struct ClipFinderTests {
         #expect(ClipSuggestions.load(for: video)?.candidates.first?.title == "T")
     }
 }
+
+@MainActor
+struct MusicClipTests {
+    private func sample(_ start: Double, music: Double, singing: Double = 0, speech: Double = 0) -> MusicSample {
+        MusicSample(start: start, end: start + 3, music: music, singing: singing, speech: speech)
+    }
+
+    @Test func readingsJoinIntoStretchesAcrossShortGaps() {
+        // 0–12s of music, a 4.5s gap, 16.5–30s more, then a long silence and a 3s sting.
+        let samples = stride(from: 0.0, to: 12, by: 1.5).map { sample($0, music: 0.9) }
+            + stride(from: 16.5, to: 27, by: 1.5).map { sample($0, music: 0.7) }
+            + [sample(80, music: 0.95)]
+        let ranges = MusicRanges.merge(samples)
+        #expect(ranges.count == 1)                       // gap bridged, sting dropped
+        #expect(ranges[0].start == 0 && ranges[0].end == 28.5)
+        #expect(ranges[0].confidence > 0.7 && ranges[0].confidence < 0.9)
+    }
+
+    @Test func talkingOverBackgroundMusicIsNotASong() {
+        let talkOver = stride(from: 0.0, to: 30, by: 1.5).map { sample($0, music: 0.6, speech: 0.9) }
+        #expect(MusicRanges.merge(talkOver).isEmpty)
+        let sung = stride(from: 0.0, to: 30, by: 1.5).map { sample($0, music: 0.6, singing: 0.5, speech: 0.9) }
+        #expect(MusicRanges.merge(sung).count == 1)
+    }
+
+    @Test func clipsComeFromTheLoudestPartOfEachStretch() throws {
+        // A 200s song that's loudest from 120s to 150s.
+        var loudness = [Float](repeating: 0.1, count: 300)
+        for i in 120..<150 { loudness[i] = 0.8 }
+        let analysis = MusicAnalysis(ranges: [MusicRange(start: 40, end: 240, confidence: 0.9)], loudness: loudness)
+        let transcript = Transcript(sourceFileName: "A001.mov", locale: "en-US", duration: 300, segments: [])
+        var options = ClipFinderOptions()
+        options.minDuration = 20
+        options.maxDuration = 30
+        let clips = MusicClips.candidates(from: analysis, transcript: transcript, options: options)
+        #expect(clips.count == 2)                        // two per stretch, not overlapping
+        let best = try #require(clips.max { $0.score < $1.score })
+        #expect(best.start == 120 && best.end == 150)
+        #expect(best.title == "Music at 2:00" && best.openingLine.isEmpty)
+        #expect(clips.allSatisfy { $0.start >= 40 && $0.end <= 240 })
+        #expect(abs(clips[0].start - clips[1].start) >= 30)
+    }
+
+    @Test func stretchesShorterThanAClipAreSkipped() {
+        let analysis = MusicAnalysis(ranges: [MusicRange(start: 0, end: 12, confidence: 0.9)], loudness: [])
+        let transcript = Transcript(sourceFileName: "A001.mov", locale: "en-US", duration: 60, segments: [])
+        #expect(MusicClips.candidates(from: analysis, transcript: transcript, options: .init()).isEmpty)
+    }
+
+    @Test func musicClipsSnapToASungLineNearby() throws {
+        let analysis = MusicAnalysis(ranges: [MusicRange(start: 10, end: 40, confidence: 0.8)], loudness: [])
+        let line = TranscriptSegment(text: "Amazing grace", start: 11, end: 39)
+        let transcript = Transcript(sourceFileName: "A001.mov", locale: "en-US", duration: 60, segments: [line])
+        let clip = try #require(MusicClips.candidates(from: analysis, transcript: transcript, options: .init()).first)
+        #expect(clip.start == 11 && clip.end == 39 && clip.openingLine == "Amazing grace")
+    }
+}

@@ -57,6 +57,7 @@ struct WorkflowStepConfigSheet: View {
     private enum CopyTargetChoice: Hashable { case global, cloudStore(UUID), localFolder(UUID) }
     @State private var findClipsFormat = SocialFormat.vertical
     @State private var findClipsCaptions = true
+    @State private var findClipsFocus = ClipFocus()
     @State private var reframeFormat = SocialFormat.vertical
     @State private var reframeFollowSubject = true
     @State private var controlCommand: DeckCommand = .start
@@ -762,6 +763,7 @@ struct WorkflowStepConfigSheet: View {
 
     private var findClipsFields: some View {
         Group {
+            LabeledContent("Look for") { ClipFocusFields(focus: $findClipsFocus) }
             Stepper("Up to \(findClipsMax) clip\(findClipsMax == 1 ? "" : "s") per video", value: $findClipsMax, in: 1...10)
             Stepper("At least \(findClipsMinSeconds) seconds", value: $findClipsMinSeconds, in: 10...120, step: 5)
             Stepper("At most \(findClipsMaxSeconds) seconds", value: $findClipsMaxSeconds, in: 15...180, step: 5)
@@ -1025,7 +1027,8 @@ struct WorkflowStepConfigSheet: View {
         case .transcribe(let locale, let writeSRT, let skipExisting, let deleteWhenDone):
             transcribeLocale = locale; transcribeWriteSRT = writeSRT; transcribeSkipExisting = skipExisting
             transcribeDeleteWhenDone = deleteWhenDone
-        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions):
+        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions, let focus):
+            findClipsFocus = focus
             findClipsMax = maxClips; findClipsMinSeconds = minSeconds; findClipsMaxSeconds = maxSeconds
             findClipsExport = exportFormat != nil
             if let exportFormat { findClipsFormat = exportFormat }
@@ -1095,7 +1098,8 @@ struct WorkflowStepConfigSheet: View {
         case .rename:  step.action = .rename(pattern: pattern.isEmpty ? "{name}" : pattern)
         case .transcribe: step.action = .transcribe(locale: transcribeLocale, writeSRT: transcribeWriteSRT, skipExisting: transcribeSkipExisting, deleteWhenDone: transcribeDeleteWhenDone)
         case .findClips: step.action = .findClips(maxClips: findClipsMax, minSeconds: findClipsMinSeconds, maxSeconds: max(findClipsMaxSeconds, findClipsMinSeconds),
-                                                   exportFormat: findClipsExport ? findClipsFormat : nil, captions: findClipsCaptions)
+                                                   exportFormat: findClipsExport ? findClipsFormat : nil, captions: findClipsCaptions,
+                                                   focus: findClipsFocus)
         case .queueClips: step.action = .queueClips(minScore: queueClipsMinScore)
         case .upload: step.action = .upload
         case .writeCopy: step.action = .writeCopy(platform: copyPlatform, hashtagCount: copyHashtagCount)

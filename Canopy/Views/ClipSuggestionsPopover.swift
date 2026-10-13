@@ -23,6 +23,8 @@ final class ClipSuggestionsModel: ObservableObject {
     @Published var status: Status = .idle
     @Published var postOptions = SocialPostExporter.Options()
     @Published var copyPlatform = CopyPlatform.general
+    /// What the next Find Clips run looks for.
+    @Published var focus = ClipFocus()
 
     var isBusy: Bool {
         switch status {
@@ -42,11 +44,14 @@ final class ClipSuggestionsModel: ObservableObject {
         guard let url, let saved = ClipSuggestions.load(for: url) else { return }
         candidates = saved.candidates
         selected = []
+        focus = saved.focus ?? ClipFocus()
     }
 
     func find(in url: URL) {
         task?.cancel()
         status = .transcribing
+        var options = ClipFinderOptions()
+        options.focus = focus
         task = Task {
             do {
                 var transcript = Transcript.load(for: url)
@@ -55,22 +60,27 @@ final class ClipSuggestionsModel: ObservableObject {
                     try? made.write(for: url)
                     transcript = made
                 }
-                guard let transcript, !transcript.segments.isEmpty else {
+                // Music can be found without any words to go on.
+                guard let transcript, !transcript.segments.isEmpty || options.focus.kinds.contains(.music) else {
                     status = .failed("No speech was found in this video.")
                     return
                 }
                 status = .finding(0)
-                let found = try await ClipFinder.findClips(in: transcript) { pct in
+                let found = try await ClipFinder.findClips(in: transcript, video: url, options: options, progress: { pct in
                     // Progress hops back to the main actor asynchronously, so it can
                     // land after the run has finished — only apply it while still finding.
                     Task { @MainActor in
                         if case .finding = self.status { self.status = .finding(pct) }
                     }
-                }
-                try? ClipSuggestions(sourceFileName: url.lastPathComponent, generatedAt: Date(), candidates: found).write(for: url)
+                })
+                try? ClipSuggestions(sourceFileName: url.lastPathComponent, generatedAt: Date(), candidates: found,
+                                     focus: options.focus.isEmpty ? nil : options.focus).write(for: url)
                 candidates = found
                 selected = []
-                status = found.isEmpty ? .failed("Nothing stood out as a standalone clip.") : .idle
+                status = found.isEmpty
+                    ? .failed(options.focus.isEmpty ? "Nothing stood out as a standalone clip."
+                                                    : "Nothing matched what you're looking for. Try widening it.")
+                    : .idle
             } catch is CancellationError {
                 status = .idle
             } catch {
@@ -177,7 +187,8 @@ final class ClipSuggestionsModel: ObservableObject {
                 }
                 status = .writingCopy(done: n + 1, total: pending.count)
             }
-            try? ClipSuggestions(sourceFileName: source.lastPathComponent, generatedAt: Date(), candidates: candidates)
+            try? ClipSuggestions(sourceFileName: source.lastPathComponent, generatedAt: Date(), candidates: candidates,
+                                 focus: ClipSuggestions.load(for: source)?.focus)
                 .write(for: source)
             status = firstError.map { .failed($0) } ?? .idle
         }
@@ -188,10 +199,35 @@ final class ClipSuggestionsModel: ObservableObject {
 
 // MARK: - View
 
+/// The "what to look for" controls, shared by the player's Find Clips panel
+/// and the Find Clips workflow step.
+struct ClipFocusFields: View {
+    @Binding var focus: ClipFocus
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],
+                      alignment: .leading, spacing: 6) {
+                ForEach(ClipKind.allCases) { kind in
+                    Toggle(kind.title, isOn: Binding(get: { focus.kinds.contains(kind) }, set: { focus.set(kind, on: $0) }))
+                }
+            }
+            .toggleStyle(.checkbox)
+            TextField("Anything specific", text: $focus.notes, prompt: Text("Anything specific? e.g. quotes about hope"))
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+            Text("Leave empty to find whatever stands out. Music is found by listening to the audio; everything else comes from what's said.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .font(.callout)
+    }
+}
+
 struct ClipSuggestionsPopover: View {
     @ObservedObject var model: ClipSuggestionsModel
     let sourceURL: URL?
     var onPreview: (ClipCandidate) -> Void
+    @State private var showsFocus = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -222,6 +258,7 @@ struct ClipSuggestionsPopover: View {
             if model.candidates.isEmpty {
                 if !model.isBusy { emptyState }
             } else {
+                if !model.isBusy { focusDisclosure }
                 list
                 footer
             }
@@ -234,9 +271,20 @@ struct ClipSuggestionsPopover: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Suggests moments in this video that would work as short social posts, using the transcript. Runs entirely on this Mac.")
                 .font(.callout).foregroundStyle(.secondary)
+            ClipFocusFields(focus: $model.focus)
             Button("Find Clips") { if let sourceURL { model.find(in: sourceURL) } }
                 .buttonStyle(.borderedProminent)
                 .disabled(sourceURL == nil)
+        }
+    }
+
+    /// Lets the focus be changed before a Redo without crowding the list.
+    private var focusDisclosure: some View {
+        DisclosureGroup(isExpanded: $showsFocus) {
+            ClipFocusFields(focus: $model.focus).padding(.top, 6)
+        } label: {
+            Text(model.focus.isEmpty ? "Looking for whatever stands out" : "Looking for \(model.focus.summary)")
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
     }
 
@@ -267,8 +315,10 @@ struct ClipSuggestionsPopover: View {
                 }
                 Text("\(Self.time(clip.start)) – \(Self.time(clip.end)) · \(Int(clip.duration.rounded()))s")
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                Text("“\(clip.openingLine)”")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                if !clip.openingLine.isEmpty {
+                    Text("“\(clip.openingLine)”")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
                 if !clip.reason.isEmpty {
                     Text(clip.reason).font(.caption).foregroundStyle(.secondary.opacity(0.8)).lineLimit(2)
                 }

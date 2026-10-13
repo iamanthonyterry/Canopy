@@ -37,6 +37,8 @@ struct ClipFinderOptions {
     var maxDuration: TimeInterval = 60
     /// Approximate words of transcript shown to the model per request.
     var windowWords = 300
+    /// What the user asked for; empty looks for whatever stands out.
+    var focus = ClipFocus()
 }
 
 // MARK: - Selection (pure — no model involved)
@@ -151,6 +153,79 @@ enum ClipSelection {
     }
 }
 
+// MARK: - Music clips (pure — picks from what the detector heard)
+
+enum MusicClips {
+    /// Up to two clips per stretch of music: the loudest parts, which is
+    /// usually where the chorus or the big moment is.
+    static func candidates(from analysis: MusicAnalysis, transcript: Transcript,
+                           options: ClipFinderOptions) -> [ClipCandidate] {
+        var picks: [(range: MusicRange, start: TimeInterval, length: TimeInterval, level: Float)] = []
+        for range in analysis.ranges where range.duration >= options.minDuration {
+            let length = min(options.maxDuration, range.duration)
+            var taken: [TimeInterval] = []
+            for _ in 0..<2 {
+                guard let best = loudestStart(in: range, length: length, loudness: analysis.loudness, avoiding: taken)
+                else { break }
+                taken.append(best.start)
+                picks.append((range, best.start, length, best.level))
+            }
+        }
+        let peak = max(picks.map(\.level).max() ?? 0, .leastNormalMagnitude)
+
+        return picks.map { pick in
+            var start = pick.start
+            var end = pick.start + pick.length
+            // Start and end on a sung line when the transcript has one close by.
+            let from = nearest(to: start, in: transcript.segments.map(\.start)) ?? start
+            let to = nearest(to: end, in: transcript.segments.map(\.end)) ?? end
+            if (options.minDuration...options.maxDuration).contains(to - from) { start = from; end = to }
+            if transcript.duration > 0 { end = min(end, transcript.duration) }
+
+            let score = 50 + 30 * pick.range.confidence + 20 * Double(pick.level / peak)
+            return ClipCandidate(
+                start: max(0, start), end: end,
+                title: "Music at \(clock(start))",
+                reason: "Music heard in the audio. This is the loudest part of a \(clock(pick.range.duration)) stretch.",
+                score: min(max(Int(score.rounded()), 0), 100),
+                openingLine: transcript.segments.first { $0.end > start && $0.start < end }?.text ?? ""
+            )
+        }
+    }
+
+    /// The start of the loudest `length`-second window inside `range` that
+    /// doesn't overlap one already taken. Falls back to the start of the
+    /// range when there are no loudness readings to compare.
+    static func loudestStart(in range: MusicRange, length: TimeInterval, loudness: [Float],
+                             avoiding taken: [TimeInterval]) -> (start: TimeInterval, level: Float)? {
+        let first = Int(range.start.rounded(.up))
+        let last = Int((range.end - length).rounded(.down))
+        func free(_ start: TimeInterval) -> Bool { taken.allSatisfy { abs($0 - start) >= length } }
+        let seconds = Int(length)
+        guard last >= first, seconds > 0, last + seconds <= loudness.count else {
+            return free(range.start) ? (range.start, 0) : nil
+        }
+        var sum = loudness[first..<first + seconds].reduce(0, +)
+        var best: (start: TimeInterval, level: Float)?
+        for start in first...last {
+            if start > first { sum += loudness[start + seconds - 1] - loudness[start - 1] }
+            let level = sum / Float(seconds)
+            if free(TimeInterval(start)), level > (best?.level ?? -1) { best = (TimeInterval(start), level) }
+        }
+        return best
+    }
+
+    private static func nearest(to time: TimeInterval, in boundaries: [TimeInterval], within: TimeInterval = 2) -> TimeInterval? {
+        boundaries.min { abs($0 - time) < abs($1 - time) }.flatMap { abs($0 - time) <= within ? $0 : nil }
+    }
+
+    private static func clock(_ seconds: TimeInterval) -> String {
+        let s = Int(seconds)
+        return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60)
+                         : String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
 // MARK: - Finder
 
 enum ClipFinderError: LocalizedError {
@@ -161,32 +236,70 @@ enum ClipFinderError: LocalizedError {
 }
 
 enum ClipFinder {
-    private static let instructions = """
-    You find moments in a video transcript that would work as standalone short social media posts.
-    A good clip opens with a hook (a bold claim, a question, a surprising or emotional line), is one \
-    complete thought or story beat that makes sense without the rest of the video, and ends on a \
-    satisfying line. Prefer personal stories, strong opinions, useful tips and funny or emotional \
-    moments. Skip intros, sign-offs, filler, and anything that depends on earlier context.
-    Segments are numbered. Answer with segment numbers from the passage only.
-    """
+    private static let defaultPreference =
+        "Prefer personal stories, strong opinions, useful tips and funny or emotional moments."
 
-    /// - Parameter progress: called with 0...1 as windows finish.
+    /// The standing instructions, with the user's focus in place of the
+    /// default taste when they've said what they're after.
+    static func instructions(for focus: ClipFocus) -> String {
+        """
+        You find moments in a video transcript that would work as standalone short social media posts.
+        A good clip opens with a hook (a bold claim, a question, a surprising or emotional line), is one \
+        complete thought or story beat that makes sense without the rest of the video, and ends on a \
+        satisfying line.
+        \(focus.guidance ?? defaultPreference)
+        Skip intros, sign-offs, filler, and anything that depends on earlier context.
+        Segments are numbered. Answer with segment numbers from the passage only.
+        """
+    }
+
+    /// - Parameters:
+    ///   - video: the file itself, listened to when the focus includes music.
+    ///   - log: told what the music pass found, for the workflow log.
+    ///   - progress: called with 0...1 as windows finish.
     static func findClips(
         in transcript: Transcript,
+        video: URL? = nil,
         options: ClipFinderOptions = ClipFinderOptions(),
+        log: (String) -> Void = { _ in },
         progress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async throws -> [ClipCandidate] {
-        if let reason = WorkflowAssistant.unavailableReason { throw ClipFinderError.modelUnavailable(reason) }
+        var options = options
+        var candidates: [ClipCandidate] = []
+
+        // Music is found by ear rather than from the transcript. When that
+        // works, the model is left to look for everything else.
+        if options.focus.kinds.contains(.music), let video {
+            do {
+                let analysis = try await MusicDetector.analyze(video: video)
+                candidates = MusicClips.candidates(from: analysis, transcript: transcript, options: options)
+                log("🎵 \(analysis.ranges.count) stretch\(analysis.ranges.count == 1 ? "" : "es") of music heard in \(video.lastPathComponent)")
+                options.focus.set(.music, on: false)
+                if options.focus.isEmpty { return ClipSelection.rank(candidates, limit: options.maxClips) }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                log("⚠️ Couldn't listen for music in \(video.lastPathComponent) (\(error.localizedDescription)) — looking for sung words instead")
+            }
+        }
+
+        if let reason = WorkflowAssistant.unavailableReason {
+            // The music already found doesn't need the model.
+            guard !candidates.isEmpty else { throw ClipFinderError.modelUnavailable(reason) }
+            log("⚠️ \(reason) — keeping only the music clips")
+            return ClipSelection.rank(candidates, limit: options.maxClips)
+        }
 
         // A stronger model can weigh much more of the video at once, which
         // is what lets it tell a real standout moment from a merely
         // decent one, so give it bigger windows.
-        var options = options
         if AIModels.shared.isEnhancedActive { options.windowWords = max(options.windowWords, 900) }
 
+        let instructions = Self.instructions(for: options.focus)
+        // Repeated next to the passage: a small model follows what it read last.
+        let reminder = options.focus.isEmpty ? "" : " Looking for: \(options.focus.summary)."
         let segments = transcript.segments
         let windows = ClipSelection.windows(for: segments, words: options.windowWords)
-        var candidates: [ClipCandidate] = []
 
         for (n, window) in windows.enumerated() {
             try Task.checkCancellation()
@@ -195,7 +308,7 @@ enum ClipFinder {
             Passage (segments \(window.lowerBound) to \(window.upperBound - 1)):
             \(passage)
 
-            Pick up to 2 moments of \(Int(options.minDuration)) to \(Int(options.maxDuration)) seconds.
+            Pick up to 2 moments of \(Int(options.minDuration)) to \(Int(options.maxDuration)) seconds.\(reminder)
             """
             do {
                 let picks = try await AIModels.shared.generate(

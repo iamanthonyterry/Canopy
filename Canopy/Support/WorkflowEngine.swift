@@ -643,9 +643,9 @@ final class WorkflowEngine: ObservableObject {
             runRename(context: &context, pattern: pattern)
         case .transcribe(let locale, let writeSRT, let skipExisting, let deleteWhenDone):
             await runTranscribe(context: &context, locale: locale, writeSRT: writeSRT, skipExisting: skipExisting, deleteWhenDone: deleteWhenDone)
-        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions):
+        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions, let focus):
             await runFindClips(context: &context, maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds,
-                               exportFormat: exportFormat, captions: captions)
+                               exportFormat: exportFormat, captions: captions, focus: focus)
         case .queueClips(let minScore):
             runQueueClips(context: &context, minScore: minScore)
         case .upload:
@@ -1280,7 +1280,7 @@ final class WorkflowEngine: ObservableObject {
     /// Suggests short-form clips for each video and saves them next to it as
     /// `<name>.clips.json`. Transcribes first when there's no transcript yet.
     private func runFindClips(context: inout StepContext, maxClips: Int, minSeconds: Int, maxSeconds: Int,
-                              exportFormat: SocialFormat?, captions: Bool) async {
+                              exportFormat: SocialFormat?, captions: Bool, focus: ClipFocus) async {
         let session = context.session
 
         var files = context.files
@@ -1299,13 +1299,16 @@ final class WorkflowEngine: ObservableObject {
         options.maxClips = maxClips
         options.minDuration = TimeInterval(minSeconds)
         options.maxDuration = TimeInterval(max(maxSeconds, minSeconds))
+        options.focus = focus
+        if !focus.isEmpty { session.log("  🔎 Looking for \(focus.summary)") }
 
         for url in files {
             if session.isCancelled { return }
             do {
                 var transcript = Transcript.load(for: url)
                 var clips: [ClipCandidate]
-                if let saved = ClipSuggestions.load(for: url) {
+                // Suggestions found for something else don't answer this step.
+                if let saved = ClipSuggestions.load(for: url), (saved.focus ?? ClipFocus()) == focus {
                     session.log("  ⏭ \(url.lastPathComponent) already has clip suggestions")
                     clips = saved.candidates
                 } else {
@@ -1315,13 +1318,16 @@ final class WorkflowEngine: ObservableObject {
                         try made.write(for: url)
                         transcript = made
                     }
-                    guard let transcript, !transcript.segments.isEmpty else {
+                    // Music can be found without any words to go on.
+                    guard let transcript, !transcript.segments.isEmpty || focus.kinds.contains(.music) else {
                         session.log("  ⏭ \(url.lastPathComponent): no speech found")
                         continue
                     }
                     session.log("  ✨ Finding clips in \(url.lastPathComponent) (\(context.device.name))...")
-                    clips = try await ClipFinder.findClips(in: transcript, options: options)
-                    try ClipSuggestions(sourceFileName: url.lastPathComponent, generatedAt: Date(), candidates: clips).write(for: url)
+                    clips = try await ClipFinder.findClips(in: transcript, video: url, options: options,
+                                                           log: { session.log("  \($0)") })
+                    try ClipSuggestions(sourceFileName: url.lastPathComponent, generatedAt: Date(), candidates: clips,
+                                        focus: focus.isEmpty ? nil : focus).write(for: url)
                     session.log("  🎬 \(clips.count) clip suggestion(s) for \(url.lastPathComponent)")
                     for clip in clips {
                         session.log("     • \(clip.title) (\(Int(clip.duration))s)")

@@ -346,7 +346,7 @@ enum StepAction: Hashable {
     /// With `exportFormat` set, each suggested clip is also rendered as a
     /// finished post (cropped to that format, optionally captioned) into a
     /// `Social Posts` folder next to the video.
-    case findClips(maxClips: Int, minSeconds: Int, maxSeconds: Int, exportFormat: SocialFormat? = nil, captions: Bool = true)
+    case findClips(maxClips: Int, minSeconds: Int, maxSeconds: Int, exportFormat: SocialFormat? = nil, captions: Bool = true, focus: ClipFocus = ClipFocus())
     /// Adds each video's suggested clips (from a Find Clips step) to the
     /// Export Queue as trimmed items. `minScore` skips weaker suggestions.
     case queueClips(minScore: Int)
@@ -468,8 +468,9 @@ enum StepAction: Hashable {
             return "Pattern: \(pattern)"
         case .transcribe(_, let writeSRT, let skipExisting, let deleteWhenDone):
             return "Transcribes on-device" + (writeSRT ? " · also writes .srt" : "") + (skipExisting ? " · skips clips already done" : "") + (deleteWhenDone ? " · deletes transcripts when done" : "")
-        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions):
+        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions, let focus):
             var text = "Suggests up to \(maxClips) clip\(maxClips == 1 ? "" : "s") of \(minSeconds)–\(maxSeconds) seconds per video"
+            if !focus.isEmpty { text += " · looks for \(focus.summary)" }
             if let exportFormat {
                 text += " · exports \(exportFormat.title) posts" + (captions ? " with captions" : "")
             }
@@ -556,7 +557,7 @@ extension StepAction: Codable {
     }
 
     enum FindClipsKeys: String, CodingKey {
-        case maxClips, minSeconds, maxSeconds, exportFormat, captions
+        case maxClips, minSeconds, maxSeconds, exportFormat, captions, focus
     }
 
     enum WriteCopyKeys: String, CodingKey {
@@ -663,7 +664,8 @@ extension StepAction: Codable {
             let maxSeconds = try nested.decodeIfPresent(Int.self, forKey: .maxSeconds) ?? 60
             let exportFormat = try nested.decodeIfPresent(SocialFormat.self, forKey: .exportFormat)
             let captions = try nested.decodeIfPresent(Bool.self, forKey: .captions) ?? true
-            self = .findClips(maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds, exportFormat: exportFormat, captions: captions)
+            let focus = try nested.decodeIfPresent(ClipFocus.self, forKey: .focus) ?? ClipFocus()
+            self = .findClips(maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds, exportFormat: exportFormat, captions: captions, focus: focus)
         } else if container.contains(.upload) {
             self = .upload
         } else if container.contains(.writeCopy) {
@@ -749,8 +751,9 @@ extension StepAction: Codable {
             try nested.encode(writeSRT, forKey: .writeSRT)
             try nested.encode(skipExisting, forKey: .skipExisting)
             try nested.encode(deleteWhenDone, forKey: .deleteWhenDone)
-        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions):
+        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions, let focus):
             var nested = container.nestedContainer(keyedBy: FindClipsKeys.self, forKey: .findClips)
+            if !focus.isEmpty { try nested.encode(focus, forKey: .focus) }
             try nested.encode(maxClips, forKey: .maxClips)
             try nested.encode(minSeconds, forKey: .minSeconds)
             try nested.encode(maxSeconds, forKey: .maxSeconds)
