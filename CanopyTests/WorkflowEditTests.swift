@@ -96,3 +96,169 @@ struct WorkflowEditTests {
         #expect(days == 14)
     }
 }
+
+// MARK: - Decks chosen on the steps
+
+@MainActor
+struct WorkflowDeckSelectionTests {
+    private let offload = StepAction.sync(destination: .global, verify: false)
+
+    private func roundTrip(_ workflow: Workflow) throws -> Workflow {
+        try JSONDecoder().decode(Workflow.self, from: JSONEncoder().encode(workflow))
+    }
+
+    @Test func aStepsDecksSurviveSavingAndLoading() throws {
+        let deck = UUID()
+        let workflow = Workflow(name: "Offload", steps: [
+            WorkflowStep(action: offload, decks: .only([deck])),
+            WorkflowStep(action: .format, decks: .only([])),
+        ], targets: [.localFolder(UUID())])
+        let decoded = try roundTrip(workflow)
+        #expect(decoded == workflow)
+        #expect(decoded.usesDeck(deck))
+        #expect(!decoded.usesDeck(UUID()))
+    }
+
+    @Test func oldWorkflowsMoveTheirDecksOntoTheDeckSteps() throws {
+        let deck = UUID(), folder = UUID()
+        let steps = try JSONEncoder().encode([
+            WorkflowStep(action: offload), WorkflowStep(action: .rename(pattern: "{name}")),
+        ])
+        let targets = try JSONEncoder().encode([WorkflowTarget.hyperDeck(deck), .localFolder(folder)])
+        // Saved by a version that chose decks for the whole workflow: no
+        // per-step decks, and no marker saying they've been moved.
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(Workflow(name: "Old"))) as? [String: Any])
+        object["decksInSteps"] = nil
+        object["steps"] = (try JSONSerialization.jsonObject(with: steps) as? [[String: Any]])?.map { step in
+            step.filter { $0.key != "decks" }
+        }
+        object["targets"] = try JSONSerialization.jsonObject(with: targets)
+        let decoded = try JSONDecoder().decode(Workflow.self, from: JSONSerialization.data(withJSONObject: object))
+
+        #expect(decoded.steps[0].decks == .only([deck]))
+        #expect(decoded.targets == [.localFolder(folder)])
+        #expect(!decoded.legacyRunsOnAllLocalFolders)
+    }
+
+    @Test func oldAllDevicesWorkflowsKeepEveryDeckAndAskForTheFolders() throws {
+        let json = #"{"name":"Old","steps":[{"action":{"format":{}}}],"targets":[]}"#
+        let decoded = try JSONDecoder().decode(Workflow.self, from: Data(json.utf8))
+        #expect(decoded.steps[0].decks == .all)
+        #expect(decoded.legacyRunsOnAllLocalFolders)
+    }
+
+    @Test func runningOnOneDeckPointsEveryDeckStepAtIt() {
+        let deck = UUID()
+        let workflow = Workflow(name: "Offload", steps: [
+            WorkflowStep(action: offload, decks: .only([UUID()])),
+            WorkflowStep(action: .wait(minutes: 1)),
+        ]).pointingDeckSteps(at: deck)
+        #expect(workflow.steps[0].decks == .only([deck]))
+        #expect(workflow.steps[1].decks == .only([]))
+    }
+
+    @Test func aNewDeckStepStartsWithNoDeckChosen() {
+        #expect(WorkflowStep(action: .format).decks.isNone)
+        #expect(!Workflow(name: "Erase", steps: [WorkflowStep(action: .format)]).selectsAnyDeck)
+    }
+
+    @Test func aWorkflowAsksForAFolderOnlyWhenItHasFilesToFindAndNowhereToLook() {
+        let transcribe = WorkflowStep(action: .defaultAction(for: .transcribe))
+        // Files to work on, no deck and no folder.
+        #expect(Workflow(name: "A", steps: [transcribe]).choosesFolderAtRun)
+        #expect(Workflow(name: "B", steps: [WorkflowStep(action: offload, decks: .only([])), transcribe]).choosesFolderAtRun)
+        // A deck to pull from, or a folder to look in.
+        #expect(!Workflow(name: "C", steps: [WorkflowStep(action: offload, decks: .all), transcribe]).choosesFolderAtRun)
+        #expect(!Workflow(name: "D", steps: [transcribe], targets: [.localFolder(UUID())]).choosesFolderAtRun)
+        // Nothing that touches files at all.
+        #expect(!Workflow(name: "E", steps: [WorkflowStep(action: .wait(minutes: 1))]).choosesFolderAtRun)
+    }
+
+    @Test func aFolderPickedForOneRunIsRememberedByPath() throws {
+        let target = WorkflowTarget.folder(path: "/Volumes/Media/Sunday", name: "Sunday")
+        let decoded = try JSONDecoder().decode(WorkflowTarget.self, from: JSONEncoder().encode(target))
+        #expect(decoded == target)
+    }
+}
+
+// MARK: - Decks and folders from a plain-language request
+
+@MainActor
+struct WorkflowAssistantDeckTests {
+    private let studioA = TriggerContext.Item(id: UUID(), name: "Studio A")
+    private let studioB = TriggerContext.Item(id: UUID(), name: "Studio B")
+    private let sunday = TriggerContext.Item(id: UUID(), name: "Sunday Services")
+    private var context: TriggerContext { TriggerContext(decks: [studioA, studioB], folders: [sunday]) }
+
+    private func build(_ kinds: [DraftStepKind], _ request: String, context: TriggerContext? = nil) -> WorkflowDraftResult {
+        WorkflowDraftBuilder.build(from: WorkflowDraft(name: "Flow", steps: kinds), request: request, context: context ?? self.context)
+    }
+
+    private func edit(_ request: String, on workflow: Workflow, edits: [DraftEdit] = []) -> WorkflowDraftResult {
+        WorkflowEditBuilder.apply(WorkflowEditDraft(edits: edits), to: workflow, request: request, context: context)
+    }
+
+    @Test func aNamedDeckIsChosenOnEveryDeckStep() {
+        let r = build([.offload, .formatDrive], "offload from Studio B then erase the drive")
+        #expect(r.workflow.steps.map(\.decks) == [.only([studioB.id]), .only([studioB.id])])
+    }
+
+    @Test func allDecksMeansEveryDeck() {
+        let r = build([.offload], "offload all the decks every night at 2am")
+        #expect(r.workflow.steps[0].decks == .all)
+    }
+
+    @Test func withSeveralDecksAndNoneNamedTheChoiceIsLeftOpen() {
+        let r = build([.offload], "offload my clips")
+        #expect(r.workflow.steps[0].decks.isNone)
+        #expect(r.notes.contains { $0.contains("Choose which HyperDecks") })
+    }
+
+    @Test func theOnlyDeckIsUsedWithoutBeingNamed() {
+        let r = build([.offload], "offload my clips", context: TriggerContext(decks: [studioA]))
+        #expect(r.workflow.steps[0].decks == .only([studioA.id]))
+    }
+
+    @Test func theDeckATriggerWatchesIsTheDeckTheStepsUse() {
+        let r = build([.offload], "when Studio A stops recording, offload")
+        #expect(r.workflow.steps[0].decks == .only([studioA.id]))
+    }
+
+    @Test func aFolderToWorkInBecomesAFolderToProcess() {
+        let r = build([.transcribe], "transcribe everything in Sunday Services")
+        #expect(r.workflow.targets == [.localFolder(sunday.id)])
+        #expect(!r.workflow.choosesFolderAtRun)
+    }
+
+    @Test func aFolderToCopyToIsNotProcessed() {
+        let r = build([.offload, .copyTo], "offload from Studio A and copy to Sunday Services")
+        #expect(r.workflow.targets.isEmpty)
+    }
+
+    @Test func namingADeckRepointsExistingDeckSteps() {
+        let workflow = Workflow(name: "Flow", steps: [
+            WorkflowStep(action: .sync(destination: .global, verify: false), decks: .only([studioA.id])),
+            WorkflowStep(action: .format, decks: .only([studioA.id])),
+        ])
+        let all = edit("use Studio B instead", on: workflow)
+        #expect(all.workflow.steps.map(\.decks) == [.only([studioB.id]), .only([studioB.id])])
+
+        let one = edit("offload from every deck", on: workflow)
+        #expect(one.workflow.steps.map(\.decks) == [.all, .only([studioA.id])])
+    }
+
+    @Test func aTriggerOnADeckLeavesTheStepsDecksAlone() {
+        let workflow = Workflow(name: "Flow", steps: [
+            WorkflowStep(action: .sync(destination: .global, verify: false), decks: .only([studioA.id])),
+        ])
+        let r = edit("start it when Studio B stops recording", on: workflow)
+        #expect(r.workflow.steps[0].decks == .only([studioA.id]))
+    }
+
+    @Test func anAddedDeckStepGetsTheNamedDeck() {
+        let workflow = Workflow(name: "Flow", steps: [WorkflowStep(action: .wait(minutes: 5))])
+        let add = DraftEdit(action: .add, step: .offload, placement: .automatic, relativeTo: nil)
+        let r = edit("add an offload from Studio A", on: workflow, edits: [add])
+        #expect(r.workflow.steps.first { $0.kind == .sync }?.decks == .only([studioA.id]))
+    }
+}

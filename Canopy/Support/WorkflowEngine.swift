@@ -58,6 +58,13 @@ final class WorkflowEngine: ObservableObject {
             case .cloudStore(let s, let path): return .cloudStore(id: s.id, path: path)
             }
         }
+
+        /// A folder that isn't a registered device, picked for one run. It
+        /// behaves exactly like a Local Folder target: steps run in place on
+        /// the files already there.
+        static func folder(at url: URL) -> WorkflowTargetDevice {
+            .localFolder(LocalFolder(name: url.lastPathComponent, path: url.path))
+        }
     }
 
     /// Per-device state threaded through a workflow's steps.
@@ -87,11 +94,22 @@ final class WorkflowEngine: ObservableObject {
 
     // MARK: - Run (single device)
     // Runs the workflow's steps against exactly one device, regardless of
-    // that workflow's own target list — used by the per-device "Run
-    // Workflow" action on the Dashboard.
+    // the decks and folders that workflow normally uses — used by the
+    // per-device "Run Workflow" action on the Dashboard. On a HyperDeck,
+    // every deck step acts on that deck for this run.
 
     func runDevice(_ workflow: Workflow, target: WorkflowTargetDevice) async {
+        let workflow = target.hyperDeck.map { workflow.pointingDeckSteps(at: $0.id) } ?? workflow
         await start(workflow, targets: [target], triggerChain: [workflow.id])
+    }
+
+    // MARK: - Run (a chosen folder)
+    // Runs the workflow's steps in place on any folder, registered as a
+    // device or not — used by "Run Workflow" on a folder in the file
+    // browser, and by a workflow with no fixed devices.
+
+    func runFolder(_ workflow: Workflow, at url: URL) async {
+        await runDevice(workflow, target: .folder(at: url))
     }
 
     // MARK: - Resume an interrupted run
@@ -128,7 +146,9 @@ final class WorkflowEngine: ObservableObject {
         // The Run buttons are already disabled when this would conflict, so
         // this mainly guards races — e.g. the scheduler firing at the same
         // instant someone taps Run manually.
-        guard appState.canRun(workflow) else { return }
+        guard appState.canRun(
+            deviceNames: Set(targets.map(\.name)), resourceKeys: Set(targets.map(\.resourceKey))
+        ) else { return }
 
         let session = appState.beginRun(
             for: workflow,
@@ -146,10 +166,12 @@ final class WorkflowEngine: ObservableObject {
         } else {
             session.log("▶ Workflow started: \(workflow.name)")
         }
-        let checkpointTargets = targets.map(\.workflowTarget)
+        let checkpointTargets = targets.map(savedTarget(for:))
 
         guard !targets.isEmpty else {
-            session.log("⚠️ No devices configured for this workflow")
+            session.log(workflow.choosesFolderAtRun
+                ? "⚠️ This workflow has no HyperDeck or folder set — run it on a folder from the file browser, or press Run and choose one"
+                : "⚠️ No HyperDeck or folder is available for this workflow")
             finishRun(workflow: workflow, session: session)
             return
         }
@@ -306,8 +328,10 @@ final class WorkflowEngine: ObservableObject {
 
                 contexts = await withTaskGroup(of: StepContext.self) { group in
                     for context in contexts {
+                        let takesPart = self.applies(step, to: context.device)
                         group.addTask {
                             var context = context
+                            guard takesPart else { return context }
                             context.verifyOffload = verifyPair || deletePair
                             context.deleteAfterOffload = deletePair
                             await self.runSyncAndConvert(
@@ -583,7 +607,16 @@ final class WorkflowEngine: ObservableObject {
 
     // MARK: - Step dispatch
 
+    /// A deck step only touches the HyperDecks it names. Folders always
+    /// take part — each deck step knows what it means for a folder (Offload
+    /// picks up the files already there; the others skip it).
+    private func applies(_ step: WorkflowStep, to device: WorkflowTargetDevice) -> Bool {
+        guard step.kind.usesHyperDeck, let deck = device.hyperDeck else { return true }
+        return step.decks.includes(deck.id)
+    }
+
     private func execute(_ step: WorkflowStep, context: inout StepContext, convertInPlace: Bool) async {
+        guard applies(step, to: context.device) else { return }
         switch step.action {
         case .controlDeck(let command, let stopAfterMinutes):
             await runControlDeck(context: &context, command: command, stopAfterMinutes: stopAfterMinutes)
@@ -1961,17 +1994,22 @@ final class WorkflowEngine: ObservableObject {
 
     // MARK: - Helpers
 
-    /// "All Devices" (an empty target list) means every configured HyperDeck
-    /// and Local Folder — it deliberately excludes Cloud Store Folders,
-    /// since a Cloud Store has no single fixed folder the way those two do;
-    /// a Cloud Store Folder only ever runs when explicitly added as a
-    /// target with its own chosen path.
+    /// Everything a workflow runs against: the HyperDecks its deck steps
+    /// name, plus the folders it's set to process in place.
+    ///
+    /// A workflow with neither, and no step that works on files (just a
+    /// wait and a webhook, say), still has to run once — so it gets a
+    /// stand-in target named after the workflow, with nowhere on disk
+    /// behind it. One that does work on files and has nowhere to find them
+    /// gets nothing here, and is run on a chosen folder instead.
     private func targetDevices(for workflow: Workflow) -> [WorkflowTargetDevice] {
-        guard !workflow.targets.isEmpty else {
-            return appState.hyperDecks.map(WorkflowTargetDevice.hyperDeck)
-                + appState.localFolders.map(WorkflowTargetDevice.localFolder)
+        let devices = appState.hyperDecks(for: workflow).map(WorkflowTargetDevice.hyperDeck)
+            + workflow.targets.compactMap(device(for:))
+        if devices.isEmpty, workflow.targets.isEmpty, !workflow.selectsAnyDeck,
+           !workflow.steps.isEmpty, !workflow.choosesFolderAtRun {
+            return [.localFolder(LocalFolder(name: workflow.name, path: "/dev/null/\(workflow.id.uuidString)"))]
         }
-        return workflow.targets.compactMap(device(for:))
+        return devices
     }
 
     /// Looks a saved target up among the devices currently configured; nil
@@ -1984,7 +2022,18 @@ final class WorkflowEngine: ObservableObject {
             return appState.localFolders.first { $0.id == id }.map(WorkflowTargetDevice.localFolder)
         case .cloudStore(let id, let path):
             return appState.cloudStores.first { $0.id == id }.map { WorkflowTargetDevice.cloudStore($0, path: path) }
+        case .folder(let path, let name):
+            return .localFolder(LocalFolder(name: name, path: path))
         }
+    }
+
+    /// What a checkpoint records for a device. A folder picked just for this
+    /// run isn't in the device list, so it's saved by path instead of by id.
+    private func savedTarget(for device: WorkflowTargetDevice) -> WorkflowTarget {
+        if case .localFolder(let folder) = device, !appState.localFolders.contains(where: { $0.id == folder.id }) {
+            return .folder(path: folder.path, name: folder.name)
+        }
+        return device.workflowTarget
     }
 
     // MARK: - Checkpointing

@@ -27,7 +27,7 @@ enum BackupCSVService {
     private static let columns = [
         "id", "type", "name", "ipAddress", "remotePath", "volumeName", "path",
         "username", "password", "capacityGB", "targetDeviceNames", "targetDeviceIDs", "targets",
-        "triggers", "steps", "sortOrder", "kind"
+        "triggers", "steps", "sortOrder", "kind", "decksInSteps"
     ]
 
     // MARK: - Export
@@ -71,20 +71,23 @@ enum BackupCSVService {
         let storeNamesByID = Dictionary(uniqueKeysWithValues: cloudStores.map { ($0.id, $0.name) })
         let encoder = JSONEncoder()
         for workflow in workflows {
-            let targetNames = workflow.targets.compactMap { target -> String? in
+            let targetNames = hyperDecks.filter { workflow.usesDeck($0.id) }.map(\.name) + workflow.targets.compactMap { target -> String? in
                 switch target {
                 case .hyperDeck(let id):   return deckNamesByID[id]
                 case .localFolder(let id): return folderNamesByID[id]
                 case .cloudStore(let id, let path):
                     guard let storeName = storeNamesByID[id] else { return nil }
                     return path.isEmpty ? storeName : "\(storeName)/\(path)"
+                case .folder(_, let name): return name
                 }
             }
             // Legacy column, kept only so an older app version reading this
             // file still sees a HyperDeck-only target list.
-            let legacyDeckIDs = workflow.targets.compactMap { target -> UUID? in
-                if case .hyperDeck(let id) = target { return id }
-                return nil
+            let legacyDeckIDs = hyperDecks.map(\.id).filter { id in
+                workflow.steps.contains { step in
+                    if step.kind.usesHyperDeck, case .only(let ids) = step.decks { return ids.contains(id) }
+                    return false
+                }
             }
             let targetsJSON = (try? encoder.encode(workflow.targets)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
             let triggersJSON = (try? encoder.encode(workflow.triggers)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
@@ -94,7 +97,8 @@ enum BackupCSVService {
                 targetDeviceNames: targetNames.joined(separator: ", "),
                 targetDeviceIDs: legacyDeckIDs.map(\.uuidString).joined(separator: ","),
                 targets: targetsJSON,
-                triggers: triggersJSON, steps: stepsJSON, sortOrder: workflow.sortOrder
+                triggers: triggersJSON, steps: stepsJSON, sortOrder: workflow.sortOrder,
+                decksInSteps: true
             ))
         }
 
@@ -105,10 +109,12 @@ enum BackupCSVService {
         id: UUID, type: RowType, name: String = "", ipAddress: String = "", remotePath: String = "",
         volumeName: String = "", path: String = "", username: String = "", password: String = "",
         capacityGB: String = "", targetDeviceNames: String = "", targetDeviceIDs: String = "", targets: String = "",
-        triggers: String = "", steps: String = "", sortOrder: Int = 0, kind: String = ""
+        triggers: String = "", steps: String = "", sortOrder: Int = 0, kind: String = "",
+        decksInSteps: Bool = false
     ) -> [String] {
         [id.uuidString, type.rawValue, name, ipAddress, remotePath, volumeName, path, username, password,
-         capacityGB, targetDeviceNames, targetDeviceIDs, targets, triggers, steps, String(sortOrder), kind]
+         capacityGB, targetDeviceNames, targetDeviceIDs, targets, triggers, steps, String(sortOrder), kind,
+         decksInSteps ? "true" : ""]
     }
 
     // MARK: - Import
@@ -186,10 +192,19 @@ enum BackupCSVService {
                 let triggers = (try? decoder.decode([ScheduleSettings].self, from: triggersData)) ?? []
                 let steps = (try? decoder.decode([WorkflowStep].self, from: stepsData)) ?? []
 
-                result.workflows.append(Workflow(
+                var workflow = Workflow(
                     id: id, name: field(row, "name"), steps: steps, targets: targets,
                     triggers: triggers, sortOrder: sortOrder
-                ))
+                )
+                if field(row, "decksInSteps") == "true" {
+                    // Its decks are already on the steps; the deck column is
+                    // only there for older versions of the app.
+                    workflow.targets.removeAll { if case .hyperDeck = $0 { return true } else { return false } }
+                } else {
+                    // A backup written while decks were chosen for the whole workflow.
+                    workflow.moveLegacyDeckTargetsIntoSteps()
+                }
+                result.workflows.append(workflow)
             }
         }
 

@@ -220,11 +220,10 @@ class SchedulerService: ObservableObject {
         }
     }
 
-    /// Whether a workflow would normally run on this deck: it targets it
-    /// explicitly, or targets "all devices".
+    /// Whether a workflow would normally run on this deck: one of its deck
+    /// steps names it, or covers every deck.
     private func workflow(_ workflow: Workflow, covers deck: HyperDeck) -> Bool {
-        guard !workflow.targets.isEmpty else { return true }
-        return workflow.targets.contains(.hyperDeck(deck.id))
+        workflow.usesDeck(deck.id)
     }
 
     // MARK: - Deck events

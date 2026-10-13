@@ -30,7 +30,7 @@ struct WorkflowBuilderView: View {
     @State private var assistantNotes: [String] = []
     @State private var assistantError: String? = nil
     /// What the workflow looked like before the last assistant change, so it can be undone.
-    @State private var assistantUndo: (name: String, steps: [WorkflowStep], triggers: [ScheduleSettings])? = nil
+    @State private var assistantUndo: (name: String, steps: [WorkflowStep], targets: Set<WorkflowTarget>, triggers: [ScheduleSettings])? = nil
     @FocusState private var assistantFocused: Bool
     private var assistantUnavailableReason: String? { WorkflowAssistant.unavailableReason }
 
@@ -113,7 +113,7 @@ struct WorkflowBuilderView: View {
         }
         .sheet(item: $pickingCloudStoreFolder) { store in
             FolderPickerSheet(store: store) { path in
-                addCloudStoreFolderTarget(store: store, path: path)
+                targets.insert(.cloudStore(id: store.id, path: path))
             }
         }
         .confirmationDialog("Discard your changes?", isPresented: $confirmingDiscard) {
@@ -234,23 +234,14 @@ struct WorkflowBuilderView: View {
     }
 
     private func stepTile(_ kind: StepKind) -> some View {
-        let needsDeck = [.controlDeck, .format].contains(kind) && !includesHyperDeckTarget
-        let tile = PaletteTile(
+        PaletteTile(
             icon: kind.icon,
             color: kind.color,
             title: kind.isComingSoon ? "\(kind.title) · Coming Soon" : kind.title,
-            subtitle: needsDeck ? "Needs a HyperDeck in \"Runs On\"" : kind.subtitle,
-            dimmed: needsDeck
+            subtitle: kind.subtitle
         )
-        return Group {
-            if needsDeck {
-                tile
-            } else {
-                tile
-                    .onTapGesture { insertStep(kind, at: steps.count) }
-                    .draggable(Payload.step + kind.rawValue)
-            }
-        }
+        .onTapGesture { insertStep(kind, at: steps.count) }
+        .draggable(Payload.step + kind.rawValue)
     }
 
     private func triggerTile(_ mode: ScheduleMode) -> some View {
@@ -350,9 +341,9 @@ struct WorkflowBuilderView: View {
         isAssisting = true
         assistantError = nil
         assistantNotes = []
-        let snapshot = (name: name, steps: steps, triggers: triggers)
+        let snapshot = (name: name, steps: steps, targets: targets, triggers: triggers)
         let building = assistantIsBuilding
-        let current = Workflow(name: name, steps: steps, triggers: triggers)
+        let current = Workflow(name: name, steps: steps, targets: Array(targets), triggers: triggers)
 
         let context = TriggerContext(appState: appState, workflowID: existingWorkflow?.id)
 
@@ -364,6 +355,7 @@ struct WorkflowBuilderView: View {
                     : try await WorkflowAssistant.edit(current, request: request, context: context)
                 withAnimation(.snappy) {
                     steps = result.workflow.steps
+                    targets = Set(result.workflow.targets)
                     triggers = result.workflow.triggers
                     // A name the user already typed wins over a generated one.
                     if building {
@@ -386,6 +378,7 @@ struct WorkflowBuilderView: View {
         withAnimation(.snappy) {
             name = previous.name
             steps = previous.steps
+            targets = previous.targets
             triggers = previous.triggers
         }
         assistantUndo = nil
@@ -543,30 +536,21 @@ struct WorkflowBuilderView: View {
 
     // MARK: Runs on
 
-    /// Every HyperDeck and Local Folder currently configured — used to
-    /// decide when an explicit selection actually covers everything (and
-    /// so can collapse back down to the "All Devices" empty-set shorthand).
-    private var allPossibleTargets: Set<WorkflowTarget> {
-        Set(appState.hyperDecks.map { WorkflowTarget.hyperDeck($0.id) }
-            + appState.localFolders.map { WorkflowTarget.localFolder($0.id) })
+    /// True when, as it stands, the workflow has files to work on but no
+    /// HyperDeck or folder to get them from.
+    private var choosesFolderAtRun: Bool {
+        Workflow(name: name, steps: steps, targets: Array(targets)).choosesFolderAtRun
     }
 
     private var runsOnSection: some View {
         VStack(spacing: 0) {
-            sectionLabel("Runs on", systemImage: "externaldrive.connected.to.line.below")
+            sectionLabel("Folders to process", systemImage: "folder")
             VStack(alignment: .leading, spacing: 8) {
-                Toggle("All Devices", isOn: Binding(
-                    get: { targets.isEmpty },
-                    set: { if $0 { targets.removeAll() } }
-                ))
-                ForEach(appState.hyperDecks) { deck in
-                    targetToggle(.hyperDeck(deck.id), label: deck.name, icon: "record.circle")
-                }
+                Text("HyperDecks are chosen on the Offload, Control HyperDeck and Format Drive steps. Tick a folder to also run the steps on the files already in it.")
+                    .font(.caption).foregroundStyle(.secondary)
+
                 ForEach(appState.localFolders) { folder in
                     targetToggle(.localFolder(folder.id), label: folder.name, icon: "folder")
-                }
-                if appState.hyperDecks.isEmpty && appState.localFolders.isEmpty {
-                    Text("No devices configured yet.").font(.caption).foregroundStyle(.secondary)
                 }
 
                 ForEach(selectedCloudStoreFolderTargets, id: \.target) { entry in
@@ -594,8 +578,14 @@ struct WorkflowBuilderView: View {
                     .fixedSize()
                 }
 
-                Text("A Cloud Store Folder runs in place, like a Local Folder — it processes files already sitting in that folder rather than downloading from a device.")
-                    .font(.caption2).foregroundStyle(.tertiary)
+                if choosesFolderAtRun {
+                    Text("No HyperDeck or folder is set, so you'll be asked for a folder when you press Run. You can also run it on any folder from the file browser's Run Workflow menu.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if !triggers.isEmpty {
+                        Label("Triggers can't start it — there's no folder to run on until you pick one.", systemImage: "exclamationmark.triangle")
+                            .font(.caption).foregroundStyle(Color.canopyRust)
+                    }
+                }
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -615,39 +605,15 @@ struct WorkflowBuilderView: View {
         }
     }
 
-    /// Adds a Cloud Store Folder target for the given store + path. If the
-    /// selection was still the "All Devices" shorthand (an empty `targets`
-    /// set), that shorthand is expanded to its explicit equivalent first —
-    /// otherwise adding this one target would also silently drop every
-    /// implicitly-included HyperDeck and Local Folder.
-    private func addCloudStoreFolderTarget(store: CloudStore, path: String) {
-        if targets.isEmpty { targets = allPossibleTargets }
-        targets.insert(.cloudStore(id: store.id, path: path))
-    }
-
     private func targetToggle(_ target: WorkflowTarget, label: String, icon: String) -> some View {
         Toggle(isOn: Binding(
-            get: { targets.isEmpty || targets.contains(target) },
+            get: { targets.contains(target) },
             set: { isOn in
-                if isOn {
-                    targets.insert(target)
-                    if targets.count == allPossibleTargets.count { targets.removeAll() }
-                } else {
-                    if targets.isEmpty { targets = allPossibleTargets }
-                    targets.remove(target)
-                }
+                if isOn { targets.insert(target) } else { targets.remove(target) }
             }
         )) {
             Label(label, systemImage: icon)
         }
-    }
-
-    /// Whether the current selection includes at least one HyperDeck —
-    /// explicitly, or implicitly via "All Devices" when any are configured.
-    /// Gates whether HyperDeck-only steps can be added.
-    private var includesHyperDeckTarget: Bool {
-        if targets.isEmpty { return !appState.hyperDecks.isEmpty }
-        return targets.contains { if case .hyperDeck = $0 { return true }; return false }
     }
 
     // MARK: Steps
@@ -704,7 +670,9 @@ struct WorkflowBuilderView: View {
                             .help("Asks for confirmation before running")
                     }
                 }
-                Text(step.action.summary)
+                Text(step.kind.usesHyperDeck
+                     ? "\(appState.label(for: step.decks)) · \(step.action.summary)"
+                     : step.action.summary)
                     .font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer()
@@ -741,7 +709,8 @@ struct WorkflowBuilderView: View {
         // New id so the copy is its own step; a Create Folder copy shouldn't
         // be mistaken for the original by steps that point at it.
         let copy = WorkflowStep(action: steps[index].action,
-                                requiresConfirmation: steps[index].requiresConfirmation)
+                                requiresConfirmation: steps[index].requiresConfirmation,
+                                decks: steps[index].decks)
         withAnimation(.snappy) { steps.insert(copy, at: index + 1) }
     }
 
@@ -797,7 +766,7 @@ private struct PaletteTile: View {
     let color: Color
     let title: String
     let subtitle: String
-    let dimmed: Bool
+    var dimmed = false
 
     @State private var hovering = false
 

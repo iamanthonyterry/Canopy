@@ -92,11 +92,24 @@ class AppState: ObservableObject {
         activeRuns.filter { !$0.isFinished }.reduce(into: Set<String>()) { $0.formUnion($1.deckNames) }
     }
 
-    func targetDeviceNames(for workflow: Workflow) -> Set<String> {
-        guard !workflow.targets.isEmpty else {
-            return Set(hyperDecks.map(\.name) + localFolders.map(\.name))
+    /// The HyperDecks this workflow's deck steps act on.
+    func hyperDecks(for workflow: Workflow) -> [HyperDeck] {
+        hyperDecks.filter { workflow.usesDeck($0.id) }
+    }
+
+    /// "All HyperDecks", "No HyperDeck", or the chosen decks' names.
+    func label(for decks: DeckSelection) -> String {
+        switch decks {
+        case .all:
+            return "All HyperDecks"
+        case .only(let ids):
+            let names = hyperDecks.filter { ids.contains($0.id) }.map(\.name)
+            return names.isEmpty ? "No HyperDeck" : names.joined(separator: ", ")
         }
-        var names: Set<String> = []
+    }
+
+    func targetDeviceNames(for workflow: Workflow) -> Set<String> {
+        var names = Set(hyperDecks(for: workflow).map(\.name))
         for target in workflow.targets {
             switch target {
             case .hyperDeck(let id):
@@ -107,6 +120,8 @@ class AppState: ObservableObject {
                 if let store = cloudStores.first(where: { $0.id == id }) {
                     names.insert(path.isEmpty ? store.name : "\(store.name)/\(path)")
                 }
+            case .folder(_, let name):
+                names.insert(name)
             }
         }
         return names
@@ -118,6 +133,14 @@ class AppState: ObservableObject {
     func canRun(_ workflow: Workflow) -> Bool {
         busyDeckNames.isDisjoint(with: targetDeviceNames(for: workflow))
             && remoteConflicts(for: workflow).isEmpty
+    }
+
+    /// The same check for a run pointed at specific devices rather than at a
+    /// workflow's own target list — a single device, or a folder picked for
+    /// this run.
+    func canRun(deviceNames: Set<String>, resourceKeys: Set<String>) -> Bool {
+        busyDeckNames.isDisjoint(with: deviceNames)
+            && !remoteRuns.contains { !resourceKeys.isDisjoint(with: $0.run.resourceKeys) }
     }
 
     // MARK: - Other computers
@@ -152,10 +175,7 @@ class AppState: ObservableObject {
     }
 
     func targetResourceKeys(for workflow: Workflow) -> Set<String> {
-        guard !workflow.targets.isEmpty else {
-            return Set(hyperDecks.map { Self.resourceKey($0) } + localFolders.map { Self.resourceKey($0) })
-        }
-        var keys: Set<String> = []
+        var keys = Set(hyperDecks(for: workflow).map { Self.resourceKey($0) })
         for target in workflow.targets {
             switch target {
             case .hyperDeck(let id):
@@ -164,6 +184,8 @@ class AppState: ObservableObject {
                 if let folder = localFolders.first(where: { $0.id == id }) { keys.insert(Self.resourceKey(folder)) }
             case .cloudStore(let id, let path):
                 if let store = cloudStores.first(where: { $0.id == id }) { keys.insert(Self.resourceKey(store, path: path)) }
+            case .folder(let path, _):
+                keys.insert("folder:\(path)")
             }
         }
         return keys
@@ -191,7 +213,7 @@ class AppState: ObservableObject {
         cloudStores        = load([CloudStore].self,         key: "cloudStores")        ?? []
         localFolders       = load([LocalFolder].self,        key: "localFolders")       ?? []
         syncLocation       = load(SyncLocation.self,         key: "syncLocation")       ?? SyncLocation()
-        workflows                  = load([Workflow].self,                  key: "workflows")                  ?? []
+        workflows                  = (load([Workflow].self,                 key: "workflows")                  ?? []).map(fillingLegacyFolders)
         workflowRunHistory         = load([WorkflowRun].self,               key: "workflowRunHistory")         ?? []
         emailNotificationSettings  = load(EmailNotificationSettings.self,   key: "emailNotificationSettings")  ?? EmailNotificationSettings()
         remoteControlSettings     = load(RemoteControlSettings.self, key: "remoteControlSettings") ?? RemoteControlSettings()
@@ -362,10 +384,20 @@ class AppState: ObservableObject {
         upsert(result.hyperDecks, into: &hyperDecks)
         upsert(result.cloudStores, into: &cloudStores)
         upsert(result.localFolders, into: &localFolders)
-        upsert(result.workflows, into: &workflows)
+        upsert(result.workflows.map(fillingLegacyFolders), into: &workflows)
 
         let deviceCount = result.hyperDecks.count + result.cloudStores.count + result.localFolders.count
         return (deviceCount, result.workflows.count)
+    }
+
+    /// Finishes converting a workflow saved when an empty target list meant
+    /// "all devices" — see `Workflow.moveLegacyDeckTargetsIntoSteps`.
+    private func fillingLegacyFolders(_ workflow: Workflow) -> Workflow {
+        guard workflow.legacyRunsOnAllLocalFolders else { return workflow }
+        var workflow = workflow
+        workflow.targets = localFolders.map { .localFolder($0.id) }
+        workflow.legacyRunsOnAllLocalFolders = false
+        return workflow
     }
 
     // MARK: - Persistence

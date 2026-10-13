@@ -520,7 +520,8 @@ struct DeviceFilesBrowser: View {
                             moveNodes = [target]
                             showMoveSheet = true
                         },
-                        onEditKeywords: { editKeywords($0) }
+                        onEditKeywords: { editKeywords($0) },
+                        runTarget: runTarget(for:)
                     )
                 }
             }
@@ -627,8 +628,30 @@ struct DeviceFilesBrowser: View {
             onPreviewImage: { imagePreviewTarget = PlaybackTarget(node: node, device: device) },
             onDeleteRequest: { target in deletePending = [target] },
             onMoveRequest: { target in moveNodes = [target]; showMoveSheet = true },
-            onEditKeywords: { editKeywords($0) }
+            onEditKeywords: { editKeywords($0) },
+            runTarget: runTarget(for:)
         )
+    }
+
+    // MARK: - Run a workflow on a folder
+
+    /// What a workflow started from `folder` runs on: that exact folder,
+    /// processed in place. Nil for a HyperDeck's folders — those aren't on
+    /// this Mac's filesystem, so a workflow can only run on the deck as a
+    /// whole (from the Run Workflow button above the browser).
+    private func runTarget(for folder: FileNode) -> WorkflowEngine.WorkflowTargetDevice? {
+        guard folder.isDirectory, let url = folder.url else { return nil }
+        switch device {
+        case .hyperDeck:
+            return nil
+        case .localFolder:
+            return .folder(at: url)
+        case .cloudStore(let store):
+            // Root nodes sit directly in the mounted volume.
+            guard let root = rootNodes.first?.url?.deletingLastPathComponent().path,
+                  url.path.hasPrefix(root + "/") else { return nil }
+            return .cloudStore(store, path: String(url.path.dropFirst(root.count + 1)))
+        }
     }
 
     private var galleryBreadcrumbBar: some View {
@@ -652,6 +675,11 @@ struct DeviceFilesBrowser: View {
                 }
             }
             Spacer()
+            if appState.isAdmin, let current = galleryCurrentNode, let target = runTarget(for: current) {
+                RunWorkflowHereMenu(target: target, title: "Run Workflow Here")
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+            }
         }
         .font(.caption)
         .padding(.horizontal, 12)
@@ -1124,6 +1152,7 @@ struct FileNodeView: View {
     var onDeleteRequest: (FileNode) -> Void = { _ in }
     var onMoveRequest: (FileNode) -> Void = { _ in }
     var onEditKeywords: (FileNode) -> Void = { _ in }
+    var runTarget: (FileNode) -> WorkflowEngine.WorkflowTargetDevice? = { _ in nil }
 
     @ObservedObject private var clipStore = ClipMetadataStore.shared
 
@@ -1205,6 +1234,7 @@ struct FileNodeView: View {
                     clipContextItems(node: node, device: device, onEditKeywords: onEditKeywords)
                 }
                 if !isSelecting && canManage {
+                    if let target = runTarget(node) { RunWorkflowHereMenu(target: target) }
                     Button("Move…") { onMoveRequest(node) }
                     Button("Delete", role: .destructive) { onDeleteRequest(node) }
                 }
@@ -1218,7 +1248,7 @@ struct FileNodeView: View {
                     onToggle: onToggle, onPlay: onPlay, onPreviewImage: onPreviewImage,
                     isSelecting: isSelecting, selectedIDs: selectedIDs,
                     canManage: canManage, onDeleteRequest: onDeleteRequest, onMoveRequest: onMoveRequest,
-                    onEditKeywords: onEditKeywords
+                    onEditKeywords: onEditKeywords, runTarget: runTarget
                 )
             }
         }
@@ -1297,6 +1327,7 @@ struct FileGalleryTile: View {
     var onDeleteRequest: (FileNode) -> Void = { _ in }
     var onMoveRequest: (FileNode) -> Void = { _ in }
     var onEditKeywords: (FileNode) -> Void = { _ in }
+    var runTarget: (FileNode) -> WorkflowEngine.WorkflowTargetDevice? = { _ in nil }
 
     @ObservedObject private var clipStore = ClipMetadataStore.shared
     @State private var info: ClipInfo?
@@ -1405,6 +1436,7 @@ struct FileGalleryTile: View {
                 clipContextItems(node: node, device: device, onEditKeywords: onEditKeywords)
             }
             if !isSelecting && canManage {
+                if let target = runTarget(node) { RunWorkflowHereMenu(target: target) }
                 Button("Move…") { onMoveRequest(node) }
                 Button("Delete", role: .destructive) { onDeleteRequest(node) }
             }

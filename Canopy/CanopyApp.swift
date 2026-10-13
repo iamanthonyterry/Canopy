@@ -42,7 +42,7 @@ struct CanopyApp: App {
                     Menu("Run Workflow") {
                         ForEach(runnable.sorted { $0.sortOrder < $1.sortOrder }) { workflow in
                             Button(workflow.name) {
-                                Task { await WorkflowEngine.shared.run(workflow) }
+                                Task { await WorkflowEngine.shared.runFromUI(workflow) }
                             }
                             .disabled(!appState.canRun(workflow))
                         }

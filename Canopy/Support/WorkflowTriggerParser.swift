@@ -45,6 +45,17 @@ struct TriggerContext {
         ineligibleWorkflowIDs = blocked
     }
 
+    /// "All HyperDecks", "No HyperDeck", or the chosen decks' names.
+    func describe(_ selection: DeckSelection) -> String {
+        switch selection {
+        case .all:
+            return "all HyperDecks"
+        case .only(let ids):
+            let names = decks.filter { ids.contains($0.id) }.map(\.name)
+            return names.isEmpty ? "no HyperDeck" : names.joined(separator: ", ")
+        }
+    }
+
     /// "When Studio A stops recording" — a one-line description of a trigger.
     func describe(_ trigger: ScheduleSettings) -> String {
         func deck() -> String { decks.first { $0.id == trigger.deviceID }?.name ?? "any deck" }

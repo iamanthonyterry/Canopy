@@ -83,7 +83,7 @@ struct CommandPaletteView: View {
             for workflow in appState.workflows.filter({ !$0.steps.isEmpty }) where appState.canRun(workflow) {
                 all.append(PaletteItem(id: "wf-\(workflow.id)", title: "Run \(workflow.name)", subtitle: "Workflow",
                                        icon: "play.fill", group: "Workflows") {
-                    Task { await WorkflowEngine.shared.run(workflow) } })
+                    Task { await WorkflowEngine.shared.runFromUI(workflow) } })
             }
         }
         for (id, meta) in clips.entries where meta.isVideo || meta.isImage {

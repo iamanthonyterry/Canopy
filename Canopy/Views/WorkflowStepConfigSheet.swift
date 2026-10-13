@@ -70,6 +70,7 @@ struct WorkflowStepConfigSheet: View {
     @State private var notifySendPerDrive = true
     @State private var showingAddRecipient = false
     @State private var requiresConfirmation = false
+    @State private var decks = DeckSelection.all
     @State private var triggerWorkflowID: UUID? = nil
     @State private var triggerWaitForCompletion = false
 
@@ -100,6 +101,10 @@ struct WorkflowStepConfigSheet: View {
             Form {
                 Text(step.kind.subtitle)
                     .font(.caption).foregroundStyle(.secondary)
+
+                if step.kind.usesHyperDeck {
+                    deckFields
+                }
 
                 switch step.kind {
                 case .controlDeck:
@@ -224,6 +229,44 @@ struct WorkflowStepConfigSheet: View {
 
     // MARK: - Field groups
 
+    /// Which HyperDecks this step acts on. Ticking a single deck while "All
+    /// HyperDecks" is on switches to an explicit list of the rest.
+    private var deckFields: some View {
+        Section("HyperDecks") {
+            Toggle("All HyperDecks", isOn: Binding(
+                get: { decks == .all },
+                set: { decks = $0 ? .all : .only([]) }
+            ))
+            ForEach(appState.hyperDecks) { deck in
+                Toggle(isOn: Binding(
+                    get: { decks.includes(deck.id) },
+                    set: { isOn in
+                        var ids: [UUID]
+                        switch decks {
+                        case .all:           ids = appState.hyperDecks.map(\.id)
+                        case .only(let set): ids = set
+                        }
+                        ids.removeAll { $0 == deck.id }
+                        if isOn { ids.append(deck.id) }
+                        decks = .only(ids)
+                    }
+                )) {
+                    Label(deck.name, systemImage: "record.circle")
+                }
+            }
+            if appState.hyperDecks.isEmpty {
+                Text("No HyperDecks added yet.").font(.caption).foregroundStyle(.secondary)
+            }
+            if step.kind == .sync {
+                Text("On a folder there's nothing to download — Offload just picks up the files already in it. Turn every deck off for a workflow that only works on folders.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if decks.isNone {
+                Text("With no HyperDeck chosen this step does nothing.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private var syncFields: some View {
         Group {
             Text("Downloads any files not already synced.")
@@ -238,7 +281,7 @@ struct WorkflowStepConfigSheet: View {
                 .font(.caption).foregroundStyle(.secondary)
 
             Toggle("Remove from device after offload", isOn: $syncDeleteFromDevice)
-            Text("Deletes each file from the HyperDeck once its copy has been verified — an alternative to a Format Drive step. Always verifies first, and a file that fails verification is left on the device. A clip that's still recording is never touched. Doesn't apply to Local Folder or Cloud Store Folder targets.")
+            Text("Deletes each file from the HyperDeck once its copy has been verified — an alternative to a Format Drive step. Always verifies first, and a file that fails verification is left on the device. A clip that's still recording is never touched. Doesn't apply to folders.")
                 .font(.caption).foregroundStyle(.secondary)
 
             if !availableFolderSteps.isEmpty {
@@ -936,6 +979,7 @@ struct WorkflowStepConfigSheet: View {
 
     private func load() {
         requiresConfirmation = step.requiresConfirmation
+        decks = step.decks
         switch step.action {
         case .controlDeck(let command, let savedMinutes):
             controlCommand = command
@@ -1021,6 +1065,7 @@ struct WorkflowStepConfigSheet: View {
 
     private func save() {
         step.requiresConfirmation = requiresConfirmation
+        step.decks = decks
         switch step.kind {
         case .controlDeck:
             step.action = .controlDeck(

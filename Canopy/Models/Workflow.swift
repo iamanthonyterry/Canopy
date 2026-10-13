@@ -96,6 +96,17 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
     /// but don't do anything yet.
     var isComingSoon: Bool { self == .upload }
 
+    /// Steps that talk to a HyperDeck, and so carry their own choice of
+    /// which decks to act on — see `WorkflowStep.decks`.
+    var usesHyperDeck: Bool { [.sync, .controlDeck, .format].contains(self) }
+
+    /// Steps that work on files in a folder — the ones a workflow needs
+    /// somewhere to run for. The rest (wait, notify, webhook…) run fine
+    /// with no device or folder at all.
+    var worksOnFiles: Bool {
+        ![.format, .controlDeck, .wait, .createFolder, .notify, .triggerWorkflow, .webhook, .upload].contains(self)
+    }
+
     var color: Color {
         switch self {
         case .controlDeck:     return .red
@@ -118,6 +129,24 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .triggerWorkflow: return .cyan
         }
     }
+}
+
+// MARK: - Deck Selection
+/// Which HyperDecks a deck step (Offload, Control HyperDeck, Format Drive)
+/// acts on. `.only([])` is a real choice: an Offload step with no decks just
+/// picks up the files already sitting in the folder the workflow runs on.
+enum DeckSelection: Hashable, Codable {
+    case all
+    case only([UUID])
+
+    func includes(_ deckID: UUID) -> Bool {
+        switch self {
+        case .all:           return true
+        case .only(let ids): return ids.contains(deckID)
+        }
+    }
+
+    var isNone: Bool { self == .only([]) }
 }
 
 // MARK: - Post Copy Platform
@@ -848,18 +877,23 @@ struct WorkflowStep: Identifiable, Hashable {
     /// When true, the run pauses right before this step and waits for
     /// someone to confirm it should continue.
     var requiresConfirmation: Bool = false
+    /// Which HyperDecks this step acts on. Only means anything for the
+    /// steps where `kind.usesHyperDeck` is true. A new step starts with
+    /// none, so nothing touches a deck until one is picked.
+    var decks: DeckSelection = .only([])
     var kind: StepKind { action.kind }
 
-    init(id: UUID = UUID(), action: StepAction, requiresConfirmation: Bool = false) {
+    init(id: UUID = UUID(), action: StepAction, requiresConfirmation: Bool = false, decks: DeckSelection = .only([])) {
         self.id = id
         self.action = action
         self.requiresConfirmation = requiresConfirmation
+        self.decks = decks
     }
 }
 
 extension WorkflowStep: Codable {
     enum CodingKeys: String, CodingKey {
-        case id, action, requiresConfirmation
+        case id, action, requiresConfirmation, decks
     }
 
     init(from decoder: Decoder) throws {
@@ -868,6 +902,9 @@ extension WorkflowStep: Codable {
         action = try container.decode(StepAction.self, forKey: .action)
         // Workflows saved before this feature existed won't have this key.
         requiresConfirmation = try container.decodeIfPresent(Bool.self, forKey: .requiresConfirmation) ?? false
+        // Absent on workflows saved while decks were chosen for the whole
+        // workflow — `Workflow` moves that choice here when it decodes.
+        decks = try container.decodeIfPresent(DeckSelection.self, forKey: .decks) ?? .all
     }
 
     func encode(to encoder: Encoder) throws {
@@ -875,11 +912,15 @@ extension WorkflowStep: Codable {
         try container.encode(id, forKey: .id)
         try container.encode(action, forKey: .action)
         try container.encode(requiresConfirmation, forKey: .requiresConfirmation)
+        try container.encode(decks, forKey: .decks)
     }
 }
 
 // MARK: - Workflow Target
-// Which kind of device a workflow can be pointed at. A Cloud Store target
+// A device a run works against. A workflow itself only stores folder
+// targets (Local Folder, Cloud Store folder) — its HyperDecks are chosen on
+// the steps that use them — but a run's checkpoint records every device it
+// was using, decks included. A Cloud Store target
 // names a specific folder within that store (unlike a HyperDeck or Local
 // Folder, a Cloud Store isn't a single preconfigured place to run — the
 // same store can host any number of different folders across different
@@ -889,6 +930,10 @@ enum WorkflowTarget: Hashable, Codable {
     case hyperDeck(UUID)
     case localFolder(UUID)
     case cloudStore(id: UUID, path: String)
+    /// A folder that isn't one of the registered devices — one picked just
+    /// for a single run. Never saved on a workflow; only a run's checkpoint
+    /// records it, so an interrupted run can find the folder again.
+    case folder(path: String, name: String)
 }
 
 // MARK: - Workflow
@@ -896,9 +941,14 @@ struct Workflow: Identifiable, Codable, Hashable {
     var id = UUID()
     var name: String
     var steps: [WorkflowStep] = []
-    /// Which devices this workflow runs against. Empty = all configured
-    /// HyperDecks and Local Folders.
+    /// Folders whose files this workflow processes in place — Local Folders
+    /// and Cloud Store folders. HyperDecks aren't listed here: each deck step
+    /// names its own (see `WorkflowStep.decks`).
     var targets: [WorkflowTarget] = []
+    /// Set only while loading a workflow saved when an empty target list
+    /// meant "all devices": `AppState` replaces it with the Local Folders
+    /// that existed, so the workflow keeps running where it used to.
+    var legacyRunsOnAllLocalFolders = false
     /// A workflow can have any number of automatic time triggers (e.g. a
     /// daily run at 2 AM plus a separate one-time run this weekend).
     var triggers: [ScheduleSettings] = []
@@ -922,6 +972,54 @@ struct Workflow: Identifiable, Codable, Hashable {
 
     var stepsSummary: String {
         steps.isEmpty ? "No steps yet" : steps.map { $0.action.shortLabel }.joined(separator: "  →  ")
+    }
+
+    /// True if any deck step names `deckID`, or covers every deck.
+    func usesDeck(_ deckID: UUID) -> Bool {
+        steps.contains { $0.kind.usesHyperDeck && $0.decks.includes(deckID) }
+    }
+
+    /// True if at least one deck step is pointed at some deck.
+    var selectsAnyDeck: Bool {
+        steps.contains { $0.kind.usesHyperDeck && !$0.decks.isNone }
+    }
+
+    /// True when the workflow has files to work on but nothing saying where:
+    /// no deck to pull them from and no folder to find them in. It runs
+    /// wherever it's pointed at the moment it's started — a folder in the
+    /// file browser, or one picked when Run is pressed.
+    var choosesFolderAtRun: Bool {
+        targets.isEmpty && !selectsAnyDeck && steps.contains { $0.kind.worksOnFiles }
+    }
+
+    /// The same workflow with every deck step pointed at one deck — for a
+    /// run started on a single HyperDeck, whatever decks the steps name.
+    func pointingDeckSteps(at deckID: UUID) -> Workflow {
+        var copy = self
+        for i in copy.steps.indices where copy.steps[i].kind.usesHyperDeck {
+            copy.steps[i].decks = .only([deckID])
+        }
+        return copy
+    }
+
+    /// Converts a workflow saved when decks were chosen for the whole
+    /// workflow: the decks in `targets` move onto each deck step, leaving
+    /// only folders behind. An empty list used to mean every HyperDeck and
+    /// Local Folder — the deck steps already default to every deck, and
+    /// the folders are filled in by `AppState`, which knows what exists.
+    mutating func moveLegacyDeckTargetsIntoSteps() {
+        guard !targets.isEmpty else {
+            legacyRunsOnAllLocalFolders = true
+            return
+        }
+        let deckIDs = targets.compactMap { target -> UUID? in
+            if case .hyperDeck(let id) = target { return id }
+            return nil
+        }
+        for i in steps.indices where steps[i].kind.usesHyperDeck {
+            steps[i].decks = .only(deckIDs)
+        }
+        targets.removeAll { if case .hyperDeck = $0 { return true } else { return false } }
     }
 
     /// True if any step needs the shared sync destination mounted.
@@ -950,7 +1048,7 @@ struct Workflow: Identifiable, Codable, Hashable {
     // MARK: Codable (with migration from the old single `schedule` field)
 
     enum CodingKeys: String, CodingKey {
-        case id, name, steps, targets, targetDeckIDs, triggers, schedule, sortOrder
+        case id, name, steps, targets, targetDeckIDs, decksInSteps, triggers, schedule, sortOrder
     }
 
     init(from decoder: Decoder) throws {
@@ -966,6 +1064,11 @@ struct Workflow: Identifiable, Codable, Hashable {
             // plain list of HyperDeck UUIDs.
             let legacyDeckIDs = try container.decodeIfPresent([UUID].self, forKey: .targetDeckIDs) ?? []
             targets = legacyDeckIDs.map { .hyperDeck($0) }
+        }
+
+        // Workflows saved before deck steps chose their own decks.
+        if try container.decodeIfPresent(Bool.self, forKey: .decksInSteps) != true {
+            moveLegacyDeckTargetsIntoSteps()
         }
 
         if let decodedTriggers = try container.decodeIfPresent([ScheduleSettings].self, forKey: .triggers) {
@@ -986,6 +1089,7 @@ struct Workflow: Identifiable, Codable, Hashable {
         try container.encode(name, forKey: .name)
         try container.encode(steps, forKey: .steps)
         try container.encode(targets, forKey: .targets)
+        try container.encode(true, forKey: .decksInSteps)
         try container.encode(triggers, forKey: .triggers)
         try container.encode(sortOrder, forKey: .sortOrder)
     }

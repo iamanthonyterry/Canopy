@@ -236,7 +236,7 @@ struct WorkflowsView: View {
                         .foregroundStyle(Color.accentColor)
                 } else {
                     Button {
-                        Task { await engine.run(workflow) }
+                        Task { await engine.runFromUI(workflow) }
                     } label: {
                         Label("Run", systemImage: "play.fill")
                     }
@@ -258,17 +258,25 @@ struct WorkflowsView: View {
     }
 
     private func targetDeviceLabel(_ workflow: Workflow) -> String {
-        if workflow.targets.isEmpty { return "All devices" }
-        let names = workflow.targets.compactMap { target -> String? in
+        if workflow.choosesFolderAtRun { return "Asks for a folder when run" }
+        var names: [String] = []
+        let deckSteps = workflow.steps.filter { $0.kind.usesHyperDeck && !$0.decks.isNone }
+        if deckSteps.contains(where: { $0.decks == .all }) {
+            names.append("All HyperDecks")
+        } else {
+            names += appState.hyperDecks(for: workflow).map(\.name)
+        }
+        names += workflow.targets.compactMap { target -> String? in
             switch target {
             case .hyperDeck(let id):   return appState.hyperDecks.first { $0.id == id }?.name
             case .localFolder(let id): return appState.localFolders.first { $0.id == id }?.name
             case .cloudStore(let id, let path):
                 guard let store = appState.cloudStores.first(where: { $0.id == id }) else { return nil }
                 return path.isEmpty ? store.name : "\(store.name)/\(path)"
+            case .folder(_, let name): return name
             }
         }
-        return names.isEmpty ? "No devices selected" : names.joined(separator: ", ")
+        return names.isEmpty ? "No device needed" : names.joined(separator: ", ")
     }
 
     private func lastRun(for workflow: Workflow) -> WorkflowRun? {

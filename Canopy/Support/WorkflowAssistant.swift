@@ -98,6 +98,51 @@ struct RequestDetails {
 
     func mentions(_ words: [String]) -> Bool { words.contains { stepText.contains($0) } }
 
+    // MARK: Decks and folders
+
+    private func names(_ name: String, after lead: String = "") -> Bool {
+        let pattern = lead + #"(?<![a-z0-9])"# + NSRegularExpression.escapedPattern(for: name.lowercased()) + #"(?![a-z0-9])"#
+        return stepText.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    /// The HyperDecks the request points its deck steps at: the ones it
+    /// names, or every deck for "all decks" / "every HyperDeck". Nil when it
+    /// doesn't say. A deck named only as the thing a trigger watches ("when
+    /// Studio A stops recording") isn't taken as a change to the steps.
+    var statedDecks: DeckSelection? {
+        let triggerLead = #"\b(?:when|whenever|once|after|if|as\s+soon\s+as)\s+(?:the\s+)?"#
+        let named = context.decks.filter { deck in
+            guard names(deck.name) else { return false }
+            let watched = schedule.events.contains { $0.deviceID == deck.id }
+            return !(watched && names(deck.name, after: triggerLead))
+        }
+        if !named.isEmpty { return .only(named.map(\.id)) }
+        let everyDeck = #"\b(?:all|every|each|both)\s+(?:of\s+)?(?:the\s+|my\s+)?(?:hyper\s?decks?|decks?|recorders?|devices?)\b"#
+        return stepText.range(of: everyDeck, options: .regularExpression) != nil ? .all : nil
+    }
+
+    /// What a brand-new deck step uses when the request doesn't say: the
+    /// deck a trigger is watching, or the only deck there is. Otherwise
+    /// none — the choice is left to the user.
+    var decksForNewSteps: DeckSelection {
+        if let statedDecks { return statedDecks }
+        let watched = schedule.events.compactMap(\.deviceID).filter { id in context.decks.contains { $0.id == id } }
+        if !watched.isEmpty { return .only(watched) }
+        if context.decks.count == 1 { return .only([context.decks[0].id]) }
+        return .only([])
+    }
+
+    /// Local Folders the request says to work in ("transcribe everything in
+    /// Sunday Services"), plus any a trigger is watching. A folder that's
+    /// only somewhere to copy *to* doesn't count.
+    var foldersToProcess: [TriggerContext.Item] {
+        let lead = #"\b(?:in|on|from|inside|within)\s+(?:the\s+|my\s+)?"#
+        return context.folders.filter { folder in
+            names(folder.name, after: lead)
+                || schedule.events.contains { $0.deviceID == folder.id }
+        }
+    }
+
     private static let transcriptNoun = #"(?:(?:new|temporary|temp|generated|those|these|the|any|all|its|their|my)\s+){0,3}(?:transcripts?|transcriptions?|transcript\s+files?|subtitles?|srt(?:\s+files?)?)"#
 
     /// Finds a statement about what happens to the transcript files and
@@ -358,6 +403,7 @@ enum WorkflowDraftBuilder {
             steps.append(makeStep(kind, details: details, alongside: kept))
         }
         applyWorkflowName(draft.name, to: &steps)
+        for i in steps.indices where steps[i].kind.usesHyperDeck { steps[i].decks = details.decksForNewSteps }
 
         if !dropped.isEmpty {
             notes.append("Left out \(dropped.joined(separator: ", ")) — your request didn't mention it.")
@@ -375,7 +421,14 @@ enum WorkflowDraftBuilder {
         }
 
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let workflow = Workflow(name: name.isEmpty ? "New Workflow" : name, steps: steps, triggers: triggers)
+        let folders = details.foldersToProcess
+        if !folders.isEmpty {
+            notes.append("Set to process the files in \(folders.map(\.name).joined(separator: ", ")).")
+        }
+        let workflow = Workflow(
+            name: name.isEmpty ? "New Workflow" : name, steps: steps,
+            targets: folders.map { .localFolder($0.id) }, triggers: triggers
+        )
         return WorkflowDraftResult(workflow: workflow, notes: notes)
     }
 
@@ -538,6 +591,15 @@ enum WorkflowDraftBuilder {
         if steps.contains(where: { $0.kind == .format || $0.kind == .cleanup }) {
             notes.append("Destructive steps are set to ask for confirmation before they run.")
         }
+        let deckSteps = steps.filter { $0.kind.usesHyperDeck }
+        let unset = deckSteps.filter { $0.decks.isNone }
+        if let chosen = deckSteps.first(where: { !$0.decks.isNone }) {
+            notes.append("HyperDeck steps use \(details.context.describe(chosen.decks)).")
+        }
+        if !unset.isEmpty, !details.context.decks.isEmpty {
+            let titles = unset.map(\.action.shortLabel).joined(separator: ", ")
+            notes.append("Choose which HyperDecks \(titles) should use — none are selected yet.")
+        }
         return notes
     }
 
@@ -582,6 +644,29 @@ enum WorkflowEditBuilder {
         var added: [WorkflowStep] = []
         var addedFolder = false
 
+        // Decks and folders: read straight from the request, never from the
+        // model. Naming a deck re-points the deck steps the request talks
+        // about — or all of them, when it doesn't single any out.
+        var redirected: Set<UUID> = []
+        if let decks = details.statedDecks {
+            let deckSteps = result.steps.indices.filter { result.steps[$0].kind.usesHyperDeck }
+            let singledOut = deckSteps.filter { i in
+                DraftStepKind(step: result.steps[i]).map(details.refersTo) == true
+            }
+            for i in singledOut.isEmpty ? deckSteps : singledOut where result.steps[i].decks != decks {
+                result.steps[i].decks = decks
+                redirected.insert(result.steps[i].id)
+            }
+            if !redirected.isEmpty {
+                let titles = result.steps.filter { redirected.contains($0.id) }.map(\.action.shortLabel)
+                summary.append("Set \(titles.joined(separator: ", ")) to use \(context.describe(decks))")
+            }
+        }
+        for folder in details.foldersToProcess where !result.targets.contains(.localFolder(folder.id)) {
+            result.targets.append(.localFolder(folder.id))
+            summary.append("Added \(folder.name) to the folders it processes")
+        }
+
         for edit in draft.edits {
             let title = WorkflowDraftBuilder.title(for: edit.step)
             switch edit.action {
@@ -591,7 +676,8 @@ enum WorkflowEditBuilder {
                     continue
                 }
                 let siblings = Set(result.steps.compactMap { DraftStepKind(step: $0) })
-                let step = WorkflowDraftBuilder.makeStep(edit.step, details: details, alongside: siblings.union([edit.step]))
+                var step = WorkflowDraftBuilder.makeStep(edit.step, details: details, alongside: siblings.union([edit.step]))
+                if step.kind.usesHyperDeck { step.decks = details.decksForNewSteps }
                 let index = insertionIndex(for: edit, in: result.steps)
                 result.steps.insert(step, at: index)
                 added.append(step)
@@ -624,11 +710,13 @@ enum WorkflowEditBuilder {
             case .update:
                 guard details.refersTo(edit.step) else { continue }
                 var changed = false
+                var wasRedirected = false
                 for i in result.steps.indices where edit.step.matches(result.steps[i]) {
                     if update(&result.steps[i], details: details) { changed = true }
+                    if redirected.contains(result.steps[i].id) { wasRedirected = true }
                 }
                 if changed { summary.append("Updated \(title)") }
-                else { notes.append("Couldn't tell what to change on \(title) — open it to adjust.") }
+                else if !wasRedirected { notes.append("Couldn't tell what to change on \(title) — open it to adjust.") }
             }
         }
 
@@ -897,6 +985,7 @@ enum WorkflowAssistant {
     Actions: add (a new step), remove (delete a step), move (change where a step runs), update (change a \
     setting on a step, such as how long to wait, verification, days to keep files, proxy quality, how many \
     clips or how long they are, the social format, the language, or one summary email instead of one per drive).
+    Which HyperDecks or folders it uses is not a step change: return no edits for it.
     Step names: startRecording, stopRecording, wait, createFolder, offload, makeProxies, rename, transcribe, \
     findClips, queueClips, writeCopy, webhook, copyTo, resizeForSocial, formatDrive, cleanup, notify.
     Use placement automatic unless the request says where. A change to when the workflow starts (a time, \
@@ -914,6 +1003,7 @@ enum WorkflowAssistant {
     steps: offload, cleanup. "run every night at 2am" -> no edits
     steps: offload. "only run it on weekdays" -> no edits
     steps: offload, notify. "start it when the deck stops recording" -> no edits
+    steps: offload, formatDrive. "only use Studio B" -> no edits
     """
 
     /// Applies a plain-language change to an existing workflow.
@@ -931,6 +1021,7 @@ enum WorkflowAssistant {
             WorkflowEditDraft.self, instructions: editInstructions, prompt: prompt)
         let result = WorkflowEditBuilder.apply(edits, to: workflow, request: request, context: context)
         guard result.workflow.steps != workflow.steps
+                || result.workflow.targets != workflow.targets
                 || result.workflow.triggers != workflow.triggers
                 || result.workflow.name != workflow.name else {
             throw WorkflowAssistantError.noChange

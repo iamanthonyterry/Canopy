@@ -81,9 +81,8 @@ struct CloudStoreContentPane: View {
         .padding()
     }
 
-    /// Runs the chosen workflow against this store's volume root — picking a
-    /// specific subfolder isn't available from this quick action, only from
-    /// a workflow's own "Runs On" configuration in the editor.
+    /// Runs the chosen workflow against this store's volume root — a
+    /// subfolder is run from its own Run Workflow menu in the file browser.
     @ViewBuilder
     private var runWorkflowMenu: some View {
         if !appState.workflows.isEmpty {

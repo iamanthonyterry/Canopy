@@ -494,7 +494,7 @@ struct DashboardView: View {
             Menu {
                 ForEach(runnable.sorted { $0.sortOrder < $1.sortOrder }) { workflow in
                     Button(workflow.name) {
-                        Task { await workflowEngine.run(workflow) }
+                        Task { await workflowEngine.runFromUI(workflow) }
                     }
                     .disabled(!appState.canRun(workflow))
                 }
