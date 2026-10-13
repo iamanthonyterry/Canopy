@@ -4,16 +4,69 @@ import Testing
 
 @MainActor
 struct FindClipsStepTests {
-    @Test func exportSettingsRoundTrip() throws {
-        let action = StepAction.findClips(maxClips: 3, minSeconds: 15, maxSeconds: 45, exportFormat: .square, captions: false)
+    @Test func exportPostsSettingsRoundTrip() throws {
+        let action = StepAction.exportPosts(format: .square, captions: false)
         let data = try JSONEncoder().encode(action)
         #expect(try JSONDecoder().decode(StepAction.self, from: data) == action)
+    }
+
+    @Test func findClipsThatRenderedPostsItselfBecomesTwoSteps() throws {
+        let json = #"""
+        {"name":"Clips","steps":[
+          {"action":{"findClips":{"maxClips":3,"minSeconds":15,"maxSeconds":45,"exportFormat":"square","captions":false}}},
+          {"action":{"notify":{"header":"Done","message":"","recipients":[]}}}
+        ]}
+        """#.data(using: .utf8)!
+        let workflow = try JSONDecoder().decode(Workflow.self, from: json)
+        #expect(workflow.steps.map(\.kind) == [.findClips, .exportPosts, .notify])
+        #expect(workflow.steps[0].action == .findClips(maxClips: 3, minSeconds: 15, maxSeconds: 45))
+        #expect(workflow.steps[1].action == .exportPosts(format: .square, captions: false))
+    }
+
+    @Test func findClipsWithoutExportStaysOneStep() throws {
+        let json = #"{"name":"Clips","steps":[{"action":{"findClips":{"maxClips":4}}}]}"#.data(using: .utf8)!
+        let workflow = try JSONDecoder().decode(Workflow.self, from: json)
+        #expect(workflow.steps.map(\.kind) == [.findClips])
+    }
+
+    @Test func startRecordingThatStoppedItselfBecomesThreeSteps() throws {
+        let deck = UUID()
+        // Encode a current workflow, then put the old `stopAfterMinutes` back
+        // the way a workflow saved before this change would have it.
+        let current = Workflow(name: "Record", steps: [
+            WorkflowStep(action: .controlDeck(command: .start), decks: .only([deck]))
+        ])
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(current)) as? [String: Any])
+        var steps = try #require(object["steps"] as? [[String: Any]])
+        var action = try #require(steps[0]["action"] as? [String: Any])
+        var control = try #require(action["controlDeck"] as? [String: Any])
+        control["stopAfterMinutes"] = 45
+        action["controlDeck"] = control
+        steps[0]["action"] = action
+        object["steps"] = steps
+
+        let data = try JSONSerialization.data(withJSONObject: object)
+        let workflow = try JSONDecoder().decode(Workflow.self, from: data)
+        #expect(workflow.steps.map(\.action) == [.controlDeck(command: .start), .wait(minutes: 45), .controlDeck(command: .stop)])
+        #expect(workflow.steps[2].decks == .only([deck]))
+    }
+
+    @Test func startRecordingSuggestsWaitThenStop() {
+        let labels = StepAction.controlDeck(command: .start).suggestedFollowUps.map(\.shortLabel)
+        #expect(labels == ["Wait", "Stop Recording"])
+        #expect(StepAction.controlDeck(command: .stop).suggestedFollowUps.isEmpty)
+    }
+
+    @Test func nextStepsAreSuggestedNotAdded() {
+        #expect(StepKind.findClips.suggestedFollowUps.contains(.exportPosts))
+        #expect(StepKind.transcribe.suggestedFollowUps == [.findClips])
+        #expect(StepKind.wait.suggestedFollowUps.isEmpty)
     }
 
     @Test func stepSavedBeforeExportExistedStillLoads() throws {
         let json = #"{"findClips":{"maxClips":4,"minSeconds":20,"maxSeconds":60}}"#.data(using: .utf8)!
         let action = try JSONDecoder().decode(StepAction.self, from: json)
-        #expect(action == .findClips(maxClips: 4, minSeconds: 20, maxSeconds: 60, exportFormat: nil, captions: true))
+        #expect(action == .findClips(maxClips: 4, minSeconds: 20, maxSeconds: 60, focus: ClipFocus()))
     }
 }
 

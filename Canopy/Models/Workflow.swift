@@ -19,7 +19,7 @@ enum DeckCommand: String, Codable, CaseIterable, Identifiable {
 // MARK: - Step Kind
 // The catalog of step types users can drag into a workflow.
 enum StepKind: String, Codable, CaseIterable, Identifiable {
-    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, writeCopy, webhook, copyTo, upload, reframe, format, cleanup, notify, triggerWorkflow
+    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, findClips, exportPosts, queueClips, writeCopy, webhook, copyTo, upload, reframe, format, cleanup, notify, triggerWorkflow
 
     var id: String { rawValue }
 
@@ -33,6 +33,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .rename:          return "Rename"
         case .transcribe:      return "Transcribe"
         case .findClips:       return "Find Clips"
+        case .exportPosts:     return "Export Posts"
         case .queueClips:      return "Queue Clips"
         case .writeCopy:       return "Write Post Copy"
         case .webhook:         return "Send Webhook"
@@ -56,6 +57,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .rename:          return "Rename files using a pattern"
         case .transcribe:      return "Generate a timed transcript for each clip, on this Mac"
         case .findClips:       return "Find moments in long videos that work as short social posts"
+        case .exportPosts:     return "Render each suggested clip as a finished, cropped and captioned post"
         case .queueClips:      return "Add the suggested clips to the Export Queue as trimmed items"
         case .writeCopy:       return "Draft a title, caption and hashtags for each suggested clip"
         case .webhook:         return "Send the run's details to a URL — Slack, Discord, Zapier, Make and more"
@@ -79,6 +81,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .rename:          return "textformat"
         case .transcribe:      return "text.bubble"
         case .findClips:       return "sparkles.rectangle.stack"
+        case .exportPosts:     return "square.and.arrow.up.on.square"
         case .queueClips:      return "tray.and.arrow.up"
         case .writeCopy:       return "text.quote"
         case .webhook:         return "paperplane"
@@ -89,6 +92,19 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .cleanup:         return "trash"
         case .notify:          return "envelope"
         case .triggerWorkflow: return "arrow.triangle.branch"
+        }
+    }
+
+    /// Steps that usually come next, offered under a step in the builder as
+    /// one-click additions rather than being folded into it. In the order
+    /// they'd normally run.
+    var suggestedFollowUps: [StepKind] {
+        switch self {
+        case .sync:       return [.convert, .transcribe]
+        case .transcribe: return [.findClips]
+        case .findClips:  return [.writeCopy, .exportPosts, .queueClips]
+        case .exportPosts: return [.copyTo]
+        default:          return []
         }
     }
 
@@ -117,6 +133,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .rename:          return .purple
         case .transcribe:      return .pink
         case .findClips:       return .yellow
+        case .exportPosts:     return .orange
         case .queueClips:      return .brown
         case .writeCopy:       return .mint
         case .webhook:         return .gray
@@ -320,7 +337,7 @@ nonisolated enum SocialFormat: String, Codable, CaseIterable, Identifiable {
 // MARK: - Step Action
 // Each case carries only the configuration that step needs.
 enum StepAction: Hashable {
-    case controlDeck(command: DeckCommand, stopAfterMinutes: Int?)
+    case controlDeck(command: DeckCommand)
     case wait(minutes: Int)
     /// `parentPath` is the subfolder within the chosen store (or the global
     /// destination) the new folder is created inside — empty = volume/base
@@ -343,10 +360,11 @@ enum StepAction: Hashable {
     case transcribe(locale: String, writeSRT: Bool, skipExisting: Bool, deleteWhenDone: Bool = false)
     /// Suggests short-form clips from each video's transcript (transcribing
     /// first if needed) and saves them in a `.clips.json` sidecar.
-    /// With `exportFormat` set, each suggested clip is also rendered as a
-    /// finished post (cropped to that format, optionally captioned) into a
+    case findClips(maxClips: Int, minSeconds: Int, maxSeconds: Int, focus: ClipFocus = ClipFocus())
+    /// Renders each video's suggested clips (from a Find Clips step) as
+    /// finished posts — cropped to `format`, optionally captioned — into a
     /// `Social Posts` folder next to the video.
-    case findClips(maxClips: Int, minSeconds: Int, maxSeconds: Int, exportFormat: SocialFormat? = nil, captions: Bool = true, focus: ClipFocus = ClipFocus())
+    case exportPosts(format: SocialFormat, captions: Bool)
     /// Adds each video's suggested clips (from a Find Clips step) to the
     /// Export Queue as trimmed items. `minScore` skips weaker suggestions.
     case queueClips(minScore: Int)
@@ -381,6 +399,7 @@ enum StepAction: Hashable {
         case .rename:          return .rename
         case .transcribe:      return .transcribe
         case .findClips:       return .findClips
+        case .exportPosts:     return .exportPosts
         case .queueClips:      return .queueClips
         case .writeCopy:       return .writeCopy
         case .webhook:         return .webhook
@@ -396,7 +415,7 @@ enum StepAction: Hashable {
 
     static func defaultAction(for kind: StepKind) -> StepAction {
         switch kind {
-        case .controlDeck:     return .controlDeck(command: .start, stopAfterMinutes: nil)
+        case .controlDeck:     return .controlDeck(command: .start)
         case .wait:            return .wait(minutes: 60)
         case .createFolder:    return .createFolder(cloudStoreID: nil, parentPath: "", nameTemplate: "New Folder_\(FolderNameEngine.dateToken)", groupByDevice: false)
         case .sync:            return .sync(destination: .global, verify: false, deleteFromDevice: false)
@@ -404,6 +423,7 @@ enum StepAction: Hashable {
         case .rename:          return .rename(pattern: "{device}_{date}_{index}")
         case .transcribe:      return .transcribe(locale: Locale.current.identifier, writeSRT: true, skipExisting: true)
         case .findClips:       return .findClips(maxClips: 5, minSeconds: 20, maxSeconds: 60)
+        case .exportPosts:     return .exportPosts(format: .vertical, captions: true)
         case .queueClips:      return .queueClips(minScore: 0)
         case .writeCopy:       return .writeCopy(platform: .general, hashtagCount: 5)
         case .webhook:         return .webhook(url: "", format: .json)
@@ -417,13 +437,23 @@ enum StepAction: Hashable {
         }
     }
 
+    /// What to offer after this step, as ready-to-insert actions. Start
+    /// Recording suggests Wait and Stop Recording; most others suggest
+    /// whatever their kind usually leads to.
+    var suggestedFollowUps: [StepAction] {
+        if case .controlDeck(let command) = self {
+            return command == .start ? [.wait(minutes: 60), .controlDeck(command: .stop)] : []
+        }
+        return kind.suggestedFollowUps.map { StepAction.defaultAction(for: $0) }
+    }
+
     /// Compact label for overviews like the workflow card's step chain —
     /// shows the actual choice made rather than just the step kind, where
     /// that choice is the interesting part (e.g. "Start Recording" instead
     /// of the generic "Control HyperDeck").
     var shortLabel: String {
         switch self {
-        case .controlDeck(let command, _):
+        case .controlDeck(let command):
             return command.title
         default:
             return kind.title
@@ -433,12 +463,9 @@ enum StepAction: Hashable {
     /// One-line summary shown under the step title in the editor.
     var summary: String {
         switch self {
-        case .controlDeck(let command, let stopAfterMinutes):
+        case .controlDeck(let command):
             switch command {
             case .start:
-                if let minutes = stopAfterMinutes {
-                    return "Starts recording, then stops after \(minutes) minute\(minutes == 1 ? "" : "s")"
-                }
                 return "Starts recording and continues to the next step"
             case .stop:
                 return "Stops recording on the device"
@@ -468,13 +495,12 @@ enum StepAction: Hashable {
             return "Pattern: \(pattern)"
         case .transcribe(_, let writeSRT, let skipExisting, let deleteWhenDone):
             return "Transcribes on-device" + (writeSRT ? " · also writes .srt" : "") + (skipExisting ? " · skips clips already done" : "") + (deleteWhenDone ? " · deletes transcripts when done" : "")
-        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions, let focus):
+        case .findClips(let maxClips, let minSeconds, let maxSeconds, let focus):
             var text = "Suggests up to \(maxClips) clip\(maxClips == 1 ? "" : "s") of \(minSeconds)–\(maxSeconds) seconds per video"
             if !focus.isEmpty { text += " · looks for \(focus.summary)" }
-            if let exportFormat {
-                text += " · exports \(exportFormat.title) posts" + (captions ? " with captions" : "")
-            }
             return text
+        case .exportPosts(let format, let captions):
+            return "Renders each suggested clip as a \(format.title) post" + (captions ? " with captions" : "")
         case .queueClips(let minScore):
             return minScore > 0
                 ? "Adds suggested clips scoring \(minScore)+ to the Export Queue"
@@ -516,11 +542,15 @@ enum StepAction: Hashable {
 // MARK: - StepAction Codable Implementation
 extension StepAction: Codable {
     enum CodingKeys: String, CodingKey {
-        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, findClips, queueClips, writeCopy, webhook, copyTo, upload, reframe, format, cleanup, notify, triggerWorkflow
+        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, findClips, exportPosts, queueClips, writeCopy, webhook, copyTo, upload, reframe, format, cleanup, notify, triggerWorkflow
     }
 
     enum ControlDeckKeys: String, CodingKey {
-        case command, stopAfterMinutes
+        case command
+        // Legacy key, kept only so workflows saved when Start Recording
+        // stopped itself still decode — `Workflow` turns it into Wait and
+        // Stop Recording steps.
+        case stopAfterMinutes
     }
 
     // Legacy keys, kept only so workflows saved before the two record
@@ -557,7 +587,15 @@ extension StepAction: Codable {
     }
 
     enum FindClipsKeys: String, CodingKey {
-        case maxClips, minSeconds, maxSeconds, exportFormat, captions, focus
+        case maxClips, minSeconds, maxSeconds, focus
+        // Legacy keys, kept only so workflows saved when Find Clips rendered
+        // posts itself still decode — `Workflow` turns them into an
+        // Export Posts step.
+        case exportFormat, captions
+    }
+
+    enum ExportPostsKeys: String, CodingKey {
+        case format, captions
     }
 
     enum WriteCopyKeys: String, CodingKey {
@@ -599,14 +637,12 @@ extension StepAction: Codable {
         if container.contains(.controlDeck) {
             let nested = try container.nestedContainer(keyedBy: ControlDeckKeys.self, forKey: .controlDeck)
             let command = try nested.decode(DeckCommand.self, forKey: .command)
-            let stop = try nested.decodeIfPresent(Int.self, forKey: .stopAfterMinutes)
-            self = .controlDeck(command: command, stopAfterMinutes: stop)
+            self = .controlDeck(command: command)
         } else if container.contains(.record) {
             let nested = try container.nestedContainer(keyedBy: RecordKeys.self, forKey: .record)
-            let stop = try nested.decodeIfPresent(Int.self, forKey: .stopAfterMinutes)
-            self = .controlDeck(command: .start, stopAfterMinutes: stop)
+            self = .controlDeck(command: .start)
         } else if container.contains(.stopRecord) {
-            self = .controlDeck(command: .stop, stopAfterMinutes: nil)
+            self = .controlDeck(command: .stop)
         } else if container.contains(.wait) {
             let nested = try container.nestedContainer(keyedBy: WaitKeys.self, forKey: .wait)
             let minutes = try nested.decode(Int.self, forKey: .minutes)
@@ -662,10 +698,13 @@ extension StepAction: Codable {
             let maxClips = try nested.decodeIfPresent(Int.self, forKey: .maxClips) ?? 5
             let minSeconds = try nested.decodeIfPresent(Int.self, forKey: .minSeconds) ?? 20
             let maxSeconds = try nested.decodeIfPresent(Int.self, forKey: .maxSeconds) ?? 60
-            let exportFormat = try nested.decodeIfPresent(SocialFormat.self, forKey: .exportFormat)
-            let captions = try nested.decodeIfPresent(Bool.self, forKey: .captions) ?? true
             let focus = try nested.decodeIfPresent(ClipFocus.self, forKey: .focus) ?? ClipFocus()
-            self = .findClips(maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds, exportFormat: exportFormat, captions: captions, focus: focus)
+            self = .findClips(maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds, focus: focus)
+        } else if container.contains(.exportPosts) {
+            let nested = try container.nestedContainer(keyedBy: ExportPostsKeys.self, forKey: .exportPosts)
+            let format = try nested.decodeIfPresent(SocialFormat.self, forKey: .format) ?? .vertical
+            let captions = try nested.decodeIfPresent(Bool.self, forKey: .captions) ?? true
+            self = .exportPosts(format: format, captions: captions)
         } else if container.contains(.upload) {
             self = .upload
         } else if container.contains(.writeCopy) {
@@ -718,10 +757,9 @@ extension StepAction: Codable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .controlDeck(let command, let stop):
+        case .controlDeck(let command):
             var nested = container.nestedContainer(keyedBy: ControlDeckKeys.self, forKey: .controlDeck)
             try nested.encode(command, forKey: .command)
-            try nested.encode(stop, forKey: .stopAfterMinutes)
         case .wait(let minutes):
             var nested = container.nestedContainer(keyedBy: WaitKeys.self, forKey: .wait)
             try nested.encode(minutes, forKey: .minutes)
@@ -751,13 +789,15 @@ extension StepAction: Codable {
             try nested.encode(writeSRT, forKey: .writeSRT)
             try nested.encode(skipExisting, forKey: .skipExisting)
             try nested.encode(deleteWhenDone, forKey: .deleteWhenDone)
-        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions, let focus):
+        case .findClips(let maxClips, let minSeconds, let maxSeconds, let focus):
             var nested = container.nestedContainer(keyedBy: FindClipsKeys.self, forKey: .findClips)
             if !focus.isEmpty { try nested.encode(focus, forKey: .focus) }
             try nested.encode(maxClips, forKey: .maxClips)
             try nested.encode(minSeconds, forKey: .minSeconds)
             try nested.encode(maxSeconds, forKey: .maxSeconds)
-            try nested.encodeIfPresent(exportFormat, forKey: .exportFormat)
+        case .exportPosts(let format, let captions):
+            var nested = container.nestedContainer(keyedBy: ExportPostsKeys.self, forKey: .exportPosts)
+            try nested.encode(format, forKey: .format)
             try nested.encode(captions, forKey: .captions)
         case .writeCopy(let platform, let hashtagCount):
             var nested = container.nestedContainer(keyedBy: WriteCopyKeys.self, forKey: .writeCopy)
@@ -886,6 +926,11 @@ struct WorkflowStep: Identifiable, Hashable {
     var decks: DeckSelection = .only([])
     var kind: StepKind { action.kind }
 
+    /// Set only while decoding a step saved when it did another step's work
+    /// itself (Find Clips rendering posts, Start Recording stopping itself).
+    /// `withLegacyWorkSplitOut` turns each into a step of its own.
+    fileprivate var legacyFollowUps: [StepAction] = []
+
     init(id: UUID = UUID(), action: StepAction, requiresConfirmation: Bool = false, decks: DeckSelection = .only([])) {
         self.id = id
         self.action = action
@@ -908,6 +953,28 @@ extension WorkflowStep: Codable {
         // Absent on workflows saved while decks were chosen for the whole
         // workflow — `Workflow` moves that choice here when it decodes.
         decks = try container.decodeIfPresent(DeckSelection.self, forKey: .decks) ?? .all
+
+        guard let actionContainer = try? container.nestedContainer(keyedBy: StepAction.CodingKeys.self, forKey: .action) else { return }
+        switch action {
+        case .findClips:
+            // Find Clips used to render finished posts itself.
+            if let nested = try? actionContainer.nestedContainer(keyedBy: StepAction.FindClipsKeys.self, forKey: .findClips),
+               let format = try nested.decodeIfPresent(SocialFormat.self, forKey: .exportFormat) {
+                let captions = try nested.decodeIfPresent(Bool.self, forKey: .captions) ?? true
+                legacyFollowUps = [.exportPosts(format: format, captions: captions)]
+            }
+        case .controlDeck(.start):
+            // Start Recording used to wait and then stop recording itself.
+            var minutes: Int?
+            if let nested = try? actionContainer.nestedContainer(keyedBy: StepAction.ControlDeckKeys.self, forKey: .controlDeck) {
+                minutes = try nested.decodeIfPresent(Int.self, forKey: .stopAfterMinutes)
+            } else if let nested = try? actionContainer.nestedContainer(keyedBy: StepAction.RecordKeys.self, forKey: .record) {
+                minutes = try nested.decodeIfPresent(Int.self, forKey: .stopAfterMinutes)
+            }
+            if let minutes { legacyFollowUps = [.wait(minutes: minutes), .controlDeck(command: .stop)] }
+        default:
+            break
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -916,6 +983,22 @@ extension WorkflowStep: Codable {
         try container.encode(action, forKey: .action)
         try container.encode(requiresConfirmation, forKey: .requiresConfirmation)
         try container.encode(decks, forKey: .decks)
+    }
+}
+
+extension Array where Element == WorkflowStep {
+    /// A step saved when it did another step's work itself becomes that step
+    /// followed by a step of its own, so the flow is visible: Find Clips
+    /// that rendered posts gains an Export Posts step, and a Start Recording
+    /// that stopped itself gains Wait and Stop Recording steps (aimed at the
+    /// same decks).
+    func withLegacyWorkSplitOut() -> [WorkflowStep] {
+        flatMap { step -> [WorkflowStep] in
+            guard !step.legacyFollowUps.isEmpty else { return [step] }
+            var plain = step
+            plain.legacyFollowUps = []
+            return [plain] + step.legacyFollowUps.map { WorkflowStep(action: $0, decks: step.decks) }
+        }
     }
 }
 
@@ -1058,7 +1141,7 @@ struct Workflow: Identifiable, Codable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try container.decode(String.self, forKey: .name)
-        steps = try container.decodeIfPresent([WorkflowStep].self, forKey: .steps) ?? []
+        steps = (try container.decodeIfPresent([WorkflowStep].self, forKey: .steps) ?? []).withLegacyWorkSplitOut()
 
         if let decodedTargets = try container.decodeIfPresent([WorkflowTarget].self, forKey: .targets) {
             targets = decodedTargets

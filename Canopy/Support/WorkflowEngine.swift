@@ -618,8 +618,8 @@ final class WorkflowEngine: ObservableObject {
     private func execute(_ step: WorkflowStep, context: inout StepContext, convertInPlace: Bool) async {
         guard applies(step, to: context.device) else { return }
         switch step.action {
-        case .controlDeck(let command, let stopAfterMinutes):
-            await runControlDeck(context: &context, command: command, stopAfterMinutes: stopAfterMinutes)
+        case .controlDeck(let command):
+            await runControlDeck(context: &context, command: command)
         case .wait(let minutes):
             await runWait(minutes: minutes, session: context.session)
         case .createFolder:
@@ -643,9 +643,10 @@ final class WorkflowEngine: ObservableObject {
             runRename(context: &context, pattern: pattern)
         case .transcribe(let locale, let writeSRT, let skipExisting, let deleteWhenDone):
             await runTranscribe(context: &context, locale: locale, writeSRT: writeSRT, skipExisting: skipExisting, deleteWhenDone: deleteWhenDone)
-        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions, let focus):
-            await runFindClips(context: &context, maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds,
-                               exportFormat: exportFormat, captions: captions, focus: focus)
+        case .findClips(let maxClips, let minSeconds, let maxSeconds, let focus):
+            await runFindClips(context: &context, maxClips: maxClips, minSeconds: minSeconds, maxSeconds: maxSeconds, focus: focus)
+        case .exportPosts(let format, let captions):
+            await runExportPosts(context: &context, format: format, captions: captions)
         case .queueClips(let minScore):
             runQueueClips(context: &context, minScore: minScore)
         case .upload:
@@ -1280,7 +1281,7 @@ final class WorkflowEngine: ObservableObject {
     /// Suggests short-form clips for each video and saves them next to it as
     /// `<name>.clips.json`. Transcribes first when there's no transcript yet.
     private func runFindClips(context: inout StepContext, maxClips: Int, minSeconds: Int, maxSeconds: Int,
-                              exportFormat: SocialFormat?, captions: Bool, focus: ClipFocus) async {
+                              focus: ClipFocus) async {
         let session = context.session
 
         var files = context.files
@@ -1306,11 +1307,9 @@ final class WorkflowEngine: ObservableObject {
             if session.isCancelled { return }
             do {
                 var transcript = Transcript.load(for: url)
-                var clips: [ClipCandidate]
                 // Suggestions found for something else don't answer this step.
                 if let saved = ClipSuggestions.load(for: url), (saved.focus ?? ClipFocus()) == focus {
                     session.log("  ⏭ \(url.lastPathComponent) already has clip suggestions")
-                    clips = saved.candidates
                 } else {
                     if transcript == nil {
                         session.log("  🗣 Transcribing \(url.lastPathComponent) first (\(context.device.name))...")
@@ -1324,8 +1323,8 @@ final class WorkflowEngine: ObservableObject {
                         continue
                     }
                     session.log("  ✨ Finding clips in \(url.lastPathComponent) (\(context.device.name))...")
-                    clips = try await ClipFinder.findClips(in: transcript, video: url, options: options,
-                                                           log: { session.log("  \($0)") })
+                    let clips = try await ClipFinder.findClips(in: transcript, video: url, options: options,
+                                                               log: { session.log("  \($0)") })
                     try ClipSuggestions(sourceFileName: url.lastPathComponent, generatedAt: Date(), candidates: clips,
                                         focus: focus.isEmpty ? nil : focus).write(for: url)
                     session.log("  🎬 \(clips.count) clip suggestion(s) for \(url.lastPathComponent)")
@@ -1334,38 +1333,63 @@ final class WorkflowEngine: ObservableObject {
                     }
                 }
 
-                guard let exportFormat, !clips.isEmpty else { continue }
-                let folder = url.deletingLastPathComponent().appendingPathComponent("Social Posts")
-                let base = url.deletingPathExtension().lastPathComponent
-                var postOptions = SocialPostExporter.Options()
-                postOptions.format = exportFormat
-                postOptions.captions = captions
-                for (i, clip) in clips.sorted(by: { $0.start < $1.start }).enumerated() {
-                    if session.isCancelled { return }
-                    let output = folder.appendingPathComponent(
-                        SocialPostExporter.fileName(base: base, index: i + 1, title: clip.title, format: exportFormat)
-                    )
-                    if FileManager.default.fileExists(atPath: output.path) {
-                        session.log("  ⏭ \(output.lastPathComponent) already exists")
-                        continue
-                    }
-                    session.log("  📱 Rendering \(output.lastPathComponent)...")
-                    do {
-                        try await SocialPostExporter.export(source: url, clip: clip, transcript: transcript, options: postOptions, output: output)
-                        session.log("  ✅ Social Posts/\(output.lastPathComponent)")
-                    } catch ReframeError.diskFull {
-                        session.log("  🛑 Destination drive is full — stopping (\(url.lastPathComponent), \(context.device.name))")
-                        session.errors += 1
-                        session.isCancelled = true
-                        return
-                    } catch {
-                        session.log("  ❌ Couldn't render \(output.lastPathComponent): \(error.localizedDescription)")
-                        session.errors += 1
-                    }
-                }
             } catch {
                 session.log("  ❌ Find Clips failed for \(url.lastPathComponent): \(error.localizedDescription)")
                 session.errors += 1
+            }
+        }
+    }
+
+    // MARK: - Export Posts step
+
+    /// Renders each video's suggested clips as finished posts in a
+    /// `Social Posts` folder next to the video. Posts that already exist are
+    /// left alone.
+    private func runExportPosts(context: inout StepContext, format exportFormat: SocialFormat, captions: Bool) async {
+        let session = context.session
+        let files = workingVideos(for: context)
+        guard !files.isEmpty else {
+            session.log("  ⏭ Export Posts: no video files found in \(context.device.name)")
+            return
+        }
+
+        for url in files {
+            if session.isCancelled { return }
+            guard let suggestions = ClipSuggestions.load(for: url) else {
+                session.log("  ⏭ \(url.lastPathComponent): no clip suggestions — add a Find Clips step before this one")
+                continue
+            }
+            let clips = suggestions.candidates
+            guard !clips.isEmpty else { continue }
+            let transcript = Transcript.load(for: url)
+
+            let folder = url.deletingLastPathComponent().appendingPathComponent("Social Posts")
+            let base = url.deletingPathExtension().lastPathComponent
+            var postOptions = SocialPostExporter.Options()
+            postOptions.format = exportFormat
+            postOptions.captions = captions
+            for (i, clip) in clips.sorted(by: { $0.start < $1.start }).enumerated() {
+                if session.isCancelled { return }
+                let output = folder.appendingPathComponent(
+                    SocialPostExporter.fileName(base: base, index: i + 1, title: clip.title, format: exportFormat)
+                )
+                if FileManager.default.fileExists(atPath: output.path) {
+                    session.log("  ⏭ \(output.lastPathComponent) already exists")
+                    continue
+                }
+                session.log("  📱 Rendering \(output.lastPathComponent)...")
+                do {
+                    try await SocialPostExporter.export(source: url, clip: clip, transcript: transcript, options: postOptions, output: output)
+                    session.log("  ✅ Social Posts/\(output.lastPathComponent)")
+                } catch ReframeError.diskFull {
+                    session.log("  🛑 Destination drive is full — stopping (\(url.lastPathComponent), \(context.device.name))")
+                    session.errors += 1
+                    session.isCancelled = true
+                    return
+                } catch {
+                    session.log("  ❌ Couldn't render \(output.lastPathComponent): \(error.localizedDescription)")
+                    session.errors += 1
+                }
             }
         }
     }
@@ -1645,7 +1669,7 @@ final class WorkflowEngine: ObservableObject {
 
     // MARK: - Control HyperDeck step
 
-    private func runControlDeck(context: inout StepContext, command: DeckCommand, stopAfterMinutes: Int?) async {
+    private func runControlDeck(context: inout StepContext, command: DeckCommand) async {
         let session = context.session
         guard let deck = context.device.hyperDeck else {
             session.log("  ⏭ \(context.device.name): Control HyperDeck only applies to a HyperDeck target — skipped")
@@ -1673,20 +1697,6 @@ final class WorkflowEngine: ObservableObject {
                     return
                 }
                 session.log("  ✅ \(deck.name) is recording")
-            }
-
-            guard let minutes = stopAfterMinutes else { return }
-
-            session.log("  ⏳ Will stop \(deck.name) after \(minutes) minute\(minutes == 1 ? "" : "s")...")
-            try? await Task.sleep(for: .seconds(minutes * 60))
-            guard !session.isCancelled else { return }
-
-            await service.stop()
-            if let error = service.lastError {
-                session.log("  ❌ \(deck.name) failed to stop recording: \(error)")
-                session.errors += 1
-            } else {
-                session.log("  ⏹ \(deck.name) stopped recording")
             }
 
         case .stop:

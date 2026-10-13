@@ -401,7 +401,9 @@ enum WorkflowDraftBuilder {
                 dropped.append(title(for: kind))
                 continue
             }
-            steps.append(makeStep(kind, details: details, alongside: kept))
+            let step = makeStep(kind, details: details, alongside: kept)
+            steps.append(step)
+            steps += stepsFollowing(step, details: details, alongside: kept)
         }
         applyWorkflowName(draft.name, to: &steps)
         for i in steps.indices where steps[i].kind.usesHyperDeck { steps[i].decks = details.decksForNewSteps }
@@ -440,9 +442,9 @@ enum WorkflowDraftBuilder {
     static func makeStep(_ kind: DraftStepKind, details: RequestDetails, alongside: Set<DraftStepKind> = []) -> WorkflowStep {
         switch kind {
         case .startRecording:
-            return WorkflowStep(action: .controlDeck(command: .start, stopAfterMinutes: details.stopAfterMinutes))
+            return WorkflowStep(action: .controlDeck(command: .start))
         case .stopRecording:
-            return WorkflowStep(action: .controlDeck(command: .stop, stopAfterMinutes: nil))
+            return WorkflowStep(action: .controlDeck(command: .stop))
         case .wait:
             return WorkflowStep(action: .wait(minutes: details.waitMinutes ?? 60))
         case .createFolder:
@@ -477,13 +479,8 @@ enum WorkflowDraftBuilder {
             // Only one end stated: keep the other end sensible around it.
             if lengths.max != nil, lengths.min == nil, minSeconds >= maxSeconds { minSeconds = max(10, maxSeconds / 2) }
             if lengths.min != nil, lengths.max == nil, maxSeconds <= minSeconds { maxSeconds = min(180, minSeconds * 2) }
-            // A Resize for Social step already produces the cropped clips, so
-            // rendering finished posts here as well would do the work twice.
-            let export: SocialFormat? = details.wantsFinishedPosts && !alongside.contains(.resizeForSocial)
-                ? (details.postFormat ?? .vertical) : nil
             return WorkflowStep(action: .findClips(
                 maxClips: details.clipCount ?? 5, minSeconds: minSeconds, maxSeconds: maxSeconds,
-                exportFormat: export, captions: details.captionsOnPosts ?? true,
                 focus: details.clipFocus ?? ClipFocus()))
         case .queueClips:
             return WorkflowStep(action: .queueClips(minScore: details.minClipScore ?? 0))
@@ -510,6 +507,23 @@ enum WorkflowDraftBuilder {
             let perDrive = details.notifiesPerDrive ?? !WorkflowEfficiency.hasSeveralDecks(details.context)
             return WorkflowStep(action: .notify(header: "Workflow update", message: "", recipients: [], sendPerDrive: perDrive))
         }
+    }
+
+    /// Steps that belong straight after a step the request asked for: asking
+    /// for finished posts adds an Export Posts step right after Find Clips.
+    /// A Resize for Social step already produces the cropped clips, so
+    /// rendering finished posts as well would do the work twice.
+    static func stepsFollowing(_ step: WorkflowStep, details: RequestDetails, alongside: Set<DraftStepKind>) -> [WorkflowStep] {
+        if case .controlDeck(.start) = step.action {
+            // "Start recording and stop after 45 minutes" — unless the
+            // request already lays out its own wait and stop.
+            guard let minutes = details.stopAfterMinutes,
+                  !alongside.contains(.wait), !alongside.contains(.stopRecording) else { return [] }
+            return [WorkflowStep(action: .wait(minutes: minutes)), WorkflowStep(action: .controlDeck(command: .stop))]
+        }
+        guard step.kind == .findClips, details.wantsFinishedPosts, !alongside.contains(.resizeForSocial) else { return [] }
+        return [WorkflowStep(action: .exportPosts(
+            format: details.postFormat ?? .vertical, captions: details.captionsOnPosts ?? true))]
     }
 
     /// A notification's subject line defaults to the workflow's name, so the
@@ -681,8 +695,10 @@ enum WorkflowEditBuilder {
                 var step = WorkflowDraftBuilder.makeStep(edit.step, details: details, alongside: siblings.union([edit.step]))
                 if step.kind.usesHyperDeck { step.decks = details.decksForNewSteps }
                 let index = insertionIndex(for: edit, in: result.steps)
-                result.steps.insert(step, at: index)
+                let following = WorkflowDraftBuilder.stepsFollowing(step, details: details, alongside: siblings.union([edit.step]))
+                result.steps.insert(contentsOf: [step] + following, at: index)
                 added.append(step)
+                added += following
                 if step.kind == .createFolder { addedFolder = true }
                 summary.append("Added \(title)")
 
@@ -704,9 +720,13 @@ enum WorkflowEditBuilder {
                     continue
                 }
                 guard edit.placement != .automatic else { continue }
-                let step = result.steps.remove(at: from)
+                var moving = [result.steps.remove(at: from)]
+                // Export Posts travels with the Find Clips step it follows.
+                if moving[0].kind == .findClips, from < result.steps.count, result.steps[from].kind == .exportPosts {
+                    moving.append(result.steps.remove(at: from))
+                }
                 let index = insertionIndex(for: edit, in: result.steps)
-                result.steps.insert(step, at: index)
+                result.steps.insert(contentsOf: moving, at: index)
                 summary.append("Moved \(title)")
 
             case .update:
@@ -716,6 +736,38 @@ enum WorkflowEditBuilder {
                 for i in result.steps.indices where edit.step.matches(result.steps[i]) {
                     if update(&result.steps[i], details: details) { changed = true }
                     if redirected.contains(result.steps[i].id) { wasRedirected = true }
+                }
+                // "Stop after 45 minutes" on a Start Recording step: change the
+                // Wait right after it, or add a Wait and Stop Recording.
+                if edit.step == .startRecording, let minutes = details.stopAfterMinutes,
+                   let start = result.steps.firstIndex(where: { edit.step.matches($0) }) {
+                    let next = start + 1
+                    if next < result.steps.count, case .wait(let current) = result.steps[next].action {
+                        if current != minutes {
+                            result.steps[next].action = .wait(minutes: minutes)
+                            changed = true
+                        }
+                    } else {
+                        var additions = [WorkflowStep(action: .wait(minutes: minutes))]
+                        let stopsLater = result.steps[next...].contains {
+                            if case .controlDeck(.stop) = $0.action { return true }
+                            return false
+                        }
+                        if !stopsLater {
+                            additions.append(WorkflowStep(action: .controlDeck(command: .stop), decks: result.steps[start].decks))
+                        }
+                        result.steps.insert(contentsOf: additions, at: next)
+                        changed = true
+                    }
+                }
+                // Asking for finished posts on a workflow that has none yet.
+                if edit.step == .findClips, details.wantsFinishedPosts,
+                   !result.steps.contains(where: { $0.kind == .exportPosts || $0.kind == .reframe }),
+                   let last = result.steps.lastIndex(where: { $0.kind == .findClips }) {
+                    let export = WorkflowStep(action: .exportPosts(
+                        format: details.postFormat ?? .vertical, captions: details.captionsOnPosts ?? true))
+                    result.steps.insert(export, at: last + 1)
+                    changed = true
                 }
                 if changed { summary.append("Updated \(title)") }
                 else if !wasRedirected { notes.append("Couldn't tell what to change on \(title) — open it to adjust.") }
@@ -874,10 +926,8 @@ enum WorkflowEditBuilder {
                 return verify == false
             }
             return false
-        case .controlDeck(let command, _):
-            guard command == .start, let minutes = details.stopAfterMinutes else { return false }
-            step.action = .controlDeck(command: command, stopAfterMinutes: minutes)
-            return true
+        case .controlDeck:
+            return false
         case .webhook(_, let format):
             guard let url = details.urlInRequest else { return false }
             step.action = .webhook(url: url, format: format)
@@ -897,19 +947,20 @@ enum WorkflowEditBuilder {
                 skipExisting: details.skipsExistingTranscripts ?? skip,
                 deleteWhenDone: details.deletesTranscripts ?? deleteWhenDone)
             return set(&step, to: new)
-        case .findClips(let count, let minS, let maxS, let format, let captions, let focus):
+        case .findClips(let count, let minS, let maxS, let focus):
             let lengths = details.clipLengths
             var newMin = lengths.min ?? minS
             var newMax = lengths.max ?? maxS
             if newMin >= newMax {
                 if lengths.max != nil { newMin = max(10, newMax / 2) } else { newMax = min(180, newMin * 2) }
             }
-            let newFormat = details.wantsFinishedPosts ? (details.postFormat ?? format ?? .vertical) : format
             let new = StepAction.findClips(
                 maxClips: details.clipCount ?? count, minSeconds: newMin, maxSeconds: newMax,
-                exportFormat: newFormat, captions: details.captionsOnPosts ?? captions,
                 focus: details.clipFocus ?? focus)
             return set(&step, to: new)
+        case .exportPosts(let format, let captions):
+            return set(&step, to: .exportPosts(
+                format: details.postFormat ?? format, captions: details.captionsOnPosts ?? captions))
         case .queueClips(let score):
             return set(&step, to: .queueClips(minScore: details.minClipScore ?? score))
         case .writeCopy(let platform, let tags):
@@ -1073,7 +1124,7 @@ extension DraftStepKind {
     /// The draft kind that describes an existing step, if there is one.
     init?(step: WorkflowStep) {
         switch step.action {
-        case .controlDeck(let command, _): self = command == .start ? .startRecording : .stopRecording
+        case .controlDeck(let command): self = command == .start ? .startRecording : .stopRecording
         default:
             switch step.kind {
             case .wait:         self = .wait
@@ -1082,7 +1133,8 @@ extension DraftStepKind {
             case .convert:      self = .makeProxies
             case .rename:       self = .rename
             case .transcribe:   self = .transcribe
-            case .findClips:    self = .findClips
+            // Export Posts is part of finding clips as far as a request goes.
+            case .findClips, .exportPosts: self = .findClips
             case .queueClips:   self = .queueClips
             case .writeCopy:    self = .writeCopy
             case .webhook:      self = .webhook

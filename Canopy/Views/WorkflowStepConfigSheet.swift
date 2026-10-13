@@ -40,7 +40,6 @@ struct WorkflowStepConfigSheet: View {
     @State private var findClipsMax = 5
     @State private var findClipsMinSeconds = 20
     @State private var findClipsMaxSeconds = 60
-    @State private var findClipsExport = false
     @State private var queueClipsMinScore = 0
     @State private var copyPlatform = CopyPlatform.general
     @State private var copyHashtagCount = 5
@@ -55,14 +54,12 @@ struct WorkflowStepConfigSheet: View {
 
     private enum WebhookTestState: Equatable { case idle, sending, sent, failed(String) }
     private enum CopyTargetChoice: Hashable { case global, cloudStore(UUID), localFolder(UUID) }
-    @State private var findClipsFormat = SocialFormat.vertical
-    @State private var findClipsCaptions = true
+    @State private var exportPostsFormat = SocialFormat.vertical
+    @State private var exportPostsCaptions = true
     @State private var findClipsFocus = ClipFocus()
     @State private var reframeFormat = SocialFormat.vertical
     @State private var reframeFollowSubject = true
     @State private var controlCommand: DeckCommand = .start
-    @State private var stopRecordingAutomatically = false
-    @State private var stopAfterMinutes = 5
     @State private var waitValue = 1
     @State private var waitUnit: WaitUnit = .hours
     @State private var notifyHeader = ""
@@ -131,6 +128,9 @@ struct WorkflowStepConfigSheet: View {
 
                 case .findClips:
                     findClipsFields
+
+                case .exportPosts:
+                    exportPostsFields
 
                 case .queueClips:
                     queueClipsFields
@@ -484,16 +484,8 @@ struct WorkflowStepConfigSheet: View {
             .pickerStyle(.segmented)
 
             if controlCommand == .start {
-                Toggle("Stop recording automatically", isOn: $stopRecordingAutomatically)
-                if stopRecordingAutomatically {
-                    Stepper(
-                        "\(stopAfterMinutes) minute\(stopAfterMinutes == 1 ? "" : "s")",
-                        value: $stopAfterMinutes, in: 1...240
-                    )
-                } else {
-                    Text("Recording keeps rolling while the workflow moves on to its next step.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+                Text("Recording keeps rolling while the workflow moves on. Add a Wait and then a Stop Recording step to end it after a set time.")
+                    .font(.caption).foregroundStyle(.secondary)
             } else {
                 Text("Stops recording on the device if it's currently rolling.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -767,18 +759,20 @@ struct WorkflowStepConfigSheet: View {
             Stepper("Up to \(findClipsMax) clip\(findClipsMax == 1 ? "" : "s") per video", value: $findClipsMax, in: 1...10)
             Stepper("At least \(findClipsMinSeconds) seconds", value: $findClipsMinSeconds, in: 10...120, step: 5)
             Stepper("At most \(findClipsMaxSeconds) seconds", value: $findClipsMaxSeconds, in: 15...180, step: 5)
-            Toggle("Also render finished posts", isOn: $findClipsExport)
-            if findClipsExport {
-                Picker("Format", selection: $findClipsFormat) {
-                    ForEach(SocialFormat.allCases) { format in
-                        Text("\(format.title) — \(format.detail)").tag(format)
-                    }
+            Text("Reads each video's transcript (making one first if needed) and suggests moments that work as standalone short posts. Suggestions are saved next to the video; open it in the player to review and export them. Add an Export Posts step after this one to render them automatically. Runs on this Mac.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var exportPostsFields: some View {
+        Group {
+            Picker("Format", selection: $exportPostsFormat) {
+                ForEach(SocialFormat.allCases) { format in
+                    Text("\(format.title) — \(format.detail)").tag(format)
                 }
-                Toggle("Burn in captions", isOn: $findClipsCaptions)
-                Text("Saves each clip, cropped to follow the speaker and captioned, in a Social Posts folder next to the video. Rendering takes a few seconds per clip.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
-            Text("Reads each video's transcript (making one first if needed) and suggests moments that work as standalone short posts. Suggestions are saved next to the video; open it in the player to review and export them. Runs on this Mac.")
+            Toggle("Burn in captions", isOn: $exportPostsCaptions)
+            Text("Renders each clip from a Find Clips step, cropped to follow the speaker, into a Social Posts folder next to the video. Put this after Find Clips. Rendering takes a few seconds per clip.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -983,12 +977,8 @@ struct WorkflowStepConfigSheet: View {
         requiresConfirmation = step.requiresConfirmation
         decks = step.decks
         switch step.action {
-        case .controlDeck(let command, let savedMinutes):
+        case .controlDeck(let command):
             controlCommand = command
-            if let minutes = savedMinutes {
-                stopRecordingAutomatically = true
-                stopAfterMinutes = minutes
-            }
         case .wait(let minutes):
             if minutes >= 60 && minutes % 60 == 0 {
                 waitUnit = .hours
@@ -1027,12 +1017,11 @@ struct WorkflowStepConfigSheet: View {
         case .transcribe(let locale, let writeSRT, let skipExisting, let deleteWhenDone):
             transcribeLocale = locale; transcribeWriteSRT = writeSRT; transcribeSkipExisting = skipExisting
             transcribeDeleteWhenDone = deleteWhenDone
-        case .findClips(let maxClips, let minSeconds, let maxSeconds, let exportFormat, let captions, let focus):
+        case .findClips(let maxClips, let minSeconds, let maxSeconds, let focus):
             findClipsFocus = focus
             findClipsMax = maxClips; findClipsMinSeconds = minSeconds; findClipsMaxSeconds = maxSeconds
-            findClipsExport = exportFormat != nil
-            if let exportFormat { findClipsFormat = exportFormat }
-            findClipsCaptions = captions
+        case .exportPosts(let format, let captions):
+            exportPostsFormat = format; exportPostsCaptions = captions
         case .queueClips(let minScore):
             queueClipsMinScore = minScore
         case .upload:
@@ -1071,10 +1060,7 @@ struct WorkflowStepConfigSheet: View {
         step.decks = decks
         switch step.kind {
         case .controlDeck:
-            step.action = .controlDeck(
-                command: controlCommand,
-                stopAfterMinutes: (controlCommand == .start && stopRecordingAutomatically) ? stopAfterMinutes : nil
-            )
+            step.action = .controlDeck(command: controlCommand)
         case .wait:
             step.action = .wait(minutes: waitUnit == .hours ? waitValue * 60 : waitValue)
         case .createFolder:
@@ -1098,8 +1084,8 @@ struct WorkflowStepConfigSheet: View {
         case .rename:  step.action = .rename(pattern: pattern.isEmpty ? "{name}" : pattern)
         case .transcribe: step.action = .transcribe(locale: transcribeLocale, writeSRT: transcribeWriteSRT, skipExisting: transcribeSkipExisting, deleteWhenDone: transcribeDeleteWhenDone)
         case .findClips: step.action = .findClips(maxClips: findClipsMax, minSeconds: findClipsMinSeconds, maxSeconds: max(findClipsMaxSeconds, findClipsMinSeconds),
-                                                   exportFormat: findClipsExport ? findClipsFormat : nil, captions: findClipsCaptions,
                                                    focus: findClipsFocus)
+        case .exportPosts: step.action = .exportPosts(format: exportPostsFormat, captions: exportPostsCaptions)
         case .queueClips: step.action = .queueClips(minScore: queueClipsMinScore)
         case .upload: step.action = .upload
         case .writeCopy: step.action = .writeCopy(platform: copyPlatform, hashtagCount: copyHashtagCount)

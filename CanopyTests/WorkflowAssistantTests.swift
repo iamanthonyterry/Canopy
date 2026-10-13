@@ -90,7 +90,7 @@ struct WorkflowAssistantTests {
 
     @Test func numbersComeFromTheRequest() {
         func steps(_ kinds: [DraftStepKind], _ text: String) -> [StepAction] { build(kinds, text).workflow.steps.map(\.action) }
-        #expect(steps([.startRecording], "start recording and stop after 45 minutes") == [.controlDeck(command: .start, stopAfterMinutes: 45)])
+        #expect(steps([.startRecording], "start recording and stop after 45 minutes") == [.controlDeck(command: .start), .wait(minutes: 45), .controlDeck(command: .stop)])
         #expect(steps([.wait], "wait 2 hours") == [.wait(minutes: 120)])
         #expect(steps([.cleanup], "delete files older than 2 weeks") == [.cleanup(retentionDays: 14)])
         #expect(steps([.cleanup], "delete old files") == [.cleanup(retentionDays: 30)])

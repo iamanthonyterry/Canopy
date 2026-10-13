@@ -639,6 +639,7 @@ struct WorkflowBuilderView: View {
                 ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
                     StepDropGap { handleStepDrop($0, at: index) }
                     stepNode(step, index: index)
+                    suggestedNextRow(after: index)
                 }
                 StepDropGap(isLast: true) { handleStepDrop($0, at: steps.count) }
             }
@@ -696,6 +697,51 @@ struct WorkflowBuilderView: View {
         .contentShape(Rectangle())
         .onTapGesture { editingStep = step }
         .draggable(Payload.move + step.id.uuidString)
+    }
+
+    /// Steps that usually follow `steps[index]` and aren't already somewhere
+    /// after it. Offered, never added automatically.
+    private func suggestions(after index: Int) -> [StepAction] {
+        // Start and Stop Recording share a kind, so compare by label.
+        let later = Set(steps[(index + 1)...].map(\.action.shortLabel))
+        return steps[index].action.suggestedFollowUps.filter { !later.contains($0.shortLabel) && !$0.kind.isComingSoon }
+    }
+
+    @ViewBuilder
+    private func suggestedNextRow(after index: Int) -> some View {
+        let kinds = suggestions(after: index)
+        if !kinds.isEmpty {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.turn.down.right")
+                    .font(.caption).foregroundStyle(.tertiary)
+                Text("Suggested next")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(kinds, id: \.shortLabel) { action in
+                    Button {
+                        insertSuggestion(action, after: index)
+                    } label: {
+                        Label(action.shortLabel, systemImage: "plus")
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(Capsule().strokeBorder(action.kind.color.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                            .foregroundStyle(action.kind.color)
+                    }
+                    .buttonStyle(.plain)
+                    .help(action.kind.subtitle)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 6).padding(.leading, 14)
+        }
+    }
+
+    /// A suggested step goes straight after its step. A deck step (Stop
+    /// Recording) takes the same decks as the step it follows, so it acts
+    /// on the decks that step started.
+    private func insertSuggestion(_ action: StepAction, after index: Int) {
+        var step = WorkflowStep(action: action)
+        if step.kind.usesHyperDeck { step.decks = steps[index].decks }
+        withAnimation(.snappy) { steps.insert(step, at: index + 1) }
     }
 
     private func insertStep(_ kind: StepKind, at index: Int) {

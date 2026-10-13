@@ -93,7 +93,7 @@ struct WorkflowTriggerTests {
     @Test func stopAfterIsNotAOneTimeRun() {
         let r = build([.startRecording], "start recording and stop in 45 minutes")
         #expect(r.workflow.triggers.isEmpty)
-        #expect(r.workflow.steps.map(\.kind) == [.controlDeck])
+        #expect(r.workflow.steps.map(\.kind) == [.controlDeck, .wait, .controlDeck])
     }
 
     @Test func passedTimesAndMissingTimesAreNotScheduled() {

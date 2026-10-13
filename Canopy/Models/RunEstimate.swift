@@ -95,12 +95,8 @@ extension WorkflowRunSession {
             case .wait(let minutes):
                 add(fixed(Double(minutes * 60), run))
 
-            case .controlDeck(let command, let stopAfterMinutes):
-                if case .start = command, let minutes = stopAfterMinutes {
-                    add(fixed(Double(minutes * 60), run))
-                } else {
-                    add(0)
-                }
+            case .controlDeck:
+                add(0)
 
             case .sync:
                 if run.status == .running, !tasks.isEmpty {
@@ -131,7 +127,7 @@ extension WorkflowRunSession {
                     add(work.seconds)
                 }
 
-            case .transcribe, .findClips, .writeCopy, .copyTo, .reframe, .triggerWorkflow(_, true):
+            case .transcribe, .findClips, .exportPosts, .writeCopy, .copyTo, .reframe, .triggerWorkflow(_, true):
                 add(learned(run))
 
             default:
@@ -160,7 +156,7 @@ extension WorkflowRunSession {
 
     private static func scalesWithFootage(_ action: StepAction) -> Bool {
         switch action {
-        case .sync, .convert, .transcribe, .findClips, .writeCopy, .copyTo, .reframe: return true
+        case .sync, .convert, .transcribe, .findClips, .exportPosts, .writeCopy, .copyTo, .reframe: return true
         default: return false
         }
     }

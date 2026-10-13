@@ -190,7 +190,7 @@ enum BackupCSVService {
                 let triggersData = Data(field(row, "triggers").utf8)
                 let stepsData = Data(field(row, "steps").utf8)
                 let triggers = (try? decoder.decode([ScheduleSettings].self, from: triggersData)) ?? []
-                let steps = (try? decoder.decode([WorkflowStep].self, from: stepsData)) ?? []
+                let steps = ((try? decoder.decode([WorkflowStep].self, from: stepsData)) ?? []).withLegacyWorkSplitOut()
 
                 var workflow = Workflow(
                     id: id, name: field(row, "name"), steps: steps, targets: targets,
