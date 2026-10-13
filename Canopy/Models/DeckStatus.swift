@@ -182,6 +182,10 @@ struct SyncTask: Identifiable, Codable {
     var bytesPerSecond: Double = 0
     var lastProgressAt: Date? = nil
     var lastProgressValue: Double = 0
+    /// When this file's conversion started and ended, so the run can learn
+    /// how long conversions are taking and tell which files still need one.
+    var convertStartedAt: Date? = nil
+    var convertFinishedAt: Date? = nil
 
     /// Estimated seconds remaining on the download, or nil if we don't yet
     /// have enough information (unknown file size, or no speed sample yet).

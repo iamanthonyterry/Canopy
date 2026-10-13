@@ -48,6 +48,11 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
     var skipped = 0
     var errors = 0
 
+    /// How many encodes the app runs at once (the Performance setting), and
+    /// what earlier runs measured — both feed `estimate`.
+    var conversionSlots = 2
+    var timingHistory = RunTimingHistory.shared
+
     /// One entry per workflow step, in run order, so the UI can show every
     /// step's state at a glance — not just whichever one is active.
     @Published private(set) var stepRuns: [StepRun]
@@ -191,8 +196,8 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
                        : ($0.phase == .done || $0.phase == .error)
             }.count
             var text = "\(finished) of \(tasks.count) files"
-            if run.status == .running, isSync, let eta = estimatedSecondsRemaining {
-                text += " · \(Int(eta.rounded(.up)) / 60)m \(Int(eta.rounded(.up)) % 60)s left"
+            if let left = secondsRemaining(for: run), left >= 1 {
+                text += " · ~\(TaskRow.formatDuration(left)) left"
             }
             return text
         default:
@@ -201,30 +206,6 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
     }
 
     var failedTasks: [SyncTask] { tasks.filter { $0.phase == .error } }
-
-    /// Estimated seconds remaining for this run's sync work, based on files
-    /// still queued or downloading and the current transfer speed. Files are
-    /// downloaded one at a time, so this is normally just "time left on the
-    /// current file" plus "size of everything still queued behind it" at
-    /// that same speed. Nil until we have both a known size and a speed
-    /// sample to work from.
-    var estimatedSecondsRemaining: Double? {
-        let pending = tasks.filter { $0.phase == .queued || $0.phase == .downloading }
-        guard !pending.isEmpty else { return nil }
-
-        let remainingBytes = pending.reduce(0.0) { total, task in
-            guard task.fileSizeBytes > 0 else { return total }
-            let doneFraction = task.phase == .downloading ? task.syncProgress : 0
-            return total + Double(task.fileSizeBytes) * (1 - doneFraction)
-        }
-
-        let speeds = pending.map(\.bytesPerSecond).filter { $0 > 0 }
-        guard !speeds.isEmpty else { return nil }
-        let avgSpeed = speeds.reduce(0, +) / Double(speeds.count)
-        guard avgSpeed > 0 else { return nil }
-
-        return remainingBytes / avgSpeed
-    }
 
     /// Oldest lines are dropped past this, so a long run's log (which is also
     /// written into every checkpoint) can't grow without bound.

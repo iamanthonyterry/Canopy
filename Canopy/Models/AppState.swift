@@ -329,6 +329,7 @@ class AppState: ObservableObject {
         let session = WorkflowRunSession(
             workflow: workflow, deckNames: deckNames, resourceKeys: resourceKeys, id: id, startedAt: startedAt
         )
+        session.conversionSlots = maxConcurrentConversions
         activeRuns.append(session)
         return session
     }

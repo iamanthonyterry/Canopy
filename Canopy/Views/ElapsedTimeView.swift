@@ -8,35 +8,34 @@ import SwiftUI
 struct ElapsedTimeView: View {
     let startTime: Date
     var compact: Bool = false
-    /// Estimated seconds left on the sync work, when known (see
-    /// `WorkflowRunSession.estimatedSecondsRemaining`). Nil falls back to
-    /// the old indeterminate shimmer — e.g. before any file has produced a
-    /// speed sample, or for a run with no sync step at all.
-    var estimatedSecondsRemaining: Double? = nil
+    /// How much longer the run should take, when known (see
+    /// `WorkflowRunSession.estimate`). Nil falls back to the indeterminate
+    /// shimmer — e.g. a first run of steps with nothing to measure yet.
+    var estimate: RunEstimate? = nil
 
     var body: some View {
         if compact {
-            compactLayout(elapsed: Date().timeIntervalSince(startTime))
+            compactLayout(elapsed: Date().timeIntervalSince(startTime), now: Date())
         } else {
             TimelineView(.periodic(from: startTime, by: 1)) { context in
-                fullLayout(elapsed: context.date.timeIntervalSince(startTime))
+                fullLayout(elapsed: context.date.timeIntervalSince(startTime), now: context.date)
             }
         }
     }
 
     // MARK: - Full (dashboard)
-    private func fullLayout(elapsed: TimeInterval) -> some View {
+    private func fullLayout(elapsed: TimeInterval, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Label("Running", systemImage: "clock")
                     .font(.caption).bold()
                     .foregroundStyle(Color.accentColor)
                 Spacer()
-                Text(trailingLabel(elapsed))
+                Text(trailingLabel(elapsed, now: now))
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
-            ProgressView(value: progressValue(elapsed))
+            ProgressView(value: progressValue(elapsed, now: now))
                 .tint(Color.accentColor)
                 .animation(.linear(duration: 1), value: elapsed)
         }
@@ -57,12 +56,12 @@ struct ElapsedTimeView: View {
     // re-renders frequently while a run is active (task counts changing),
     // which keeps this reasonably fresh without a self-driven update loop.
     // Only `fullLayout`, rendered in a normal window, may tick and animate.
-    private func compactLayout(elapsed: TimeInterval) -> some View {
+    private func compactLayout(elapsed: TimeInterval, now: Date) -> some View {
         HStack(spacing: 8) {
-            ProgressView(value: progressValue(elapsed))
+            ProgressView(value: progressValue(elapsed, now: now))
                 .tint(Color.accentColor)
                 .frame(width: 80)
-            Text(trailingLabel(elapsed))
+            Text(trailingLabel(elapsed, now: now))
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
@@ -70,22 +69,23 @@ struct ElapsedTimeView: View {
 
     // MARK: - Helpers
 
-    // Once we have a real ETA, show actual percent-complete (elapsed vs.
-    // elapsed+remaining) instead of the shimmer. Before that — no speed
-    // sample yet, or a run with no sync step — fall back to an
-    // indeterminate-style shimmer over 60 s cycles so the bar still always
-    // appears "moving".
-    private func progressValue(_ elapsed: TimeInterval) -> Double {
-        if let remaining = estimatedSecondsRemaining, elapsed + remaining > 0 {
-            return elapsed / (elapsed + remaining)
+    // Once we have a real estimate, show actual percent-complete (elapsed
+    // vs. elapsed+remaining) instead of the shimmer. Before that fall back
+    // to an indeterminate-style shimmer over 60 s cycles so the bar still
+    // always appears "moving". The estimate is counted down against `now`,
+    // so it keeps moving between the run's own progress updates.
+    private func progressValue(_ elapsed: TimeInterval, now: Date) -> Double {
+        if let estimate, estimate.label(at: now) != nil {
+            let remaining = estimate.remaining(at: now)
+            if elapsed + remaining > 0 { return elapsed / (elapsed + remaining) }
         }
         let cycle: Double = 60
         return elapsed.truncatingRemainder(dividingBy: cycle) / cycle
     }
 
-    private func trailingLabel(_ elapsed: TimeInterval) -> String {
-        guard let remaining = estimatedSecondsRemaining else { return elapsedString(elapsed) }
-        return "\(elapsedString(elapsed)) · ~\(TaskRow.formatDuration(remaining)) left"
+    private func trailingLabel(_ elapsed: TimeInterval, now: Date) -> String {
+        guard let label = estimate?.label(at: now) else { return elapsedString(elapsed) }
+        return "\(elapsedString(elapsed)) · \(label)"
     }
 
     private func elapsedString(_ elapsed: TimeInterval) -> String {

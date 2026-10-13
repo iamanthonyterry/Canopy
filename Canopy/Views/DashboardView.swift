@@ -36,9 +36,8 @@ struct DashboardView: View {
     /// Combines every concurrent run's own estimate into one dashboard-wide
     /// figure. Uses the slowest (max) rather than an average since the
     /// dashboard's "Running" state doesn't clear until every run finishes.
-    var estimatedSecondsRemaining: Double? {
-        let estimates = inProgress.compactMap(\.estimatedSecondsRemaining)
-        return estimates.max()
+    var estimate: RunEstimate? {
+        RunEstimate.latest(of: inProgress.compactMap { $0.estimate() })
     }
 
     var activeCount: Int  { inProgress.flatMap(\.tasks).filter { $0.phase == .downloading || $0.phase == .converting }.count }
@@ -155,7 +154,7 @@ struct DashboardView: View {
             }
 
             if let earliest = inProgress.map(\.startedAt).min() {
-                ElapsedTimeView(startTime: earliest, estimatedSecondsRemaining: estimatedSecondsRemaining)
+                ElapsedTimeView(startTime: earliest, estimate: estimate)
             }
         }
         .padding()
@@ -453,7 +452,7 @@ struct DashboardView: View {
                         }
                     }
                     Spacer()
-                    ElapsedTimeView(startTime: session.startedAt, compact: true, estimatedSecondsRemaining: session.estimatedSecondsRemaining)
+                    ElapsedTimeView(startTime: session.startedAt, compact: true, estimate: session.estimate())
                     Button {
                         session.isPaused ? session.resume() : session.pause()
                     } label: {

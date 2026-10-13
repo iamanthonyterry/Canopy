@@ -9,8 +9,8 @@ struct MenuBarView: View {
         appState.activeRuns.filter { !$0.isFinished }
     }
 
-    private var estimatedSecondsRemaining: Double? {
-        inProgress.compactMap(\.estimatedSecondsRemaining).max()
+    private var estimate: RunEstimate? {
+        RunEstimate.latest(of: inProgress.compactMap { $0.estimate() })
     }
 
     var body: some View {
@@ -36,7 +36,7 @@ struct MenuBarView: View {
                     .foregroundStyle(.secondary)
             }
             if let earliest = inProgress.map(\.startedAt).min() {
-                ElapsedTimeView(startTime: earliest, compact: true, estimatedSecondsRemaining: estimatedSecondsRemaining)
+                ElapsedTimeView(startTime: earliest, compact: true, estimate: estimate)
                     .padding(.horizontal, 8)
             }
         }

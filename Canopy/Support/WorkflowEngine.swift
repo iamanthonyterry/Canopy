@@ -1964,6 +1964,7 @@ final class WorkflowEngine: ObservableObject {
     private func finishRun(workflow: Workflow, session: WorkflowRunSession) {
         WorkflowCheckpointStore.shared.remove(id: session.id)
         removeTemporaryTranscripts(session: session)
+        session.recordTimings()
         session.finalizeSteps()
         let c = session.converted
         let e = session.errors
@@ -2320,7 +2321,16 @@ final class WorkflowEngine: ObservableObject {
     ) {
         for session in appState.activeRuns {
             guard let i = session.tasks.firstIndex(where: { $0.id == id }) else { continue }
-            if let v = phase           { session.tasks[i].phase           = v }
+            if let v = phase {
+                session.tasks[i].phase = v
+                // Stamped here, in the one place every phase change passes
+                // through, for the run's time estimate.
+                if v == .converting {
+                    session.tasks[i].convertStartedAt = Date()
+                } else if session.tasks[i].convertStartedAt != nil, session.tasks[i].convertFinishedAt == nil {
+                    session.tasks[i].convertFinishedAt = Date()
+                }
+            }
             if let v = syncProgress    {
                 updateTransferSpeed(&session.tasks[i], newProgress: v)
                 session.tasks[i].syncProgress = v
@@ -2367,6 +2377,8 @@ final class WorkflowEngine: ObservableObject {
             session.tasks[i].bytesPerSecond  = 0
             session.tasks[i].lastProgressAt    = nil
             session.tasks[i].lastProgressValue = 0
+            session.tasks[i].convertStartedAt  = nil
+            session.tasks[i].convertFinishedAt = nil
             return
         }
     }
