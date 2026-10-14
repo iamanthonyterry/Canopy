@@ -20,6 +20,10 @@ struct InventoryItem: Codable, Identifiable, Hashable {
     var id: String
     var name: String
     var category: String
+    var type: String?           // e.g. "Mixing console"; absent on older site versions
+    var room: String?
+    var rack: String?
+    var rackUnit: Int?
     var makeModel: String
     var serial: String
     var location: String

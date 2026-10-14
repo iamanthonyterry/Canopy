@@ -46,6 +46,12 @@ struct InventoryView: View {
     @State private var sceneItem: InventoryItem?
     @State private var newDevice: NewDeviceRequest?
     @State private var showAdvanced = false
+    @AppStorage("inventory.sort") private var sort: InventorySort = .name
+
+    enum InventorySort: String, CaseIterable, Identifiable {
+        case name = "Name", room = "Room", rack = "Rack", type = "Type"
+        var id: String { rawValue }
+    }
 
     private struct NewDeviceRequest: Identifiable {
         let id = UUID()
@@ -70,6 +76,40 @@ struct InventoryView: View {
     private var unlinked: [LocalDevice] {
         let ids = Set(store.items.map(\.id))
         return locals.filter { $0.inventoryID.map { !ids.contains($0) } ?? true }
+    }
+
+    private static let none = "Unassigned"
+
+    /// The inventory in the chosen order, with a heading per room, rack or type (none when sorting by name).
+    private var sections: [(title: String?, items: [InventoryItem])] {
+        func byName(_ a: InventoryItem, _ b: InventoryItem) -> Bool {
+            a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+        let key: (InventoryItem) -> String? = {
+            switch sort {
+            case .name: return nil
+            case .room: return $0.room.flatMap { $0.isEmpty ? nil : $0 } ?? Self.none
+            case .rack: return $0.rack.flatMap { $0.isEmpty ? nil : $0 } ?? Self.none
+            case .type: return $0.type.flatMap { $0.isEmpty ? nil : $0 } ?? Self.none
+            }
+        }
+        guard sort != .name else { return [(nil, store.items.sorted(by: byName))] }
+        let groups = Dictionary(grouping: store.items) { key($0) ?? Self.none }
+        let titles = groups.keys.sorted { a, b in
+            if a == Self.none { return false }          // unassigned last
+            if b == Self.none { return true }
+            return a.localizedStandardCompare(b) == .orderedAscending
+        }
+        return titles.map { title in
+            var items = groups[title] ?? []
+            if sort == .rack {
+                // Top of the rack first; devices with no unit fall to the end.
+                items.sort { ($0.rackUnit ?? -1, $1.name) > ($1.rackUnit ?? -1, $0.name) }
+            } else {
+                items.sort(by: byName)
+            }
+            return (title, items)
+        }
     }
 
     var body: some View {
@@ -126,6 +166,10 @@ struct InventoryView: View {
             Spacer()
             if account.isConnected {
                 if store.isLoading { ProgressView().controlSize(.small) }
+                Picker("Sort by", selection: $sort) {
+                    ForEach(InventorySort.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.menu).fixedSize()
                 Button { Task { await store.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
                     .buttonStyle(.canopySecondary)
                 Button { newDevice = NewDeviceRequest() } label: { Label("Add device", systemImage: "plus") }
@@ -177,7 +221,14 @@ struct InventoryView: View {
             Text("No equipment is assigned to this campus yet. Add a device here or on the website.")
                 .foregroundStyle(.secondary).canopyCard()
         }
-        ForEach(store.items) { item in itemCard(item) }
+        ForEach(sections, id: \.title) { section in
+            VStack(alignment: .leading, spacing: 8) {
+                if let title = section.title {
+                    Text(title).font(.canopyTitle2).foregroundStyle(Color.canopyInk).padding(.top, 4)
+                }
+                ForEach(section.items) { item in itemCard(item) }
+            }
+        }
 
         if !unlinked.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
@@ -205,7 +256,8 @@ struct InventoryView: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.name).font(.headline).foregroundStyle(Color.canopyInk)
-                    Text([item.makeModel, item.host.isEmpty ? "No address saved" : item.host, item.location]
+                    Text([item.makeModel, item.host.isEmpty ? "No address saved" : item.host, item.room ?? "",
+                          item.rack.map { rack in item.rackUnit.map { "\(rack) U\($0)" } ?? rack } ?? "", item.location]
                         .filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.caption).foregroundStyle(.secondary)
                 }
