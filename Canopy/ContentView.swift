@@ -11,6 +11,7 @@ struct ContentView: View {
         case dashboard    = "Dashboard"
         case workflows    = "Workflows"
         case starred      = "Starred"
+        case inventory    = "Inventory"
         case exportQueue  = "Export Queue"
         case history      = "History"
         case settings     = "Settings"
@@ -19,6 +20,7 @@ struct ContentView: View {
             switch self {
             case .dashboard:    return "play.tv"
             case .starred:      return "star.fill"
+            case .inventory:    return "shippingbox"
             case .exportQueue:  return "square.and.arrow.up.on.square"
             case .workflows:    return "flowchart"
             case .history:      return "clock.arrow.circlepath"
@@ -31,7 +33,7 @@ struct ContentView: View {
     // clips is core to deciding what to export, so both join Dashboard for
     // them even though the rest of the admin nav is hidden.
     private var visibleNavItems: [NavItem] {
-        appState.isAdmin ? [.dashboard, .workflows, .starred, .exportQueue] : [.dashboard, .starred, .exportQueue]
+        appState.isAdmin ? [.dashboard, .workflows, .inventory, .starred, .exportQueue] : [.dashboard, .starred, .exportQueue]
     }
 
     private func isReachable(_ item: NavItem) -> Bool {
@@ -91,6 +93,7 @@ struct ContentView: View {
                 case .starred:                              StarredView()
                 case .exportQueue:                        ExportQueueView(embedded: true)
                 case .workflows where appState.isAdmin:    WorkflowsView()
+                case .inventory where appState.isAdmin:    InventoryView()
                 case .history where appState.isAdmin:      HistoryView()
                 case .settings where appState.isAdmin:      SettingsView()
                 default:                                    DashboardView()

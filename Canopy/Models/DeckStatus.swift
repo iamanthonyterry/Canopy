@@ -20,6 +20,9 @@ struct HyperDeck: Identifiable, Codable, Hashable {
     /// an estimated recording-time-remaining figure), so this is entered by
     /// the user and used purely to show a used/total storage indicator.
     var capacityGB: Double? = nil
+
+    /// The id of this deck's equipment record on the church site, once linked.
+    var inventoryID: String? = nil
 }
 
 // MARK: - Blackmagic Cloud Store / Network-Attached Storage
@@ -35,6 +38,9 @@ struct CloudStore: Identifiable, Codable, Hashable {
     var password: String = ""
     var sortOrder: Int = 0
     var kind: Kind = .blackmagicCloudStore
+
+    /// The id of this store's equipment record on the church site, once linked.
+    var inventoryID: String? = nil
 
     enum Kind: String, Codable, CaseIterable, Hashable {
         case blackmagicCloudStore
