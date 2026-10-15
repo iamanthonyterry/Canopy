@@ -139,15 +139,6 @@ nonisolated enum PatchImport {
 
     static var templateCSV: String { csv([headers] + example) }
 
-    /// The cables the model found in a document, laid out as a patch sheet (its device keys swapped for their names).
-    static func sheet(from reading: DocumentReading) -> String {
-        let names = Dictionary(reading.devices.map { ($0.key, $0.name) }, uniquingKeysWith: { a, _ in a })
-        return csv([headers] + reading.cables.map { c in
-            [names[c.fromDevice] ?? c.fromDevice, c.fromCard, c.fromChannel.map(String.init) ?? "", c.fromName, c.fromKind,
-             names[c.toDevice] ?? c.toDevice, c.toCard, c.toChannel.map(String.init) ?? "", c.toName, c.toKind, c.note]
-        })
-    }
-
     /// The patch sheet in the import format, so it can be edited in a spreadsheet and brought back in.
     static func export(_ patches: [Patch]) -> String {
         csv([headers] + patches.map { p in

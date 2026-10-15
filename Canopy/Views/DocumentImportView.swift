@@ -38,6 +38,7 @@ struct DocumentImportView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if reading == nil { picker } else { review }
+                if progress != nil { PatchingAnimation() }
                 ResultLine(result: result)
             }
             .padding()
