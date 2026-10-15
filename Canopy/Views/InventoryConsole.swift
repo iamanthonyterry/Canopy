@@ -203,53 +203,78 @@ private struct SocketPicker: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(channel.kind == .input ? "Source for \(channel.title)" : "Send \(channel.title) to").font(.canopyHeadline)
             TextField("Search sockets", text: $query).textFieldStyle(.roundedBorder)
-            HStack(alignment: .top, spacing: 0) {
-                List(selection: $group) {
-                    ForEach(groups.filter { g in q.isEmpty || g.title.lowercased().contains(q) || g.ports.contains { matches($0, g, q) } }) { g in
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(g.title).lineLimit(1)
-                            Text(g.detail).font(.canopyCaption2).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        .tag(g.id)
-                    }
-                }
-                .frame(width: 220)
-                Divider()
+            if channel.kind == .output {
+                // Outputs: one list, each card's (or box's) outputs together under its name, in channel order.
                 List {
-                    if let g = groups.first(where: { $0.id == (group ?? groups.first?.id) }) {
-                        ForEach(g.ports.filter { q.isEmpty || matches($0, g, q) }) { p in
-                            let using = store.channels(at: p.id).filter { $0.console.id == console.id && $0.channel.kind == channel.kind && $0.channel.id != channel.id }
-                            let beyond = channel.kind == .input ? store.upstream(of: p.id) : store.downstream(of: p.id)
-                            Button {
-                                Task { done(await store.patchChannels([(channel.id, p.id)])) }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        HStack(spacing: 4) { Text(g.device.portName(p)); SignalTag(signal: p.signal) }
-                                        if let beyond { Text(beyond).font(.canopyCaption2).foregroundStyle(.secondary).lineLimit(1) }
-                                    }
-                                    Spacer()
-                                    if !using.isEmpty {
-                                        Text(using.map { "\($0.channel.kind.prefix) \($0.channel.number)" }.joined(separator: ", "))
-                                            .font(.canopyCaption2).foregroundStyle(.secondary)
-                                    }
+                    ForEach(groups) { g in
+                        let ports = g.ports
+                            .filter { q.isEmpty || g.title.lowercased().contains(q) || matches($0, g, q) }
+                            .sorted { InventoryRules.byPort($0, $1) }
+                        if !ports.isEmpty {
+                            Section {
+                                ForEach(ports) { p in socketButton(p, g) }
+                            } header: {
+                                HStack(spacing: 6) {
+                                    Text(g.title).fontWeight(.medium)
+                                    Text(g.detail).font(.canopyCaption2).foregroundStyle(.secondary)
                                 }
-                                .contentShape(Rectangle())
+                                .lineLimit(1)
                             }
-                            .buttonStyle(.plain)
-                            .help(using.isEmpty ? "" : channel.kind == .output ? "Sending here replaces the mix this socket carries now." : "Already feeds another channel; it can feed this one too.")
                         }
                     }
                 }
-                .frame(width: 300)
+                .frame(width: 440, height: 320)
+            } else {
+                HStack(alignment: .top, spacing: 0) {
+                    List(selection: $group) {
+                        ForEach(groups.filter { g in q.isEmpty || g.title.lowercased().contains(q) || g.ports.contains { matches($0, g, q) } }) { g in
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(g.title).lineLimit(1)
+                                Text(g.detail).font(.canopyCaption2).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            .tag(g.id)
+                        }
+                    }
+                    .frame(width: 220)
+                    Divider()
+                    List {
+                        if let g = groups.first(where: { $0.id == (group ?? groups.first?.id) }) {
+                            ForEach(g.ports.filter { q.isEmpty || matches($0, g, q) }) { p in socketButton(p, g) }
+                        }
+                    }
+                    .frame(width: 300)
+                }
+                .frame(height: 320)
             }
-            .frame(height: 320)
             if groups.isEmpty {
                 Text("This console has no \(channel.kind == .input ? "input" : "output") sockets yet. Give it some, fit a card, or connect a stage box or surface to it.")
                     .font(.canopyCaption).foregroundStyle(.secondary)
             }
         }
         .padding()
+    }
+
+    private func socketButton(_ p: EquipmentPort, _ g: InventoryStore.SocketGroup) -> some View {
+        let using = store.channels(at: p.id).filter { $0.console.id == console.id && $0.channel.kind == channel.kind && $0.channel.id != channel.id }
+        let beyond = channel.kind == .input ? store.upstream(of: p.id) : store.downstream(of: p.id)
+        return Button {
+            Task { done(await store.patchChannels([(channel.id, p.id)])) }
+        } label: {
+            HStack(spacing: 4) {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 4) { Text(g.device.portName(p)); SignalTag(signal: p.signal) }
+                    if let beyond { Text(beyond).font(.canopyCaption2).foregroundStyle(.secondary).lineLimit(1) }
+                }
+                Spacer()
+                if !using.isEmpty {
+                    Text(using.map { "\($0.channel.kind.prefix) \($0.channel.number)" }.joined(separator: ", "))
+                        .font(.canopyCaption2).foregroundStyle(.secondary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(using.isEmpty ? "" : channel.kind == .output ? "Sending here replaces the mix this socket carries now." : "Already feeds another channel; it can feed this one too.")
     }
 
     private func matches(_ p: EquipmentPort, _ g: InventoryStore.SocketGroup, _ q: String) -> Bool {
