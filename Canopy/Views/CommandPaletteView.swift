@@ -58,8 +58,17 @@ struct CommandPaletteView: View {
 
     private var items: [PaletteItem] {
         var all: [PaletteItem] = []
+        let features = AppFeatures.shared
         let nav: [ContentView.NavItem] = appState.isAdmin
-            ? ContentView.NavItem.allCases : [.dashboard, .starred, .exportQueue]
+            ? ContentView.NavItem.allCases.filter {
+                switch $0 {
+                case .workflows:   return features.isEnabled(.workflows)
+                case .inventory:   return features.isEnabled(.inventory)
+                case .socialShare: return features.isEnabled(.socialShare)
+                default:           return true
+                }
+            }
+            : [.dashboard, .starred, .exportQueue]
         for item in nav {
             all.append(PaletteItem(id: "nav-\(item.rawValue)", title: item.rawValue, subtitle: "Go to",
                                    icon: item.icon, group: "Go To") { model.pendingNav = item })

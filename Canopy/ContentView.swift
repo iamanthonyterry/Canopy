@@ -5,6 +5,7 @@ struct ContentView: View {
     @ObservedObject private var exportQueue = ExportQueueManager.shared
     @ObservedObject private var clipMetadata = ClipMetadataStore.shared
     @ObservedObject private var palette = CommandPaletteModel.shared
+    @ObservedObject private var features = AppFeatures.shared
     @State private var selection: NavItem? = .dashboard
 
     enum NavItem: String, Hashable, CaseIterable {
@@ -12,6 +13,7 @@ struct ContentView: View {
         case workflows    = "Workflows"
         case starred      = "Starred"
         case inventory    = "Inventory"
+        case socialShare  = "Social Share"
         case exportQueue  = "Export Queue"
         case history      = "History"
         case settings     = "Settings"
@@ -21,6 +23,7 @@ struct ContentView: View {
             case .dashboard:    return "play.tv"
             case .starred:      return "star.fill"
             case .inventory:    return "shippingbox"
+            case .socialShare:  return "paperplane"
             case .exportQueue:  return "square.and.arrow.up.on.square"
             case .workflows:    return "flowchart"
             case .history:      return "clock.arrow.circlepath"
@@ -33,11 +36,17 @@ struct ContentView: View {
     // clips is core to deciding what to export, so both join Dashboard for
     // them even though the rest of the admin nav is hidden.
     private var visibleNavItems: [NavItem] {
-        appState.isAdmin ? [.dashboard, .workflows, .inventory, .starred, .exportQueue] : [.dashboard, .starred, .exportQueue]
+        guard appState.isAdmin else { return [.dashboard, .starred, .exportQueue] }
+        var items: [NavItem] = [.dashboard]
+        if features.isEnabled(.workflows) { items.append(.workflows) }
+        if features.isEnabled(.inventory) { items.append(.inventory) }
+        if features.isEnabled(.socialShare) { items.append(.socialShare) }
+        items += [.starred, .exportQueue]
+        return items
     }
 
     private func isReachable(_ item: NavItem) -> Bool {
-        appState.isAdmin || visibleNavItems.contains(item)
+        item == .history || item == .settings ? appState.isAdmin : visibleNavItems.contains(item)
     }
 
     var body: some View {
@@ -92,8 +101,9 @@ struct ContentView: View {
                 switch selection {
                 case .starred:                              StarredView()
                 case .exportQueue:                        ExportQueueView(embedded: true)
-                case .workflows where appState.isAdmin:    WorkflowsView()
-                case .inventory where appState.isAdmin:    InventoryView()
+                case .workflows where isReachable(.workflows):    WorkflowsView()
+                case .inventory where isReachable(.inventory):    InventoryView()
+                case .socialShare where isReachable(.socialShare): SocialShareView()
                 case .history where appState.isAdmin:      HistoryView()
                 case .settings where appState.isAdmin:      SettingsView()
                 default:                                    DashboardView()

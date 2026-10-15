@@ -11,6 +11,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Settings").font(.canopyTitle).foregroundStyle(Color.canopyInk).padding(.horizontal)
                 //cloudStoreSection
+                FeatureSettingsView()
                 ShootSettingsView()
                 emailSection
                 AlertSettingsView()
