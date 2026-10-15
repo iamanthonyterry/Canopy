@@ -163,6 +163,9 @@ struct EquipmentDetailView: View {
                 ChannelsSection(equipment: e)
                 if e.cardSlots > 0 || !e.cards.isEmpty { CardSlotsSection(equipment: e) }
                 StageLinkSection(equipment: e)
+                if e.role == .console || !store.channels(of: e, .input).isEmpty || !store.channels(of: e, .output).isEmpty {
+                    ConsoleChannelsSection(equipment: e)
+                }
                 if store.level.canViewDetails { ServiceLogSection(equipment: e) }
                 if store.isAdmin { FilesSection(equipment: e) }
             }

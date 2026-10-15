@@ -134,7 +134,7 @@ struct SignalFlowView: View {
     @State private var query = ""
 
     var body: some View {
-        let chains = InventoryRules.buildChains(patches: store.scopedPatches, hops: store.scopedHops)
+        let chains = InventoryRules.buildChains(patches: store.scopedPatches, hops: store.scopedHops, routes: store.scopedRoutes)
             .sorted { a, b in
                 a.stops[0].device.name != b.stops[0].device.name ? InventoryRules.ordered(a.stops[0].device.name, b.stops[0].device.name)
                     : InventoryRules.byPort(a.stops[0].port, b.stops[0].port)
@@ -153,7 +153,7 @@ struct SignalFlowView: View {
             .padding(.horizontal).padding(.vertical, 8)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
-                    Text("Each line follows a signal from where it starts to where it ends, over cables (→) and stage box links (⇒). A console's mix is inside it, so a line ends at a console input and new ones start at its outputs.")
+                    Text("Each line follows a signal from where it starts to where it ends, over cables (→), stage box links (⇒) and a console's internal patch (⤳). A console's mix is inside it, so a line ends at an input channel and new ones start at its mixes.")
                         .font(.canopyCaption).foregroundStyle(.secondary).padding(.bottom, 4)
                     if shown.isEmpty {
                         Text(chains.isEmpty ? "Nothing is patched yet." : "No signal paths match.").foregroundStyle(.secondary)
@@ -162,7 +162,8 @@ struct SignalFlowView: View {
                         FlowLayout(spacing: 4) {
                             ForEach(Array(c.stops.enumerated()), id: \.element.id) { i, s in
                                 if i > 0 {
-                                    Text(c.via[i - 1] == .link ? "⇒" : "→").foregroundStyle(c.via[i - 1] == .link ? Color.canopySage : .secondary)
+                                    Text(c.via[i - 1] == .link ? "⇒" : c.via[i - 1] == .route ? "⤳" : "→")
+                                        .foregroundStyle(c.via[i - 1] == .cable ? .secondary : Color.canopySage)
                                         .help(c.notes[i - 1])
                                 }
                                 HStack(spacing: 3) {

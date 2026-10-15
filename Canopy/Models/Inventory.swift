@@ -227,6 +227,36 @@ nonisolated struct LinkMapEntry: Codable, Hashable, Sendable {
     var hostPort: String
 }
 
+/// A console's own channel strips, apart from its sockets: inputs take their signal from a socket, and outputs (mixes,
+/// mains, matrices) go out to sockets. Which sockets is the console's internal patch.
+nonisolated enum ChannelKind: String, Codable, CaseIterable, Identifiable, Sendable {
+    case input, output
+    var id: String { rawValue }
+    var prefix: String { self == .input ? "Ch" : "Mix" }
+    var plural: String { self == .input ? "Input channels" : "Mixes and outputs" }
+}
+
+nonisolated struct ConsoleChannel: Codable, Hashable, Identifiable, Sendable {
+    var id: String
+    var equipmentId: String
+    var kind: ChannelKind
+    var number: Int
+    var label: String
+    /// "Ch 3 · Kick", or "Ch 3" while it has no name.
+    var title: String { "\(kind.prefix) \(number)" + (label.isEmpty ? "" : " · \(label)") }
+    /// The channel as a stop in a signal chain, on its console.
+    var asPort: EquipmentPort {
+        EquipmentPort(id: id, equipmentId: equipmentId, number: nil, label: title, kind: "", direction: kind == .input ? .input : .output, signal: .analog, cardId: nil)
+    }
+}
+
+/// One line of a console's internal patch: a socket feeding an input channel, or an output channel sent to a socket.
+nonisolated struct ConsolePatch: Codable, Hashable, Identifiable, Sendable {
+    var id: String
+    var channelId: String
+    var portId: String
+}
+
 nonisolated struct Room: Codable, Hashable, Identifiable, Sendable {
     var id: String
     var name: String
@@ -306,9 +336,16 @@ nonisolated struct Hop: Hashable, Sendable {
     var linkId: String
 }
 
+/// Signal inside a console: a socket into an input channel, or an output channel out to a socket.
+nonisolated struct Route: Hashable, Sendable {
+    var from: PatchPort
+    var to: PatchPort
+    var channelId: String
+}
+
 /// One path signal takes: each stop, and how it got to the next.
 nonisolated struct SignalChain: Hashable, Identifiable, Sendable {
-    enum Via: String, Sendable { case cable, link }
+    enum Via: String, Sendable { case cable, link, route }
     var stops: [PatchPort]
     var via: [Via]
     var notes: [String]
@@ -380,9 +417,28 @@ nonisolated enum InventoryRules {
         return pairs
     }
 
+    /// Whether a link lands the box's channels on the host's channels (a stage box on a console or its card). A control
+    /// surface, and anything plugged into one, doesn't: its sockets are patched in the controller as they are.
+    static func landsChannels(box: DeviceRole?, host: DeviceRole?) -> Bool { box != .surface && host != .surface }
+
+    /// What changes to give a console exactly `count` channels of one kind, numbered from 1: the numbers to add, and
+    /// the ids of channels past the end to remove (with their patch).
+    static func channelChanges(_ have: [ConsoleChannel], count: Int) -> (add: [Int], remove: [String]) {
+        let numbers = Set(have.map(\.number))
+        return (count > 0 ? (1...count).filter { !numbers.contains($0) } : [], have.filter { $0.number > count }.map(\.id))
+    }
+
+    /// Pairs channels from number `first` with sockets in order from `start` (a socket id), `count` of each, stopping
+    /// early when either runs out: "channels 1–16 from the stage box's inputs 1–16".
+    static func block(channels: [ConsoleChannel], first: Int, count: Int, sockets: [EquipmentPort], start: String) -> [(channel: ConsoleChannel, socket: EquipmentPort)] {
+        let chs = channels.filter { $0.number >= first }.sorted { $0.number < $1.number }.prefix(max(0, count))
+        guard let at = sockets.firstIndex(where: { $0.id == start }) else { return [] }
+        return Array(zip(chs, sockets[at...]).map { ($0, $1) })
+    }
+
     /// Follows the signal from every channel nothing feeds, cable by cable and link by link, to where it ends.
-    /// A console's mix is inside it, so chains end at its inputs and new ones start at its outputs.
-    static func buildChains(patches: [Patch], hops: [Hop], limit: Int = 2000) -> [SignalChain] {
+    /// A console's mix is inside it, so chains end at its input channels and new ones start at its mixes.
+    static func buildChains(patches: [Patch], hops: [Hop], routes: [Route] = [], limit: Int = 2000) -> [SignalChain] {
         struct Edge { var to: PatchPort; var via: SignalChain.Via; var note: String }
         var next: [String: [Edge]] = [:]
         var fed = Set<String>()
@@ -391,7 +447,8 @@ nonisolated enum InventoryRules {
         func add(_ from: PatchPort, _ e: Edge) { next[from.id, default: []].append(e); fed.insert(e.to.id) }
         for p in patches { add(p.from, Edge(to: p.to, via: .cable, note: p.cable.note)) }
         for h in hops { add(h.from, Edge(to: h.to, via: .link, note: "")) }
-        for f in patches.map(\.from) + hops.map(\.from) where !fed.contains(f.id) && starts[f.id] == nil {
+        for r in routes { add(r.from, Edge(to: r.to, via: .route, note: "")) }
+        for f in patches.map(\.from) + hops.map(\.from) + routes.map(\.from) where !fed.contains(f.id) && starts[f.id] == nil {
             starts[f.id] = f; order.append(f.id)
         }
         var chains: [SignalChain] = []
@@ -413,7 +470,7 @@ nonisolated enum InventoryRules {
     /// For a port on a device with this role and direction, the roles usually on the other end, best first.
     private static let usual: [DeviceRole: (input: [DeviceRole], output: [DeviceRole])] = [
         .console: ([.stageBox, .wirelessReceiver, .source, .processor, .computer, .surface], [.iemTransmitter, .amp, .processor, .stageBox, .computer]),
-        .surface: ([.source, .wirelessReceiver], [.amp, .iemTransmitter, .console]),
+        .surface: ([.source, .wirelessReceiver, .processor, .computer], [.amp, .iemTransmitter, .processor, .speaker]),
         .stageBox: ([.source, .wirelessReceiver, .processor], [.iemTransmitter, .amp, .console, .processor]),
         .wirelessReceiver: ([], [.console, .stageBox, .processor]),
         .iemTransmitter: ([.stageBox, .console, .processor], []),

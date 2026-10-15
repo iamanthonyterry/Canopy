@@ -108,6 +108,10 @@ final class InventoryStore: ObservableObject {
     @Published private(set) var cables: [Cable] = []
     @Published private(set) var links: [StageLink] = []
     @Published private(set) var linkMap: [LinkMapEntry] = []
+    @Published private(set) var channels: [ConsoleChannel] = []
+    @Published private(set) var consolePatch: [ConsolePatch] = []
+    /// False until the church's database has the console channel tables.
+    @Published private(set) var consoleReady = false
     @Published private(set) var rooms: [Room] = []
     @Published private(set) var racks: [Rack] = []
     @Published private(set) var service: [ServiceEntry] = []
@@ -119,6 +123,7 @@ final class InventoryStore: ObservableObject {
     @Published private(set) var byID: [String: Equipment] = [:]
     @Published private(set) var patches: [Patch] = []
     @Published private(set) var hops: [Hop] = []
+    @Published private(set) var routes: [Route] = []
     private(set) var portOwner: [String: String] = [:]
     private(set) var roomsByID: [String: Room] = [:]
     private(set) var racksByID: [String: Rack] = [:]
@@ -195,11 +200,16 @@ final class InventoryStore: ObservableObject {
         async let rackRows = db.select("equipment_racks", "id,room_id,name,units", mine, as: Rack.self)
         async let presetRows = Self.loadPresets(db)
         async let typeRows = db.select("equipment_card_types", "id,name,brand,signal,inputs,outputs", [.order("sort_order,name")], as: CardType.self)
+        async let channelRows = db.select("console_channels", "id,equipment_id,kind,number,label", mine, as: ConsoleChannel.self)
+        async let consolePatchRows = db.select("console_patch", "id,channel_id,port_id", mine, as: ConsolePatch.self)
 
         let (e, p, c, k, l, m, r, rk) = try await (eqRows, portRows, cardRows, cableRows, linkRows, mapRows, roomRows, rackRows)
         // Catalogs are nice-to-have: the inventory still works without them.
         let pr = (try? await presetRows) ?? []
         let ct = (try? await typeRows) ?? []
+        // The console channel tables came later; without them the rest of the inventory still works.
+        let ch = try? await channelRows
+        let cp = try? await consolePatchRows
         // Prices and service costs need "view"; config files are for owners and admins.
         let sv: [ServiceEntry] = lvl.canViewDetails
             ? ((try? await db.select("equipment_service", "id,equipment_id,kind,performed_on,summary,cost,vendor", mine + [.order("performed_on.desc,created_at.desc")])) ?? [])
@@ -226,6 +236,8 @@ final class InventoryStore: ObservableObject {
         campuses = church.campuses ?? []
         if !scope.isEmpty, scope != InventoryRules.unassigned, !campuses.contains(where: { $0.id == scope }) { scope = "" }
         equipment = devices; cables = k; links = l; linkMap = m
+        channels = (ch ?? []).sorted { ($0.equipmentId, $0.kind.rawValue, $0.number) < ($1.equipmentId, $1.kind.rawValue, $1.number) }
+        consolePatch = cp ?? []; consoleReady = ch != nil && cp != nil
         rooms = r.sorted { InventoryRules.ordered($0.name, $1.name) }; racks = rk.sorted { InventoryRules.ordered($0.name, $1.name) }
         service = sv; files = fl; presets = pr; cardTypes = ct
         rebuild()
@@ -256,19 +268,37 @@ final class InventoryStore: ObservableObject {
         }
         let overrides = Dictionary(grouping: linkMap, by: \.linkId).mapValues { Dictionary($0.map { ($0.boxPort, $0.hostPort) }, uniquingKeysWith: { $1 }) }
         hops = links.flatMap { l -> [Hop] in
-            guard let box = byID[l.equipmentId], let host = byID[l.hostId] else { return [] }
+            guard let box = byID[l.equipmentId], let host = byID[l.hostId], InventoryRules.landsChannels(box: box.role, host: host.role) else { return [] }
             return InventoryRules.resolveLink(l, box: box.ports, host: host.ports, overrides: overrides[l.id] ?? [:]).compactMap { pair in
                 guard let b = patchPorts[pair.box.id], let h = patchPorts[pair.host.id] else { return nil }
                 // Inputs flow from the box to the console; the console's outputs flow back out to the box's outputs.
                 return pair.box.direction == .input ? Hop(from: b, to: h, custom: pair.custom, linkId: l.id) : Hop(from: h, to: b, custom: pair.custom, linkId: l.id)
             }
         }
+        // The internal patch, as signal flow. A stage box socket whose channel lands on the console is followed through
+        // the console channel it lands on, so the path reads box → link → console → channel.
+        var landedOn: [String: PatchPort] = [:], landedFrom: [String: PatchPort] = [:]
+        for h in hops {
+            if h.from.port.direction == .input { landedOn[h.from.id] = h.to } else { landedFrom[h.to.id] = h.from }
+        }
+        let channelByID = Dictionary(uniqueKeysWithValues: channels.map { ($0.id, $0) })
+        routes = consolePatch.compactMap { p in
+            guard let ch = channelByID[p.channelId], let console = byID[ch.equipmentId], let socket = patchPorts[p.portId] else { return nil }
+            let strip = PatchPort(port: ch.asPort, device: console, place: InventoryRules.placeLabel(console, rooms: roomsByID, racks: racksByID))
+            if ch.kind == .input {
+                let from = landedOn[socket.id].flatMap { $0.device.id == console.id ? $0 : nil } ?? socket
+                return Route(from: from, to: strip, channelId: ch.id)
+            }
+            let to = landedFrom[socket.id].flatMap { $0.device.id == console.id ? $0 : nil } ?? socket
+            return Route(from: strip, to: to, channelId: ch.id)
+        }
     }
 
     func clear() {
         level = .none; isAdmin = false; churchId = ""; churchSlug = ""; campuses = []
         equipment = []; cables = []; links = []; linkMap = []; rooms = []; racks = []; service = []; files = []
-        byID = [:]; patches = []; hops = []; portOwner = [:]; roomsByID = [:]; racksByID = [:]
+        channels = []; consolePatch = []; consoleReady = false
+        byID = [:]; patches = []; hops = []; routes = []; portOwner = [:]; roomsByID = [:]; racksByID = [:]
         error = nil; loadedOnce = false
     }
 
@@ -278,6 +308,7 @@ final class InventoryStore: ObservableObject {
     var scoped: [Equipment] { equipment.filter(inScope) }
     var scopedPatches: [Patch] { patches.filter { inScope($0.from.device) || inScope($0.to.device) } }
     var scopedHops: [Hop] { hops.filter { inScope($0.from.device) || inScope($0.to.device) } }
+    var scopedRoutes: [Route] { routes.filter { inScope($0.from.device) || inScope($0.to.device) } }
     var scopedRooms: [Room] { rooms.filter { InventoryRules.inCampus(scope, $0.campus) } }
     var hasUnassigned: Bool { equipment.contains { $0.campus.isEmpty } }
 
@@ -346,6 +377,79 @@ final class InventoryStore: ObservableObject {
                 return Candidate(device: other, port: p, rank: fit.rank, warning: fit.warning)
             }
         }
+    }
+
+    // MARK: Console channels
+
+    func channels(of e: Equipment, _ kind: ChannelKind) -> [ConsoleChannel] { channels.filter { $0.equipmentId == e.id && $0.kind == kind } }
+    /// Consoles with channels to patch: every mixing console, and anything else that has channels already.
+    var consoles: [Equipment] {
+        let having = Set(channels.map(\.equipmentId))
+        return scoped.filter { $0.role == .console || having.contains($0.id) }
+    }
+    /// The sockets a channel uses: its source, or where a mix goes.
+    func sockets(of channel: ConsoleChannel) -> [(patch: ConsolePatch, device: Equipment, port: EquipmentPort)] {
+        consolePatch.filter { $0.channelId == channel.id }.compactMap { p in port(p.portId).map { (p, $0.0, $0.1) } }
+            .sorted { InventoryRules.byPort($0.port, $1.port) }
+    }
+    /// Console channels patched to a socket, for showing beside the socket.
+    func channels(at portID: String) -> [(console: Equipment, channel: ConsoleChannel)] {
+        let ids = Set(consolePatch.filter { $0.portId == portID }.map(\.channelId))
+        return channels.filter { ids.contains($0.id) }.compactMap { c in byID[c.equipmentId].map { ($0, c) } }
+    }
+
+    /// The controller a surface (or a box on one) is attached to, if any.
+    func controller(of e: Equipment) -> Equipment? {
+        guard let host = link(asBox: e).flatMap({ byID[$0.hostId] }) else { return nil }
+        return host.role == .surface ? controller(of: host) : host
+    }
+
+    /// One place a console can take signal from or send it to: its own sockets, an option card, or a device linked to it.
+    struct SocketGroup: Identifiable {
+        var id: String
+        var title: String
+        var detail: String
+        var device: Equipment
+        var ports: [EquipmentPort]
+    }
+
+    /// Every socket a console's channels can be patched to, grouped the way the desk lists them: its own, each card,
+    /// then the stage boxes and surfaces linked to it (and the boxes plugged into those surfaces).
+    func socketGroups(for console: Equipment, _ kind: ChannelKind) -> [SocketGroup] {
+        let fits: (EquipmentPort) -> Bool = { kind == .input ? $0.feedsIn : $0.feedsOut }
+        var out = [SocketGroup(id: console.id, title: "Local", detail: console.name, device: console, ports: console.ownPorts.filter(fits))]
+        for card in console.cards {
+            out.append(SocketGroup(id: card.id, title: card.label, detail: card.signal.label, device: console,
+                                   ports: console.ports.filter { $0.cardId == card.id && fits($0) }))
+        }
+        func linked(to host: Equipment, depth: Int) {
+            let attached = links(asHost: host).compactMap { l in byID[l.equipmentId].map { (l, $0) } }
+                .sorted { ($0.1.role == .surface ? 1 : 0, $0.1.name) < ($1.1.role == .surface ? 1 : 0, $1.1.name) }
+            for (l, d) in attached {
+                var bits = [d.role?.label ?? "Linked", l.signal.label]
+                if let card = host.card(l.hostCardId) { bits.append("via \(card.label)") }
+                if host.id != console.id { bits.append("on \(host.name)") }
+                out.append(SocketGroup(id: d.id, title: d.name, detail: bits.joined(separator: " · "), device: d, ports: d.ports.filter(fits)))
+                if depth < 2, d.role == .surface { linked(to: d, depth: depth + 1) }
+            }
+        }
+        linked(to: console, depth: 0)
+        return out.filter { !$0.ports.isEmpty }
+    }
+
+    /// What's plugged into a socket from outside: "← Mic 4 · 1. SM58", or nil when nothing is.
+    func upstream(of portID: String) -> String? {
+        if let c = cables.first(where: { $0.toPort == portID }), let from = port(c.fromPort) { return "\(from.0.name) · \(from.0.portName(from.1))" }
+        if let h = hops.first(where: { $0.to.id == portID && $0.to.port.direction == .input }) { return "\(h.from.device.name) · \(h.from.name)" }
+        return nil
+    }
+
+    /// Where a socket goes from here: "→ Amp 2 · Input 1", or nil.
+    func downstream(of portID: String) -> String? {
+        let outs = cables.filter { $0.fromPort == portID }.compactMap { port($0.toPort) }.map { "\($0.0.name) · \($0.0.portName($0.1))" }
+        let hopped = hops.filter { $0.from.id == portID && $0.from.port.direction == .output }.map { "\($0.to.device.name) · \($0.to.name)" }
+        let all = outs + hopped
+        return all.isEmpty ? nil : all.joined(separator: ", ")
     }
 
     // MARK: Changing things
@@ -688,6 +792,76 @@ final class InventoryStore: ObservableObject {
             try await db.delete("equipment_connections", [.in("id", found.map(\.id))])
             return "Converted \(found.count) \(found.count == 1 ? "cable" : "cables") into a connection."
         }
+    }
+
+    // Console channels
+
+    private func consoleEditor() throws -> SupabaseClient {
+        let db = try editor()
+        guard consoleReady else { throw InventoryError("Your church's database doesn't have console channels yet. Ask whoever runs the website to update it.") }
+        return db
+    }
+
+    /// Gives a console exactly this many input channels and mixes, numbered from 1. New ones start unnamed; lowering a
+    /// count removes the highest-numbered ones and their patch.
+    func setChannelCounts(_ consoleID: String, inputs: Int, outputs: Int) async -> (ok: Bool, message: String) {
+        await run {
+            let db = try consoleEditor()
+            guard (0...512).contains(inputs), (0...512).contains(outputs) else { throw InventoryError("Channels and mixes must be a whole number from 0 to 512.") }
+            var add: [[String: Any?]] = [], remove: [String] = []
+            for (kind, count) in [(ChannelKind.input, inputs), (.output, outputs)] {
+                let change = InventoryRules.channelChanges(channels.filter { $0.equipmentId == consoleID && $0.kind == kind }, count: count)
+                add += change.add.map { ["church_id": churchId, "equipment_id": consoleID, "kind": kind.rawValue, "number": $0, "label": ""] }
+                remove += change.remove
+            }
+            for start in stride(from: 0, to: remove.count, by: 100) {
+                try await db.delete("console_channels", [.in("id", Array(remove[start..<min(remove.count, start + 100)]))])
+            }
+            for start in stride(from: 0, to: add.count, by: 500) { _ = try await db.insert("console_channels", Array(add[start..<min(add.count, start + 500)])) }
+            return "Saved."
+        }
+    }
+
+    func renameChannel(_ id: String, _ label: String) async -> (ok: Bool, message: String) {
+        await run {
+            try await consoleEditor().update("console_channels", ["label": String(label.trimmingCharacters(in: .whitespaces).prefix(80))], [.eq("id", id)])
+            return "Saved."
+        }
+    }
+
+    /// Patches channels to sockets. An input channel takes one source, so its old one goes; an output socket carries one
+    /// mix, so whatever mix it carried goes. A mix can go to many sockets, and a socket can feed many input channels.
+    func patchChannels(_ pairs: [(channel: String, port: String)]) async -> (ok: Bool, message: String) {
+        await run {
+            let db = try consoleEditor()
+            guard !pairs.isEmpty else { throw InventoryError("There's nothing to patch.") }
+            let byID = Dictionary(uniqueKeysWithValues: channels.map { ($0.id, $0) })
+            var inputs: [String] = [], doomed = Set<String>()
+            for (c, p) in pairs {
+                guard let ch = byID[c], let socket = port(p)?.1 else { throw InventoryError("One of those channels no longer exists.") }
+                if ch.kind == .input {
+                    guard socket.feedsIn else { throw InventoryError("An input channel takes its signal from an input socket.") }
+                    inputs.append(c)
+                } else {
+                    guard socket.feedsOut else { throw InventoryError("A mix goes out of an output socket.") }
+                    for old in consolePatch where old.portId == p && byID[old.channelId]?.kind == .output { doomed.insert(old.id) }
+                }
+            }
+            for start in stride(from: 0, to: inputs.count, by: 100) {
+                try await db.delete("console_patch", [.in("channel_id", Array(inputs[start..<min(inputs.count, start + 100)]))])
+            }
+            let ids = Array(doomed)
+            for start in stride(from: 0, to: ids.count, by: 100) { try await db.delete("console_patch", [.in("id", Array(ids[start..<min(ids.count, start + 100)]))]) }
+            let rows: [[String: Any?]] = pairs.map { ["church_id": churchId, "channel_id": $0.channel, "port_id": $0.port] }
+            do {
+                for start in stride(from: 0, to: rows.count, by: 500) { _ = try await db.insert("console_patch", Array(rows[start..<min(rows.count, start + 500)])) }
+            } catch let e as SupabaseError where e.isUnique { throw InventoryError("That mix already goes to that socket.") }
+            return pairs.count == 1 ? "Patched." : "Patched \(pairs.count) channels."
+        }
+    }
+
+    func unpatchChannel(_ patchID: String) async -> (ok: Bool, message: String) {
+        await run { try await consoleEditor().delete("console_patch", [.eq("id", patchID)]); return "Unpatched." }
     }
 
     // Service log

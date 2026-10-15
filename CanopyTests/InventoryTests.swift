@@ -91,6 +91,54 @@ struct InventoryTests {
         #expect(InventoryRules.buildChains(patches: loop, hops: []).isEmpty)  // everything is fed, so nothing starts
     }
 
+    // MARK: Console channels
+
+    private func channel(_ id: String, _ kind: ChannelKind, _ n: Int, label: String = "") -> ConsoleChannel {
+        ConsoleChannel(id: id, equipmentId: "con", kind: kind, number: n, label: label)
+    }
+
+    @Test func channelCountsAddTheGapsAndDropPastTheEnd() {
+        let have = [channel("c1", .input, 1), channel("c3", .input, 3), channel("c5", .input, 5)]
+        let change = InventoryRules.channelChanges(have, count: 4)
+        #expect(change.add == [2, 4])
+        #expect(change.remove == ["c5"])
+        let none = InventoryRules.channelChanges(have, count: 0)
+        #expect(none.add.isEmpty && none.remove == ["c1", "c3", "c5"])
+    }
+
+    @Test func blockPairsChannelsWithSocketsInOrderUntilEitherRunsOut() {
+        let chs = (1...8).map { channel("c\($0)", .input, $0) }
+        let sockets = (1...4).map { (n: Int) in port("s\(n)", "box", n, .input) }
+        let pairs = InventoryRules.block(channels: chs, first: 3, count: 16, sockets: sockets, start: "s2")
+        #expect(pairs.map { "\($0.channel.number)>\($0.socket.id)" } == ["3>s2", "4>s3", "5>s4"])
+        #expect(InventoryRules.block(channels: chs, first: 1, count: 2, sockets: sockets, start: "nope").isEmpty)
+    }
+
+    @Test func surfacesAndBoxesOnThemDontLandOnChannels() {
+        #expect(InventoryRules.landsChannels(box: .stageBox, host: .console))
+        #expect(!InventoryRules.landsChannels(box: .surface, host: .console))
+        #expect(!InventoryRules.landsChannels(box: .stageBox, host: .surface))
+    }
+
+    @Test func chainsRunThroughTheConsolePatchToAChannelAndOutOfAMix() {
+        let mic = Equipment(id: "mic", name: "Mic", role: .source, ports: [port("mo", "mic", 1, .output)])
+        let surface = Equipment(id: "srf", name: "S5000", role: .surface, ports: [port("si", "srf", 1, .input), port("so", "srf", 1, .output)])
+        let con = Equipment(id: "con", name: "MixRack", role: .console)
+        let amp = Equipment(id: "amp", name: "Amp", role: .amp, ports: [port("ai", "amp", 1, .input)])
+        let pp = { (p: EquipmentPort, e: Equipment) in PatchPort(port: p, device: e, place: "") }
+        let kick = channel("ch1", .input, 1, label: "Kick"), mains = channel("mx1", .output, 1, label: "Mains")
+        let cables = [
+            Patch(cable: Cable(id: "c1", fromPort: "mo", toPort: "si", note: ""), from: pp(mic.ports[0], mic), to: pp(surface.ports[0], surface)),
+            Patch(cable: Cable(id: "c2", fromPort: "so", toPort: "ai", note: ""), from: pp(surface.ports[1], surface), to: pp(amp.ports[0], amp)),
+        ]
+        let routes = [Route(from: pp(surface.ports[0], surface), to: pp(kick.asPort, con), channelId: "ch1"),
+                      Route(from: pp(mains.asPort, con), to: pp(surface.ports[1], surface), channelId: "mx1")]
+        let chains = InventoryRules.buildChains(patches: cables, hops: [], routes: routes)
+        #expect(chains.map { $0.stops.map(\.name) } == [["Output 1", "Input 1", "Ch 1 · Kick"], ["Mix 1 · Mains", "Output 1", "Input 1"]])
+        #expect(chains[0].via == [.cable, .route])
+        #expect(chains[1].via == [.route, .cable])
+    }
+
     // MARK: Advice
 
     @Test func peerFitPrefersTheUsualDeviceAndMatchingSignal() {

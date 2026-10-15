@@ -57,7 +57,7 @@ struct ChannelsSection: View {
                         }
                     }
                 } label: {
-                    let patched = g.ports.filter { !store.cable(at: $0.id).isEmpty || feeds[$0.id] != nil }.count
+                    let patched = g.ports.filter { !store.cable(at: $0.id).isEmpty || feeds[$0.id] != nil || !store.channels(at: $0.id).isEmpty }.count
                     Text("\(g.title) · \(g.ports.count)").fontWeight(.medium)
                         + Text("  \(patched) patched").font(.canopyCaption).foregroundColor(.secondary)
                 }
@@ -68,6 +68,7 @@ struct ChannelsSection: View {
 }
 
 private struct ChannelRow: View {
+    @EnvironmentObject private var nav: InventoryNavigator
     @ObservedObject private var store = InventoryStore.shared
     let equipment: Equipment
     let port: EquipmentPort
@@ -101,7 +102,16 @@ private struct ChannelRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(cables) { c in cableLine(c) }
                 if let feed { feedLine(feed) }
-                if cables.isEmpty && feed == nil && !canEdit { Text("—").foregroundStyle(.tertiary) }
+                ForEach(store.channels(at: port.id), id: \.channel.id) { hit in
+                    HStack(spacing: 4) {
+                        Image(systemName: "slider.vertical.3").font(.canopyCaption).foregroundStyle(Color.canopySage)
+                        Text(port.feedsIn && hit.channel.kind == .input ? "→" : "←").foregroundStyle(.secondary)
+                        if hit.console.id == equipment.id { Text(hit.channel.title) }
+                        else { Button(hit.console.name) { nav.open(hit.console.id) }.buttonStyle(.link); Text("· \(hit.channel.title)") }
+                    }
+                    .help(hit.channel.kind == .input ? "Patched inside the console to this input channel" : "This mix is sent out of this socket")
+                }
+                if cables.isEmpty && feed == nil && store.channels(at: port.id).isEmpty && !canEdit { Text("—").foregroundStyle(.tertiary) }
             }
             Spacer(minLength: 0)
             if canEdit && (cables.isEmpty || port.direction != .input) {
@@ -336,26 +346,36 @@ struct StageLinkSection: View {
     @State private var editing = false
 
     private var e: Equipment { equipment }
+    private var isSurface: Bool { e.role == .surface }
     private var asBox: StageLink? { store.link(asBox: e) }
     private var asHost: [StageLink] { store.links(asHost: e) }
+    /// Consoles first, then surfaces (a stage box can plug into a surface), then everything else.
     private var hosts: [Equipment] {
-        store.equipment.filter { $0.id != e.id && $0.campus == e.campus }
-            .sorted { ($0.role == .console ? 0 : 1, $0.name) < ($1.role == .console ? 0 : 1, $1.name) }
+        func rank(_ d: Equipment) -> Int { d.role == .console ? 0 : d.role == .surface && !isSurface ? 1 : 2 }
+        return store.equipment.filter { $0.id != e.id && $0.campus == e.campus }.sorted { (rank($0), $0.name) < (rank($1), $1.name) }
     }
-    private var relevant: Bool { e.role == .stageBox || asBox != nil || !asHost.isEmpty || store.crossedCables(e) != nil }
+    /// Whether the box's channels land on the host's channels from a starting number (not for surfaces).
+    private func lands(_ hostID: String) -> Bool { InventoryRules.landsChannels(box: e.role, host: store.byID[hostID]?.role) }
+    private var relevant: Bool { e.role == .stageBox || isSurface || asBox != nil || !asHost.isEmpty || store.crossedCables(e) != nil }
 
     var body: some View {
         if relevant {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Stage box connection").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
-                Text("A stage box's channels reach the console over one link (gigaACE, Dante, AES50…) instead of a cable per channel. Box channel 1 lands on the first console channel you choose, and so on; reassign single channels from the channel list.")
+                Text(isSurface ? "Controller" : "Stage box connection").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
+                Text(isSurface
+                     ? "When the mixing happens in a separate controller (a dLive MixRack, say), attach this surface to it. The surface's own sockets, and any stage box plugged into the surface, then show up in the controller's console channels to patch from."
+                     : "A stage box's channels reach the console over one link (gigaACE, Dante, AES50…) instead of a cable per channel. Box channel 1 lands on the first console channel you choose, and so on; reassign single channels from the channel list. Plugged into a control surface, its sockets are patched in the surface's controller instead.")
                     .font(.canopyCaption).foregroundStyle(.secondary)
                 if let link = asBox, !editing {
                     HStack {
                         let host = store.byID[link.hostId]
-                        Text("Connected to")
+                        Text(isSurface ? "Controlled by" : "Connected to")
                         Button(host?.name ?? "(unknown)") { if let host { nav.open(host.id) } }.buttonStyle(.link)
-                        Text("· \(host?.card(link.hostCardId)?.label ?? "Built-in ports") · from channel \(link.portOffset + 1)")
+                        Text("· \(host?.card(link.hostCardId)?.label ?? "Built-in ports")" + (lands(link.hostId) ? " · from channel \(link.portOffset + 1)" : ""))
+                        if !isSurface, host?.role == .surface, let ctrl = store.controller(of: e) {
+                            Text("· patched in").foregroundStyle(.secondary)
+                            Button(ctrl.name) { nav.open(ctrl.id) }.buttonStyle(.link)
+                        }
                         SignalTag(signal: link.signal)
                         Spacer()
                         if store.level.canEdit {
@@ -363,7 +383,7 @@ struct StageLinkSection: View {
                             Button("Disconnect") { Task { result = await store.removeLink(link.id) } }.buttonStyle(.canopySecondary)
                         }
                     }
-                } else if store.level.canEdit && (e.role == .stageBox || editing || store.crossedCables(e) != nil) {
+                } else if store.level.canEdit && (e.role == .stageBox || isSurface || editing || store.crossedCables(e) != nil) {
                     editor
                 }
                 if let crossed = store.crossedCables(e), store.level.canEdit {
@@ -376,10 +396,12 @@ struct StageLinkSection: View {
                     }
                 }
                 ForEach(asHost) { link in
+                    let other = store.byID[link.equipmentId]
                     HStack {
-                        Text("Feeds in from")
-                        Button(store.byID[link.equipmentId]?.name ?? "(unknown)") { nav.open(link.equipmentId) }.buttonStyle(.link)
-                        Text("on \(e.card(link.hostCardId)?.label ?? "built-in ports"), from channel \(link.portOffset + 1)").foregroundStyle(.secondary)
+                        Text(other?.role == .surface ? "Controlled from" : "Feeds in from")
+                        Button(other?.name ?? "(unknown)") { nav.open(link.equipmentId) }.buttonStyle(.link)
+                        Text("on \(e.card(link.hostCardId)?.label ?? "built-in ports")" + (InventoryRules.landsChannels(box: other?.role, host: e.role) ? ", from channel \(link.portOffset + 1)" : ""))
+                            .foregroundStyle(.secondary)
                         SignalTag(signal: link.signal)
                     }
                     .font(.canopyCallout)
@@ -394,7 +416,7 @@ struct StageLinkSection: View {
         let host = store.byID[hostID]
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Picker("Console", selection: Binding(get: { hostID }, set: { hostID = $0; cardID = "" })) {
+                Picker(isSurface ? "Controller" : "Console", selection: Binding(get: { hostID }, set: { hostID = $0; cardID = "" })) {
                     Text("Choose…").tag("")
                     ForEach(hosts) { Text($0.name).tag($0.id) }
                 }
@@ -410,12 +432,14 @@ struct StageLinkSection: View {
                 if cardID.isEmpty {
                     Picker("Link", selection: $signal) { ForEach(Signal.allCases) { Text($0.label).tag($0) } }.frame(maxWidth: 180)
                 }
-                Stepper("Box channel 1 lands on console channel \(first)", value: $first, in: 1...1025)
+                if hostID.isEmpty || lands(hostID) {
+                    Stepper("Box channel 1 lands on console channel \(first)", value: $first, in: 1...1025)
+                }
                 Spacer()
                 if editing { Button("Cancel") { editing = false }.buttonStyle(.canopySecondary) }
                 Button("Connect") {
                     Task {
-                        result = await store.setLink(box: e.id, host: hostID, cardID: cardID.isEmpty ? nil : cardID, signal: signal, offset: first - 1)
+                        result = await store.setLink(box: e.id, host: hostID, cardID: cardID.isEmpty ? nil : cardID, signal: signal, offset: lands(hostID) ? first - 1 : 0)
                         if result?.ok == true { editing = false }
                     }
                 }

@@ -12,6 +12,7 @@ import Combine
 enum InventoryTab: String, CaseIterable, Identifiable {
     case equipment = "Equipment"
     case patch = "Patch Sheet"
+    case console = "Console Patch"
     case flow = "Signal Flow"
     case map = "System Map"
     case rooms = "Rooms & Racks"
@@ -21,7 +22,7 @@ enum InventoryTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var symbol: String {
         switch self {
-        case .equipment: return "shippingbox"; case .patch: return "cable.connector"; case .flow: return "arrow.triangle.branch"
+        case .equipment: return "shippingbox"; case .patch: return "cable.connector"; case .console: return "slider.vertical.3"; case .flow: return "arrow.triangle.branch"
         case .map: return "point.3.connected.trianglepath.dotted"; case .rooms: return "square.stack.3d.up"; case .configs: return "doc.badge.gearshape"
         case .review: return "checklist"; case .importing: return "square.and.arrow.down"
         }
@@ -70,7 +71,7 @@ struct InventoryView: View {
     // MARK: Header
 
     private var tabs: [InventoryTab] {
-        guard store.level.canViewDetails else { return [.patch, .flow, .map] }
+        guard store.level.canViewDetails else { return [.patch, .console, .flow, .map] }
         return InventoryTab.allCases.filter { tab in
             switch tab {
             case .configs: return store.isAdmin
@@ -181,6 +182,7 @@ struct InventoryView: View {
                 switch nav.tab {
                 case .equipment: EquipmentBrowser()
                 case .patch: PatchSheetView()
+                case .console: ConsolePatchView()
                 case .flow: SignalFlowView()
                 case .map: SystemMapView()
                 case .rooms: RoomsRacksView()

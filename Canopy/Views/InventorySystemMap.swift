@@ -41,11 +41,14 @@ struct SystemMapView: View {
         }
         for p in store.scopedPatches { add(p.from.device.id, p.to.device.id, p.from.port.signal, link: false) }
         for l in store.links where store.byID[l.equipmentId].map(store.inScope) ?? false {
-            let n = store.scopedHops.filter { $0.linkId == l.id }.count
-            if n > 0 {
-                add(l.equipmentId, l.hostId, l.signal, link: true)
-                acc["\(l.equipmentId)>\(l.hostId)>true"]?.0.count = n
-            }
+            // A stage box's channels land on the console; a surface (or a box on one) is patched in the controller,
+            // so its count is how many console channels use its sockets.
+            let landing = store.scopedHops.filter { $0.linkId == l.id }.count
+            let patched = store.scopedRoutes.filter { $0.from.device.id == l.equipmentId || $0.to.device.id == l.equipmentId }.count
+            let lands = InventoryRules.landsChannels(box: store.byID[l.equipmentId]?.role, host: store.byID[l.hostId]?.role)
+            guard landing > 0 || !lands else { continue }
+            add(l.equipmentId, l.hostId, l.signal, link: true)
+            acc["\(l.equipmentId)>\(l.hostId)>true"]?.0.count = lands ? landing : patched
         }
         return acc.values.map { e, signals in
             var edge = e
@@ -116,7 +119,7 @@ struct SystemMapView: View {
                         }
                         .frame(width: size.width, height: size.height)
                         ForEach(edges) { e in
-                            if let a = positions[e.from], let b = positions[e.to], hovered == nil || hovered == e.from || hovered == e.to {
+                            if let a = positions[e.from], let b = positions[e.to], e.count > 0, hovered == nil || hovered == e.from || hovered == e.to {
                                 Text("\(e.count)")
                                     .font(.canopySans(10, weight: .semibold)).monospacedDigit()
                                     .padding(.horizontal, 4)
@@ -199,7 +202,7 @@ struct SystemMapView: View {
             if edges.contains(where: \.link) {
                 HStack(spacing: 3) {
                     Text("- - -").foregroundStyle(Color.canopySage)
-                    Text("stage box link")
+                    Text("stage box or surface link")
                 }
             }
         }
