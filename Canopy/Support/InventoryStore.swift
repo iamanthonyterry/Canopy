@@ -267,9 +267,11 @@ final class InventoryStore: ObservableObject {
             return InventoryRules.byPort(a.from.port, b.from.port)
         }
         let overrides = Dictionary(grouping: linkMap, by: \.linkId).mapValues { Dictionary($0.map { ($0.boxPort, $0.hostPort) }, uniquingKeysWith: { $1 }) }
+        // Inputs a cable or a reassigned channel already feeds: a box's default landing doesn't stack on top of them.
+        let fed = Set(cables.map(\.toPort) + linkMap.map(\.hostPort))
         hops = links.flatMap { l -> [Hop] in
             guard let box = byID[l.equipmentId], let host = byID[l.hostId], InventoryRules.landsChannels(box: box.role, host: host.role) else { return [] }
-            return InventoryRules.resolveLink(l, box: box.ports, host: host.ports, overrides: overrides[l.id] ?? [:]).compactMap { pair in
+            return InventoryRules.resolveLink(l, box: box.ports, host: host.ports, overrides: overrides[l.id] ?? [:], fed: fed).compactMap { pair in
                 guard let b = patchPorts[pair.box.id], let h = patchPorts[pair.host.id] else { return nil }
                 // Inputs flow from the box to the console; the console's outputs flow back out to the box's outputs.
                 return pair.box.direction == .input ? Hop(from: b, to: h, custom: pair.custom, linkId: l.id) : Hop(from: h, to: b, custom: pair.custom, linkId: l.id)

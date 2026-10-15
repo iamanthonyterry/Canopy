@@ -61,6 +61,15 @@ struct InventoryTests {
         #expect(pairs.map { "\($0.box.id)>\($0.host.id)>\($0.custom)" } == ["b1>h3>false", "b2>h9>true", "bo1>ho3>false"])  // outputs come back the same way
     }
 
+    @Test func aBoxsDefaultLandingGivesWayToACableOrAReassignedChannel() {
+        let box = [port("b1", "box", 1, .input), port("b2", "box", 2, .input), port("b3", "box", 3, .input), port("bo1", "box", 1, .output)]
+        let host = [port("h1", "con", 1, .input), port("h2", "con", 2, .input), port("h3", "con", 3, .input), port("ho1", "con", 1, .output)]
+        let link = StageLink(id: "l", equipmentId: "box", hostId: "con", hostCardId: nil, signal: .gigaace, portOffset: 0)
+        // A Dante cable feeds console input 2, and box channel 3 was reassigned onto console input 1.
+        let pairs = InventoryRules.resolveLink(link, box: box, host: host, overrides: ["b3": "h1"], fed: ["h2", "ho1"])
+        #expect(pairs.map { "\($0.box.id)>\($0.host.id)" } == ["b3>h1", "bo1>ho1"])  // outputs still come back
+    }
+
     @Test func linksThroughACardOnlyUseThatCardsChannels() {
         let box = [port("b1", "box", 1, .input)]
         let host = [port("own1", "con", 1, .input), port("card1", "con", 1, .input, card: "slot1")]
