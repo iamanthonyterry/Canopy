@@ -270,6 +270,8 @@ nonisolated struct EquipmentPreset: Codable, Hashable, Identifiable, Sendable {
     var signal: String
     var extraInputs: Int
     var extraSignal: String
+    /// Nil until the database has the extra_outputs column (a preset's outputs then all carry `signal`).
+    var extraOutputs: Int?
     var cardSlots: Int
     var id: String { "\(brand)\n\(model)" }
     var name: String { "\(brand) \(model)" }

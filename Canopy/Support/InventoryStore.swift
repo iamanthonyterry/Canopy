@@ -60,9 +60,11 @@ struct EquipmentDraft: Equatable {
     var cardSlots = 0
     var inputs = 0
     var outputs = 0
-    /// What new channels carry: `signal`, except the highest-numbered `extraInputs` inputs, which carry `extraSignal`.
+    /// What new channels carry: `signal`, except the highest-numbered `extraInputs` inputs and `extraOutputs`
+    /// outputs, which carry `extraSignal` (a Dante AVIO: analog in, Dante out).
     var signal: Signal?
     var extraInputs = 0
+    var extraOutputs = 0
     var extraSignal: Signal?
 
     init() {}
@@ -82,7 +84,7 @@ struct EquipmentDraft: Equatable {
     mutating func apply(_ p: EquipmentPreset) {
         name = p.name; makeModel = p.name; category = p.category; role = DeviceRole(rawValue: p.role)
         inputs = p.inputs; outputs = p.outputs; cardSlots = p.cardSlots; value = p.price
-        signal = Signal(rawValue: p.signal); extraInputs = p.extraInputs; extraSignal = Signal(rawValue: p.extraSignal)
+        signal = Signal(rawValue: p.signal); extraInputs = p.extraInputs; extraOutputs = p.extraOutputs ?? 0; extraSignal = Signal(rawValue: p.extraSignal)
     }
 }
 
@@ -191,8 +193,7 @@ final class InventoryStore: ObservableObject {
         async let mapRows = db.select("equipment_link_map", "link_id,box_port,host_port", mine, as: LinkMapEntry.self)
         async let roomRows = db.select("equipment_rooms", "id,name,campus", mine, as: Room.self)
         async let rackRows = db.select("equipment_racks", "id,room_id,name,units", mine, as: Rack.self)
-        async let presetRows = db.select("equipment_presets", "category,brand,model,inputs,outputs,price,role,signal,extra_inputs,extra_signal,card_slots",
-                                         [.order("sort_order,brand,model")], as: EquipmentPreset.self)
+        async let presetRows = Self.loadPresets(db)
         async let typeRows = db.select("equipment_card_types", "id,name,brand,signal,inputs,outputs", [.order("sort_order,name")], as: CardType.self)
 
         let (e, p, c, k, l, m, r, rk) = try await (eqRows, portRows, cardRows, cableRows, linkRows, mapRows, roomRows, rackRows)
@@ -423,6 +424,14 @@ final class InventoryStore: ObservableObject {
         }
     }
 
+    /// The "Start from" list. Falls back to the older columns while the database lacks extra_outputs.
+    nonisolated private static func loadPresets(_ db: SupabaseClient) async throws -> [EquipmentPreset] {
+        let columns = "category,brand,model,inputs,outputs,price,role,signal,extra_inputs,extra_signal,card_slots"
+        let order: [Filter] = [.order("sort_order,brand,model")]
+        if let rows = try? await db.select("equipment_presets", columns + ",extra_outputs", order, as: EquipmentPreset.self) { return rows }
+        return try await db.select("equipment_presets", columns, order, as: EquipmentPreset.self)
+    }
+
     /// Makes a device have exactly `inputs` input and `outputs` output channels of its own, numbered from 1. New
     /// channels start unnamed; lowering a count removes the highest-numbered channels and their cables.
     private func syncPorts(_ equipmentID: String, _ d: EquipmentDraft) async throws {
@@ -446,7 +455,7 @@ final class InventoryStore: ObservableObject {
             let doomed = mine.filter { ($0.number ?? 0) > count }.map(\.id)
             if !doomed.isEmpty { try await db.delete("equipment_ports", [.in("id", doomed)]) }
             let rows: [[String: Any?]] = (1...max(1, count)).filter { count > 0 && !taken.contains($0) }.map { n in
-                let isExtra = direction == .input && n > count - d.extraInputs
+                let isExtra = n > count - (direction == .input ? d.extraInputs : d.extraOutputs)
                 return ["church_id": churchId, "equipment_id": equipmentID, "number": n, "label": "", "direction": direction.rawValue,
                         "signal": (isExtra ? extra : signal).rawValue]
             }
