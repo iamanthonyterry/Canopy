@@ -65,7 +65,7 @@ private extension RemoteControlSettingsView {
                         VStack(alignment: .leading, spacing: 2) {
                             ForEach(osc.receivedMessages.suffix(10).reversed()) { entry in
                                 Text("\(Self.timeFormatter.string(from: entry.timestamp))  \(entry.message.address)  ·  \(entry.sourceHost)")
-                                    .font(.caption.monospaced())
+                                    .font(.canopyMono(10, relativeTo: .caption))
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -74,7 +74,7 @@ private extension RemoteControlSettingsView {
                 }
 
                 Text("Built in: **/hyperdeck/{name}/slot/{n}/format/{fs}** always formats that slot on the matching device by name — e.g. /hyperdeck/ISO_1/slot/3/format/HFS+. No mapping needed below.")
-                    .font(.caption)
+                    .font(.canopyCaption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -96,19 +96,19 @@ private extension RemoteControlSettingsView {
                     Spacer()
                     Button("Refresh Sources") { midi.refreshSources() }
                         .buttonStyle(.link)
-                        .font(.caption)
+                        .font(.canopyCaption)
                 }
 
                 if midi.availableSources.isEmpty {
                     Text("No MIDI sources found. Connect a controller, or enable a virtual/network MIDI session in Audio MIDI Setup.")
-                        .font(.caption)
+                        .font(.canopyCaption)
                         .foregroundStyle(.secondary)
                 } else {
                     Toggle("All Sources", isOn: allSourcesBinding)
-                        .font(.caption)
+                        .font(.canopyCaption)
                     ForEach(midi.availableSources) { source in
                         Toggle(source.name, isOn: sourceBinding(source.name))
-                            .font(.caption)
+                            .font(.canopyCaption)
                             .padding(.leading, 16)
                             .disabled(allSourcesBinding.wrappedValue)
                     }
@@ -119,7 +119,7 @@ private extension RemoteControlSettingsView {
                         VStack(alignment: .leading, spacing: 2) {
                             ForEach(midi.receivedMessages.suffix(10).reversed()) { entry in
                                 Text("\(Self.timeFormatter.string(from: entry.timestamp))  \(entry.message.kind.displayName)  ·  Ch \(entry.message.channel + 1)  ·  #\(entry.message.number)")
-                                    .font(.caption.monospaced())
+                                    .font(.canopyMono(10, relativeTo: .caption))
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -172,10 +172,10 @@ private extension RemoteControlSettingsView {
 
             if appState.hyperDecks.isEmpty {
                 Text("Add a HyperDeck first to create a remote-control mapping.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
             } else if appState.remoteMappings.isEmpty {
                 Text("No mappings yet — add one to let an OSC or MIDI trigger control a device.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
             } else {
                 ForEach(appState.remoteMappings.sorted { $0.sortOrder < $1.sortOrder }) { mapping in
                     mappingRow(mapping)
@@ -205,7 +205,7 @@ private extension RemoteControlSettingsView {
             VStack(alignment: .leading, spacing: 2) {
                 Text(mapping.name)
                 Text("\(mapping.trigger.displayText)  →  \(mapping.action.title) on \(deviceName)")
-                    .font(.caption)
+                    .font(.canopyCaption)
                     .foregroundStyle(.secondary)
             }
 
@@ -237,15 +237,15 @@ private extension RemoteControlSettingsView {
     func statusBadge(isActive: Bool, error: String?) -> some View {
         if let error {
             Label(error, systemImage: "exclamationmark.triangle.fill")
-                .font(.caption)
+                .font(.canopyCaption)
                 .foregroundStyle(.orange)
         } else if isActive {
             Label("Listening", systemImage: "checkmark.circle.fill")
-                .font(.caption)
+                .font(.canopyCaption)
                 .foregroundStyle(Color.canopySage)
         } else {
             Label("Stopped", systemImage: "circle")
-                .font(.caption)
+                .font(.canopyCaption)
                 .foregroundStyle(.secondary)
         }
     }

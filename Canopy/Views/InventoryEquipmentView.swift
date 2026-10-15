@@ -76,7 +76,7 @@ struct EquipmentBrowser: View {
                             .labelsHidden().fixedSize()
                         Spacer()
                     }
-                    .font(.caption)
+                    .font(.canopyCaption)
                 }
                 .padding(10)
                 List(selection: $nav.selected) {
@@ -123,7 +123,7 @@ private struct EquipmentRow: View {
                 let c = InventoryRules.counts(e.ownPorts)
                 Text([e.makeModel == e.name ? "" : e.makeModel, store.place(e), c.inputs + c.outputs > 0 ? "\(c.inputs) in · \(c.outputs) out" : ""]
                     .filter { !$0.isEmpty }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    .font(.canopyCaption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)
             if e.status != .inService { CanopyPill(label: e.status.label, color: e.status.color) }
@@ -192,10 +192,10 @@ struct EquipmentDetailView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(e.name).font(.canopyTitle).foregroundStyle(Color.canopyInk).textSelection(.enabled)
                 Text([e.makeModel == e.name ? "" : e.makeModel, e.role?.label ?? "", store.place(e)].filter { !$0.isEmpty }.joined(separator: " · "))
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.canopyCallout).foregroundStyle(.secondary)
                 let c = InventoryRules.counts(e.ports)
                 Text("\(c.inputs) inputs · \(c.outputs) outputs · \(store.cables(of: e).count) cables")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
             }
             Spacer()
             if canEdit {
@@ -248,9 +248,9 @@ struct EquipmentDetailView: View {
                     }
                 }
             }
-            .font(.callout)
+            .font(.canopyCallout)
             if !e.notes.isEmpty {
-                Text(e.notes).font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                Text(e.notes).font(.canopyCallout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8).background(Color.canopyPaper, in: RoundedRectangle(cornerRadius: 8))
             }
         }
@@ -377,16 +377,16 @@ struct CanopyLinkSection: View {
 
     @ViewBuilder private func applyRow(_ driver: DeviceDriver) -> some View {
         HStack {
-            Text(driver.label).font(.callout).foregroundStyle(.secondary)
+            Text(driver.label).font(.canopyCallout).foregroundStyle(.secondary)
             Spacer()
             if e.host == nil {
-                Text("Add its IP address to apply configs.").font(.caption).foregroundStyle(.secondary)
+                Text("Add its IP address to apply configs.").font(.canopyCaption).foregroundStyle(.secondary)
             } else if driver == .ahScene {
                 Button("Recall scene…") { recalling = true }.buttonStyle(.canopySecondary).disabled(working)
             } else if !store.isAdmin {
-                Text("Owners and admins can apply configs.").font(.caption).foregroundStyle(.secondary)
+                Text("Owners and admins can apply configs.").font(.canopyCaption).foregroundStyle(.secondary)
             } else if store.files(of: e).isEmpty {
-                Text("Attach a Videohub config file below to apply it.").font(.caption).foregroundStyle(.secondary)
+                Text("Attach a Videohub config file below to apply it.").font(.canopyCaption).foregroundStyle(.secondary)
             } else {
                 Menu("Apply config…") {
                     ForEach(store.files(of: e)) { f in Button(f.name) { pendingFile = f } }

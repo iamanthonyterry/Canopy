@@ -217,9 +217,9 @@ struct ClipFocusFields: View {
                 .labelsHidden()
                 .textFieldStyle(.roundedBorder)
             Text("Leave empty to find whatever stands out. Music is found by listening to the audio; everything else comes from what's said.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
         }
-        .font(.callout)
+        .font(.canopyCallout)
     }
 }
 
@@ -232,7 +232,7 @@ struct ClipSuggestionsPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Find Clips", systemImage: "sparkles").font(.headline)
+                Label("Find Clips", systemImage: "sparkles").font(.canopyHeadline)
                 Spacer()
                 if !model.candidates.isEmpty, !model.isBusy {
                     Button("Redo") { if let sourceURL { model.find(in: sourceURL) } }
@@ -250,7 +250,7 @@ struct ClipSuggestionsPopover: View {
             case .writingCopy(let done, let total):
                 progressRow("Writing copy \(done) of \(total)…", value: Double(done) / Double(max(total, 1)))
             case .failed(let message):
-                Text(message).font(.callout).foregroundStyle(Color.canopyRust)
+                Text(message).font(.canopyCallout).foregroundStyle(Color.canopyRust)
             case .idle:
                 EmptyView()
             }
@@ -270,7 +270,7 @@ struct ClipSuggestionsPopover: View {
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Suggests moments in this video that would work as short social posts, using the transcript. Runs entirely on this Mac.")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.canopyCallout).foregroundStyle(.secondary)
             ClipFocusFields(focus: $model.focus)
             Button("Find Clips") { if let sourceURL { model.find(in: sourceURL) } }
                 .buttonStyle(.borderedProminent)
@@ -284,7 +284,7 @@ struct ClipSuggestionsPopover: View {
             ClipFocusFields(focus: $model.focus).padding(.top, 6)
         } label: {
             Text(model.focus.isEmpty ? "Looking for whatever stands out" : "Looking for \(model.focus.summary)")
-                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                .font(.canopyCaption).foregroundStyle(.secondary).lineLimit(1)
         }
     }
 
@@ -305,27 +305,27 @@ struct ClipSuggestionsPopover: View {
                 .labelsHidden()
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
-                    Text(clip.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    Text(clip.title).font(.canopySubheadline.weight(.semibold)).lineLimit(1)
                     Spacer()
                     Text("\(clip.score)")
-                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .font(.canopyCaption.monospacedDigit().weight(.semibold))
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Color.canopySage.opacity(0.25), in: Capsule())
                         .help("Strength as a standalone clip, 0–100")
                 }
                 Text("\(Self.time(clip.start)) – \(Self.time(clip.end)) · \(Int(clip.duration.rounded()))s")
-                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    .font(.canopyCaption.monospacedDigit()).foregroundStyle(.secondary)
                 if !clip.openingLine.isEmpty {
                     Text("“\(clip.openingLine)”")
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        .font(.canopyCaption).foregroundStyle(.secondary).lineLimit(2)
                 }
                 if !clip.reason.isEmpty {
-                    Text(clip.reason).font(.caption).foregroundStyle(.secondary.opacity(0.8)).lineLimit(2)
+                    Text(clip.reason).font(.canopyCaption).foregroundStyle(.secondary.opacity(0.8)).lineLimit(2)
                 }
                 if let copy = clip.copy {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
-                            Text(copy.headline).font(.caption.weight(.semibold)).lineLimit(1)
+                            Text(copy.headline).font(.canopyCaption.weight(.semibold)).lineLimit(1)
                             Spacer()
                             Button {
                                 NSPasteboard.general.clearContents()
@@ -334,7 +334,7 @@ struct ClipSuggestionsPopover: View {
                                 .buttonStyle(.plain)
                                 .help("Copy the caption and hashtags")
                         }
-                        Text(copy.postText).font(.caption).foregroundStyle(.secondary).lineLimit(4)
+                        Text(copy.postText).font(.canopyCaption).foregroundStyle(.secondary).lineLimit(4)
                     }
                     .padding(8)
                     .background(RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.06)))
@@ -362,10 +362,10 @@ struct ClipSuggestionsPopover: View {
                 Toggle("Follow subject", isOn: $model.postOptions.followSubject)
             }
             .toggleStyle(.checkbox)
-            .font(.callout)
+            .font(.canopyCallout)
 
             HStack {
-                Text("\(model.selected.count) selected").font(.caption).foregroundStyle(.secondary)
+                Text("\(model.selected.count) selected").font(.canopyCaption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Write Copy") { if let sourceURL { model.writeCopy(for: sourceURL) } }
                     .disabled(model.isBusy || sourceURL == nil || !model.candidates.contains { $0.copy == nil })
@@ -383,7 +383,7 @@ struct ClipSuggestionsPopover: View {
 
     private func progressRow(_ text: String, value: Double?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(text).font(.callout).foregroundStyle(.secondary)
+            Text(text).font(.canopyCallout).foregroundStyle(.secondary)
             if let value { ProgressView(value: value) } else { ProgressView().controlSize(.small) }
         }
     }

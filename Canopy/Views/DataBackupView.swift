@@ -17,7 +17,7 @@ struct DataBackupView: View {
         GroupBox(label: Label("Backup", systemImage: "square.and.arrow.up.on.square")) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Export every workflow and device setting (HyperDecks, Cloud Stores, Local Folders) to a CSV file, or import one to restore or copy them to this Mac.")
-                    .font(.caption2)
+                    .font(.canopyCaption2)
                     .foregroundStyle(.tertiary)
 
                 HStack {
@@ -38,7 +38,7 @@ struct DataBackupView: View {
 
                 if let resultMessage {
                     Text(resultMessage)
-                        .font(.caption)
+                        .font(.canopyCaption)
                         .foregroundStyle(isError ? Color.canopyRust : .secondary)
                 }
             }
@@ -52,7 +52,7 @@ struct DataBackupView: View {
 
     private var exportOptions: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Export Backup").font(.headline)
+            Text("Export Backup").font(.canopyHeadline)
 
             Toggle("Include device usernames & passwords", isOn: $includeCredentials)
                 .toggleStyle(.checkbox)
@@ -60,7 +60,7 @@ struct DataBackupView: View {
             Text(includeCredentials
                  ? "The file will contain plain-text credentials — keep it somewhere private."
                  : "Credentials are left blank; you'll re-enter them after importing.")
-                .font(.caption2)
+                .font(.canopyCaption2)
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: 260, alignment: .leading)
 

@@ -43,7 +43,7 @@ struct LocalFolderEditSheet: View {
                     LabeledContent("Location") {
                         HStack(spacing: 8) {
                             Text(path.isEmpty ? "No folder chosen" : path)
-                                .font(.caption)
+                                .font(.canopyCaption)
                                 .foregroundStyle(path.isEmpty ? .secondary : .primary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)

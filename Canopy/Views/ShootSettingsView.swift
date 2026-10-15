@@ -19,7 +19,7 @@ struct ShootSettingsView: View {
                 }
 
                 if !deviceNames.isEmpty {
-                    Text("Camera labels").font(.caption).foregroundStyle(.secondary)
+                    Text("Camera labels").font(.canopyCaption).foregroundStyle(.secondary)
                     ForEach(deviceNames, id: \.self) { name in
                         LabeledContent(name) {
                             TextField("A", text: Binding(
@@ -29,12 +29,12 @@ struct ShootSettingsView: View {
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 80)
                         }
-                        .font(.caption)
+                        .font(.canopyCaption)
                     }
                 }
 
                 Text("Use {project} and {cam} in a Rename step, for example {project}_{cam}_{date}_{index}.")
-                    .font(.caption2)
+                    .font(.canopyCaption2)
                     .foregroundStyle(.tertiary)
             }
             .padding(.top, 8)

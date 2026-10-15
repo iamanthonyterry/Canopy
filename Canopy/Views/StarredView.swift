@@ -53,7 +53,7 @@ struct StarredView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Starred").font(.canopyTitle).foregroundStyle(Color.canopyInk)
                 Text("\(store.starredEntries.count) clip\(store.starredEntries.count == 1 ? "" : "s") across every device")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.canopySubheadline).foregroundStyle(.secondary)
             }
             Spacer()
             if isExportingNLE {
@@ -118,7 +118,7 @@ struct StarredView: View {
             Image(systemName: "star").font(.system(size: 36)).foregroundStyle(Color.canopySage)
             Text("No starred clips yet").foregroundStyle(.secondary)
             Text("Star a clip while browsing a device to see it here.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 320)
             Spacer()
@@ -221,7 +221,7 @@ private struct StarredClipCard: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(metadata.clipName)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.canopySans(13, weight: .medium))
                         .lineLimit(1).truncationMode(.middle)
                     Spacer()
                     Button {
@@ -235,7 +235,7 @@ private struct StarredClipCard: View {
                 }
 
                 HStack(spacing: 6) {
-                    Text(metadata.deviceLabel).font(.caption).foregroundStyle(.secondary)
+                    Text(metadata.deviceLabel).font(.canopyCaption).foregroundStyle(.secondary)
                         .lineLimit(1)
                     if !deviceAvailable {
                         CanopyPill(label: "Device no longer configured", color: .canopyRust)
@@ -244,7 +244,7 @@ private struct StarredClipCard: View {
 
                 if !metadata.note.isEmpty && !isEditingNote {
                     Text(metadata.note)
-                        .font(.caption)
+                        .font(.canopyCaption)
                         .foregroundStyle(Color.canopyInk)
                         .lineLimit(2)
                 }
@@ -252,7 +252,7 @@ private struct StarredClipCard: View {
                 if isEditingNote {
                     VStack(alignment: .trailing, spacing: 6) {
                         TextEditor(text: $noteDraft)
-                            .font(.caption)
+                            .font(.canopyCaption)
                             .frame(height: 60)
                             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.canopyRule, lineWidth: 1))
                         Button("Done") {
@@ -270,18 +270,18 @@ private struct StarredClipCard: View {
                         isEditingNote = true
                     }
                     .buttonStyle(.borderless)
-                    .font(.caption)
+                    .font(.canopyCaption)
                     .lineLimit(1)
 
                     if metadata.isVideo || metadata.isImage {
                         Button("Play", action: onPlay)
                             .buttonStyle(.borderless)
-                            .font(.caption)
+                            .font(.canopyCaption)
                             .disabled(!deviceAvailable)
 
                         Button("Add to Queue", action: onQueue)
                             .buttonStyle(.borderless)
-                            .font(.caption)
+                            .font(.canopyCaption)
                             .disabled(!deviceAvailable)
                     }
                 }

@@ -31,9 +31,9 @@ struct InterruptedRunsBanner: View {
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\"\(checkpoint.workflow.name)\" was interrupted")
-                    .font(.subheadline).bold()
+                    .font(.canopySubheadline).bold()
                 Text(detail(for: checkpoint, total: total, canResume: canResume))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
             }
             Spacer()
             Button("Discard") { store.discard(id: checkpoint.id) }

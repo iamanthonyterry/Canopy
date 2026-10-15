@@ -56,7 +56,7 @@ struct ExportQueueView: View {
             Image(systemName: "tray").font(.system(size: 36)).foregroundStyle(Color.canopySage)
             Text("Nothing queued").foregroundStyle(.secondary)
             Text("Select clips or photos in a folder and tap “Add to Queue”, or queue a trimmed clip from the video player.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 320)
             Spacer()
@@ -81,12 +81,12 @@ struct ExportQueueView: View {
             if manager.isRunning {
                 ProgressView().controlSize(.small)
                 Text("Exporting \(manager.activeCount) remaining…")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel") { manager.cancel() }
             } else {
                 Text("\(manager.items.count) item\(manager.items.count == 1 ? "" : "s") queued")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
                 Button("Clear Completed") { manager.clearCompleted() }
@@ -152,7 +152,7 @@ private struct ExportQueueRow: View {
                             .lineLimit(1).truncationMode(.middle)
                         if item.isTrimmed {
                             Text("Trimmed")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.canopySans(9, weight: .bold))
                                 .foregroundStyle(.orange)
                                 .padding(.horizontal, 5).padding(.vertical, 1)
                                 .background(Color.orange.opacity(0.12))
@@ -160,7 +160,7 @@ private struct ExportQueueRow: View {
                         }
                     }
                     Text(item.label.map { "\(item.deviceName) · \($0)" } ?? item.deviceName)
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.canopyCaption2).foregroundStyle(.secondary)
                 }
                 Spacer()
                 CanopyPill(label: item.phase.label, color: phaseColor)
@@ -179,7 +179,7 @@ private struct ExportQueueRow: View {
                 ProgressView(value: item.progress).tint(phaseColor)
             case .error:
                 if let msg = item.errorMessage {
-                    Text(msg).font(.caption2).foregroundStyle(Color.canopyRust)
+                    Text(msg).font(.canopyCaption2).foregroundStyle(Color.canopyRust)
                 }
             default:
                 EmptyView()

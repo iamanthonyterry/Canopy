@@ -40,7 +40,7 @@ struct ChannelsSection: View {
                     Menu("All channels carry…") {
                         ForEach(Signal.allCases) { s in Button(s.label) { Task { result = await store.setDeviceSignal(e.id, s) } } }
                     }
-                    .menuStyle(.button).fixedSize().font(.caption)
+                    .menuStyle(.button).fixedSize().font(.canopyCaption)
                 }
             }
             ResultLine(result: result)
@@ -59,7 +59,7 @@ struct ChannelsSection: View {
                 } label: {
                     let patched = g.ports.filter { !store.cable(at: $0.id).isEmpty || feeds[$0.id] != nil }.count
                     Text("\(g.title) · \(g.ports.count)").fontWeight(.medium)
-                        + Text("  \(patched) patched").font(.caption).foregroundColor(.secondary)
+                        + Text("  \(patched) patched").font(.canopyCaption).foregroundColor(.secondary)
                 }
             }
         }
@@ -91,12 +91,12 @@ private struct ChannelRow: View {
                 .foregroundStyle(.secondary)
                 Menu {
                     ForEach(Signal.allCases) { s in Button(s.label) { Task { result = await store.updatePort(port.id, signal: s) } } }
-                } label: { Text(port.signal.label).font(.caption) }
+                } label: { Text(port.signal.label).font(.canopyCaption) }
                     .menuStyle(.borderlessButton).fixedSize().frame(width: 74, alignment: .leading)
             } else {
                 Text(port.label.isEmpty ? port.name() : port.label).frame(width: 150, alignment: .leading)
                 Text(port.kind).foregroundStyle(.secondary).frame(width: 80, alignment: .leading)
-                Text(port.signal.label).font(.caption).foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
+                Text(port.signal.label).font(.canopyCaption).foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
             }
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(cables) { c in cableLine(c) }
@@ -113,7 +113,7 @@ private struct ChannelRow: View {
                     }
             }
         }
-        .font(.callout)
+        .font(.canopyCallout)
         .padding(.vertical, 3)
     }
 
@@ -126,10 +126,10 @@ private struct ChannelRow: View {
 
     @ViewBuilder private func feedLine(_ f: InventoryStore.Feed) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: "point.3.connected.trianglepath.dotted").font(.caption).foregroundStyle(Color.canopySage)
+            Image(systemName: "point.3.connected.trianglepath.dotted").font(.canopyCaption).foregroundStyle(Color.canopySage)
             Text(f.text).foregroundStyle(f.conflict ? Color.canopyRust : Color.canopyInk)
             if f.conflict { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.canopyRust).help("Two channels land on the same console channel") }
-            if f.custom { Text("reassigned").font(.caption2).foregroundStyle(.secondary) }
+            if f.custom { Text("reassigned").font(.canopyCaption2).foregroundStyle(.secondary) }
             if canEdit, let link = store.links.first(where: { $0.id == f.linkId }), link.equipmentId == equipment.id, let host = store.byID[link.hostId] {
                 Menu {
                     let choices = host.ports.filter { $0.direction == port.direction && $0.cardId == link.hostCardId }
@@ -170,7 +170,7 @@ private struct CableLine: View {
             if !fit.warning.isEmpty {
                 Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange).help(fit.warning)
             }
-            if !cable.note.isEmpty { Text(cable.note).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            if !cable.note.isEmpty { Text(cable.note).font(.canopyCaption).foregroundStyle(.secondary).lineLimit(1) }
             if store.level.canEdit {
                 Menu {
                     Button("Change…") { replacing = true }
@@ -184,7 +184,7 @@ private struct CableLine: View {
                     }
                     .popover(isPresented: $noting) {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Cable note").font(.headline)
+                            Text("Cable note").font(.canopyHeadline)
                             TextField("Long run, snake A…", text: $note).textFieldStyle(.roundedBorder).frame(width: 260)
                                 .onSubmit(saveNote)
                             HStack { Spacer(); Button("Save", action: saveNote).buttonStyle(.canopyPrimary) }
@@ -220,7 +220,7 @@ struct PatchPicker: View {
             .sorted { $0.1 != $1.1 ? $0.1 < $1.1 : InventoryRules.ordered($0.0.name, $1.0.name) }
         let q = query.lowercased().trimmingCharacters(in: .whitespaces)
         VStack(alignment: .leading, spacing: 8) {
-            Text("Patch \(equipment.portName(port))").font(.headline)
+            Text("Patch \(equipment.portName(port))").font(.canopyHeadline)
             TextField("Search devices and channels", text: $query).textFieldStyle(.roundedBorder)
             HStack(alignment: .top, spacing: 0) {
                 List(selection: $device) {
@@ -229,7 +229,7 @@ struct PatchPicker: View {
                             Image(systemName: d.role?.symbol ?? "shippingbox").foregroundStyle(.secondary)
                             Text(d.name).lineLimit(1)
                             Spacer()
-                            if rank < 25 { Image(systemName: "star.fill").font(.caption2).foregroundStyle(Color.canopySage).help("Usual for this channel") }
+                            if rank < 25 { Image(systemName: "star.fill").font(.canopyCaption2).foregroundStyle(Color.canopySage).help("Usual for this channel") }
                         }
                         .tag(d.id)
                     }
@@ -246,7 +246,7 @@ struct PatchPicker: View {
                                 HStack(spacing: 4) {
                                     Text(c.device.portName(c.port)).foregroundStyle(busy ? .secondary : Color.canopyInk)
                                     SignalTag(signal: c.port.signal)
-                                    if busy { Text("in use").font(.caption2).foregroundStyle(.secondary) }
+                                    if busy { Text("in use").font(.canopyCaption2).foregroundStyle(.secondary) }
                                     Spacer()
                                     if !c.warning.isEmpty { Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange).help(c.warning) }
                                 }
@@ -260,7 +260,7 @@ struct PatchPicker: View {
                 .frame(width: 280)
             }
             .frame(height: 320)
-            if all.isEmpty { Text("No other devices in this campus have a matching channel.").font(.caption).foregroundStyle(.secondary) }
+            if all.isEmpty { Text("No other devices in this campus have a matching channel.").font(.canopyCaption).foregroundStyle(.secondary) }
         }
         .padding()
     }
@@ -291,7 +291,7 @@ struct CardSlotsSection: View {
                     if let card = e.cards.first(where: { $0.slot == slot }) {
                         Text(card.name).fontWeight(.medium)
                         SignalTag(signal: card.signal)
-                        Text("\(card.inputs) in · \(card.outputs) out").font(.caption).foregroundStyle(.secondary)
+                        Text("\(card.inputs) in · \(card.outputs) out").font(.canopyCaption).foregroundStyle(.secondary)
                         Spacer()
                         if store.level.canEdit {
                             Button("Remove") { confirmRemove = card }.buttonStyle(.canopySecondary)
@@ -349,7 +349,7 @@ struct StageLinkSection: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Stage box connection").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                 Text("A stage box's channels reach the console over one link (gigaACE, Dante, AES50…) instead of a cable per channel. Box channel 1 lands on the first console channel you choose, and so on; reassign single channels from the channel list.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
                 if let link = asBox, !editing {
                     HStack {
                         let host = store.byID[link.hostId]
@@ -370,7 +370,7 @@ struct StageLinkSection: View {
                     HStack {
                         Image(systemName: "lightbulb").foregroundStyle(.orange)
                         Text("\(crossed.count) cables run from this box's outputs into \(crossed.host.name)'s inputs. Turn them into one connection?")
-                            .font(.callout)
+                            .font(.canopyCallout)
                         Spacer()
                         Button("Convert") { Task { result = await store.convertCables(box: e.id, host: crossed.host.id) } }.buttonStyle(.canopySecondary)
                     }
@@ -382,7 +382,7 @@ struct StageLinkSection: View {
                         Text("on \(e.card(link.hostCardId)?.label ?? "built-in ports"), from channel \(link.portOffset + 1)").foregroundStyle(.secondary)
                         SignalTag(signal: link.signal)
                     }
-                    .font(.callout)
+                    .font(.canopyCallout)
                 }
                 ResultLine(result: result)
             }

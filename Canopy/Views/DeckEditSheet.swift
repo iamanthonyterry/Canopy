@@ -73,7 +73,7 @@ struct DeckEditSheet: View {
                     }
                     if !browseAvailable && !isCheckingBrowseAvailability && !ipAddress.isEmpty {
                         Text("Enter the correct IP, username, and password to browse folders.")
-                            .font(.caption)
+                            .font(.canopyCaption)
                             .foregroundStyle(.secondary)
                     }
                     LabeledContent("Media Capacity") {
@@ -85,7 +85,7 @@ struct DeckEditSheet: View {
                         }
                     }
                     Text("The deck can't report its disk size over the network, so enter it here to show a used/total storage indicator in its file browser.")
-                        .font(.caption)
+                        .font(.canopyCaption)
                         .foregroundStyle(.secondary)
                 }
 
@@ -186,7 +186,7 @@ struct DeckEditSheet: View {
         }
         Label(text, systemImage: systemImage)
             .foregroundStyle(color)
-            .font(.subheadline)
+            .font(.canopySubheadline)
     }
 
     private func testConnection() {

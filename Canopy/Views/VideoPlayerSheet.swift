@@ -134,9 +134,9 @@ struct VideoPlayerSheet: View {
                 Spacer()
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 40)).foregroundStyle(Color.canopyRust)
-                Text("Can't play this file").font(.headline)
+                Text("Can't play this file").font(.canopyHeadline)
                 Text(errorMessage)
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
                 Spacer()
@@ -148,7 +148,7 @@ struct VideoPlayerSheet: View {
                 if isDownloading {
                     ProgressView(value: downloadProgress).frame(width: 220)
                     Text("Downloading for preview… \(Int(downloadProgress * 100))%")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                 } else {
                     ProgressView("Loading…")
                 }
@@ -171,7 +171,7 @@ struct VideoPlayerSheet: View {
             if duration > 0 {
                 HStack(spacing: 10) {
                     Text(Timecode.string(seconds: currentTime, fps: fps))
-                        .font(.caption.monospacedDigit())
+                        .font(.canopyCaption.monospacedDigit())
                         .foregroundStyle(.white.opacity(0.85))
                         .frame(width: 84, alignment: .leading)
 
@@ -189,7 +189,7 @@ struct VideoPlayerSheet: View {
                     .frame(height: 24)
 
                     Text(Timecode.string(seconds: duration, fps: fps))
-                        .font(.caption.monospacedDigit())
+                        .font(.canopyCaption.monospacedDigit())
                         .foregroundStyle(.white.opacity(0.85))
                         .frame(width: 84, alignment: .trailing)
                 }
@@ -232,7 +232,7 @@ struct VideoPlayerSheet: View {
 
                 if duration > 0 {
                     Text("Clip \(timeString(max(0, outPoint - inPoint)))")
-                        .font(.caption.monospacedDigit())
+                        .font(.canopyCaption.monospacedDigit())
                         .foregroundStyle(.white.opacity(0.85))
                 }
 
@@ -244,7 +244,7 @@ struct VideoPlayerSheet: View {
                         addToQueue()
                     } label: {
                         Text("Add to Queue")
-                            .font(.callout.weight(.medium))
+                            .font(.canopyCallout.weight(.medium))
                             .padding(.horizontal, 12).padding(.vertical, 6)
                     }
                     .buttonStyle(.plain)
@@ -257,7 +257,7 @@ struct VideoPlayerSheet: View {
                         exportClip()
                     } label: {
                         Text("Export Clip…")
-                            .font(.callout.weight(.medium))
+                            .font(.canopyCallout.weight(.medium))
                             .padding(.horizontal, 12).padding(.vertical, 6)
                     }
                     .buttonStyle(.plain)
@@ -270,7 +270,7 @@ struct VideoPlayerSheet: View {
 
             if let exportError {
                 Text(exportError)
-                    .font(.caption).foregroundStyle(Color.canopyRust)
+                    .font(.canopyCaption).foregroundStyle(Color.canopyRust)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -304,7 +304,7 @@ struct VideoPlayerSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             if markers.isEmpty {
                 Text("No markers yet. Press M to drop one at the playhead.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
                     .frame(width: 240, alignment: .leading)
             } else {
                 ForEach(markers) { marker in
@@ -313,7 +313,7 @@ struct VideoPlayerSheet: View {
                             scrub(to: marker.time)
                         }
                         .buttonStyle(.link)
-                        .font(.caption.monospacedDigit())
+                        .font(.canopyCaption.monospacedDigit())
                         TextField("Label", text: Binding(
                             get: { marker.label },
                             set: { clipStore.renameMarker(marker.id, to: $0, nodeID: node.id) }

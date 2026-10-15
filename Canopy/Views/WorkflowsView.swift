@@ -102,7 +102,7 @@ struct WorkflowsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Workflows").font(.canopyTitle).foregroundStyle(Color.canopyInk)
                 Text("\(appState.workflows.count) workflow\(appState.workflows.count == 1 ? "" : "s")")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.canopySubheadline).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             ViewThatFits(in: .horizontal) {
@@ -175,9 +175,9 @@ struct WorkflowsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(workflow.name).font(.headline).lineLimit(2)
+                    Text(workflow.name).font(.canopyHeadline).lineLimit(2)
                     Text(targetDeviceLabel(workflow))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
                 Spacer(minLength: 8)
@@ -188,7 +188,7 @@ struct WorkflowsView: View {
                         : "\(active.count) triggers"
                     let scheduleIcon = active.count == 1 ? active[0].mode.icon : "bolt"
                     Label(scheduleLabel, systemImage: scheduleIcon)
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.canopySans(10, weight: .semibold))
                         .lineLimit(1)
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(Color.canopySage.opacity(0.18))
@@ -198,13 +198,13 @@ struct WorkflowsView: View {
             }
 
             Text(workflow.stepsSummary)
-                .font(.caption)
+                .font(.canopyCaption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
 
             if let last = lastRun(for: workflow) {
                 Text("Last run: \(last.finishedAt.formatted(.relative(presentation: .named))) · \(last.processed) processed, \(last.errors) errors")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.canopyCaption2).foregroundStyle(.secondary)
             }
 
             rule
@@ -232,7 +232,7 @@ struct WorkflowsView: View {
 
                 if inProgress.contains(where: { $0.workflow.id == workflow.id }) {
                     Label("Running", systemImage: "circle.fill")
-                        .font(.caption2).bold()
+                        .font(.canopyCaption2).bold()
                         .foregroundStyle(Color.accentColor)
                 } else {
                     Button {
@@ -306,9 +306,9 @@ private struct RemoteRunsBanner: View {
                         Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 1) {
                             Text("\"\(item.run.workflowName)\" \(item.run.isPaused ? "paused" : "running") on \(item.computer)")
-                                .font(.subheadline).bold()
+                                .font(.canopySubheadline).bold()
                             Text("\(item.run.deviceNames.joined(separator: ", ")) · step \(min(item.run.completedSteps + 1, item.run.totalSteps)) of \(item.run.totalSteps)")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.canopyCaption).foregroundStyle(.secondary)
                         }
                         Spacer()
                     }
@@ -332,9 +332,9 @@ private struct RunningWorkflowBanner: View {
                 ProgressView().controlSize(.small)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(session.isPaused ? "Paused \"\(session.workflow.name)\"" : "Running \"\(session.workflow.name)\"...")
-                        .font(.subheadline).bold()
+                        .font(.canopySubheadline).bold()
                     Text(summary)
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button {
@@ -372,7 +372,7 @@ private struct RunningWorkflowBanner: View {
 
             if let lastLine = session.lines.last {
                 Text(lastLine)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.canopyMono(11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -422,14 +422,14 @@ private struct StepRunRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Image(systemName: run.step.kind.icon)
-                        .font(.caption)
+                        .font(.canopyCaption)
                         .foregroundStyle(run.step.kind.color)
                     Text("\(index). \(run.step.action.shortLabel)")
-                        .font(.subheadline.weight(isActive ? .semibold : .regular))
+                        .font(.canopySubheadline.weight(isActive ? .semibold : .regular))
                         .foregroundStyle(isDimmed ? .secondary : Color.canopyInk)
                     Spacer()
                     Text(trailingText)
-                        .font(.caption.monospacedDigit())
+                        .font(.canopyCaption.monospacedDigit())
                         .foregroundStyle(run.errors > 0 ? Color.canopyRust : .secondary)
                 }
 
@@ -442,9 +442,9 @@ private struct StepRunRow: View {
                 }
                 if run.status == .awaitingConfirmation {
                     Text("Waiting for your confirmation")
-                        .font(.caption).foregroundStyle(.orange)
+                        .font(.canopyCaption).foregroundStyle(.orange)
                 } else if isActive, let detail {
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                    Text(detail).font(.canopyCaption).foregroundStyle(.secondary)
                 }
             }
             .padding(.bottom, isLast ? 0 : 10)

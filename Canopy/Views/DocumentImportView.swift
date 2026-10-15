@@ -66,10 +66,10 @@ struct DocumentImportView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Read a document into the inventory").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                 Text("Network sheets, integrator device lists, input and patch lists: PDF (scans too), Word, Excel, CSV, text or a photo. You check everything it finds before anything is saved.")
-                    .font(.callout).foregroundStyle(.secondary)
-                Label(modelLine, systemImage: "lock.shield").font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCallout).foregroundStyle(.secondary)
+                Label(modelLine, systemImage: "lock.shield").font(.canopyCaption).foregroundStyle(.secondary)
                 if let reason = ai.unavailableReason {
-                    Label(reason, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(Color.canopyRust)
+                    Label(reason, systemImage: "exclamationmark.triangle").font(.canopyCaption).foregroundStyle(Color.canopyRust)
                 }
             }
             HStack {
@@ -93,7 +93,7 @@ struct DocumentImportView: View {
                 if let progress {
                     ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1))).frame(width: 140)
                     Text(progress.total == 0 ? "Getting the text…" : "Reading part \(min(progress.done + 1, progress.total)) of \(progress.total)…")
-                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        .font(.canopyCaption).foregroundStyle(.secondary).monospacedDigit()
                     Button("Cancel") { task?.cancel() }.buttonStyle(.canopySecondary)
                 } else {
                     Button("Read document") { read() }.buttonStyle(.canopyPrimary).disabled(fileURL == nil || ai.unavailableReason != nil)
@@ -102,12 +102,12 @@ struct DocumentImportView: View {
             if let sheetText {
                 HStack {
                     Image(systemName: "tablecells").foregroundStyle(Color.canopySage)
-                    Text("This spreadsheet is already in the patch-sheet layout, so it can be imported exactly, without the model.").font(.callout)
+                    Text("This spreadsheet is already in the patch-sheet layout, so it can be imported exactly, without the model.").font(.canopyCallout)
                     Spacer()
                     Button("Import it as a patch sheet") { useSheet(sheetText) }.buttonStyle(.canopySecondary)
                 }
             }
-            if let error { Text(error).font(.callout).foregroundStyle(Color.canopyRust) }
+            if let error { Text(error).font(.canopyCallout).foregroundStyle(Color.canopyRust) }
         }
         .canopyCard(padding: 14)
     }
@@ -167,16 +167,16 @@ struct DocumentImportView: View {
                     Spacer()
                     Button("Start over") { reading = nil; result = nil }.buttonStyle(.canopySecondary)
                 }
-                if !r.summary.isEmpty { Text(r.summary).font(.callout).foregroundStyle(.secondary) }
-                ForEach(r.warnings, id: \.self) { Label($0, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
+                if !r.summary.isEmpty { Text(r.summary).font(.canopyCallout).foregroundStyle(.secondary) }
+                ForEach(r.warnings, id: \.self) { Label($0, systemImage: "exclamationmark.triangle").font(.canopyCaption).foregroundStyle(.orange) }
                 Text("Found \(r.devices.count) devices and \(r.cables.count) cables. Saving adds \(kept.count - matched) new, fills in blanks on \(matched) already in the inventory (nothing typed there is replaced), and patches \(keptCables.count) cables.")
-                    .font(.callout)
+                    .font(.canopyCallout)
             }
             .canopyCard(padding: 14)
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("Devices").font(.headline)
+                    Text("Devices").font(.canopyHeadline)
                     TextField("Filter", text: $query).textFieldStyle(.roundedBorder).frame(maxWidth: 200)
                     Spacer()
                     Button("Keep all") { leftOut = [] }.buttonStyle(.borderless)
@@ -184,7 +184,7 @@ struct DocumentImportView: View {
                     Button("Leave out ones only named in cables") { leftOut.formUnion(r.devices.filter { $0.rows == 0 }.map(\.key)) }
                         .buttonStyle(.borderless).help("Devices the document only mentions as the end of a cable")
                 }
-                .font(.caption)
+                .font(.canopyCaption)
                 ForEach(shown, id: \.self) { i in DecisionRow(decision: $decisions[i], match: matches[decisions[i].key], found: r.devices.first { $0.key == decisions[i].key },
                                                              candidates: campusDevices, takenBy: takenBy, leftOut: $leftOut) }
             }
@@ -202,14 +202,14 @@ struct DocumentImportView: View {
                             Text([c.toCard, c.toChannel.map(String.init) ?? ""].filter { !$0.isEmpty }.joined(separator: " ")).foregroundStyle(.secondary)
                             Text(c.fromName).foregroundStyle(.secondary)
                         }
-                        .font(.caption)
+                        .font(.canopyCaption)
                     }
-                    if keptCables.count > 300 { Text("…and \(keptCables.count - 300) more").font(.caption).foregroundStyle(.secondary) }
+                    if keptCables.count > 300 { Text("…and \(keptCables.count - 300) more").font(.canopyCaption).foregroundStyle(.secondary) }
                 }
                 HStack {
-                    Text("Want to fix the cables by hand? Save them as a spreadsheet, edit, and bring it back in as a patch sheet.").font(.caption).foregroundStyle(.secondary)
+                    Text("Want to fix the cables by hand? Save them as a spreadsheet, edit, and bring it back in as a patch sheet.").font(.canopyCaption).foregroundStyle(.secondary)
                     Spacer()
-                    Button("Save cables as CSV…") { saveCSV() }.buttonStyle(.borderless).font(.caption)
+                    Button("Save cables as CSV…") { saveCSV() }.buttonStyle(.borderless).font(.canopyCaption)
                 }
             }
             .canopyCard(padding: 14)
@@ -217,7 +217,7 @@ struct DocumentImportView: View {
             HStack {
                 if let clash = duplicateTarget {
                     Label("\(clash) is matched to two of the document's devices. Pick a different one for one of them.", systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(Color.canopyRust)
+                        .font(.canopyCaption).foregroundStyle(Color.canopyRust)
                 }
                 Spacer()
                 if saving { ProgressView().controlSize(.small) }
@@ -279,7 +279,7 @@ private struct DecisionRow: View {
                 Image(systemName: decision.role?.symbol ?? "shippingbox").foregroundStyle(.secondary).frame(width: 16)
                 TextField("Name", text: $decision.name).textFieldStyle(.roundedBorder).frame(width: 220)
                 Text([decision.makeModel, decision.room, decision.ipAddress].filter { !$0.isEmpty }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    .font(.canopyCaption).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
                 Picker("", selection: $decision.target) {
                     Text("Add as new").tag(String?.none)
@@ -319,10 +319,10 @@ private struct DecisionRow: View {
                         SecureField("Password", text: $decision.password).textFieldStyle(.roundedBorder)
                     }
                 }
-                .font(.caption)
-                TextField("Notes", text: $decision.notes, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(1...5).font(.caption)
-                if let found, found.rows == 0 { Text("Only named as the end of a cable in the document.").font(.caption2).foregroundStyle(.secondary) }
-                if decision.target != nil { Text("Matched: only the blank fields of the inventory device are filled in.").font(.caption2).foregroundStyle(.secondary) }
+                .font(.canopyCaption)
+                TextField("Notes", text: $decision.notes, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(1...5).font(.canopyCaption)
+                if let found, found.rows == 0 { Text("Only named as the end of a cable in the document.").font(.canopyCaption2).foregroundStyle(.secondary) }
+                if decision.target != nil { Text("Matched: only the blank fields of the inventory device are filled in.").font(.canopyCaption2).foregroundStyle(.secondary) }
             }
         }
         .padding(.vertical, 2)

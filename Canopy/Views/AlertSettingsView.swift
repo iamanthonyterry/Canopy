@@ -17,7 +17,7 @@ struct AlertSettingsView: View {
                 Toggle("Alert me if a recording device drops or runs low on storage", isOn: settings.isEnabled)
 
                 Text("Fires the instant a device that's actively recording or mid-workflow goes offline, loses its login, loses its drive, or fills up — not for a routine offline device sitting idle.")
-                    .font(.caption2)
+                    .font(.canopyCaption2)
                     .foregroundStyle(.tertiary)
 
                 if settings.wrappedValue.isEnabled {
@@ -40,7 +40,7 @@ struct AlertSettingsView: View {
 
     private var thresholdRow: some View {
         HStack {
-            Text("Low Storage Warning At").font(.caption)
+            Text("Low Storage Warning At").font(.canopyCaption)
             Spacer()
             Stepper(
                 "\(settings.wrappedValue.lowStorageThresholdPercent)%",
@@ -48,18 +48,18 @@ struct AlertSettingsView: View {
                 in: 50...99, step: 5
             )
             .frame(width: 140)
-            .font(.caption)
+            .font(.canopyCaption)
         }
     }
 
     private var recipientsHeader: some View {
         HStack {
-            Text("Also Email").font(.caption).foregroundStyle(.secondary)
+            Text("Also Email").font(.canopyCaption).foregroundStyle(.secondary)
             Spacer()
             Button {
                 showingAddRecipient = true
             } label: {
-                Label("Add", systemImage: "plus").font(.caption)
+                Label("Add", systemImage: "plus").font(.canopyCaption)
             }
             .buttonStyle(.canopySecondary)
             .controlSize(.small)
@@ -70,7 +70,7 @@ struct AlertSettingsView: View {
     private var recipientsList: some View {
         if settings.wrappedValue.emailRecipients.isEmpty {
             Text("No recipients added — the alert will show on this Mac only.")
-                .font(.caption)
+                .font(.canopyCaption)
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 8)
@@ -78,8 +78,8 @@ struct AlertSettingsView: View {
             ForEach(settings.wrappedValue.emailRecipients) { recipient in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(recipient.name).font(.body)
-                        Text(recipient.email).font(.caption).foregroundStyle(.secondary)
+                        Text(recipient.name).font(.canopyBody)
+                        Text(recipient.email).font(.canopyCaption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button {

@@ -163,7 +163,7 @@ private extension RemoteMappingEditSheet {
             } else {
                 LabeledContent("Captured") {
                     Text("\(midiKind.displayName) · Ch \(midiChannel + 1) · #\(midiNumber)")
-                        .font(.callout.monospaced())
+                        .font(.canopyMono(12, relativeTo: .callout))
                 }
                 listenRow(
                     isListening: $isListeningMIDI,
@@ -195,7 +195,7 @@ private extension RemoteMappingEditSheet {
 
             if !isAvailable {
                 Text(unavailableHint)
-                    .font(.caption)
+                    .font(.canopyCaption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -208,7 +208,7 @@ private extension RemoteMappingEditSheet {
     var deviceSection: some View {
         Section("Device & Action") {
             if appState.hyperDecks.isEmpty {
-                Text("No HyperDecks configured.").font(.caption).foregroundStyle(.secondary)
+                Text("No HyperDecks configured.").font(.canopyCaption).foregroundStyle(.secondary)
             } else {
                 Picker("Device", selection: $hyperDeckID) {
                     Text("Choose…").tag(UUID?.none)

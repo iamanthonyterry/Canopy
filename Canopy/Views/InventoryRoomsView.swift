@@ -33,7 +33,7 @@ struct RoomsRacksView: View {
                         let loose = store.equipment.filter { $0.campus == campus && $0.roomId == nil }
                         if !loose.isEmpty {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("Not in a room · \(loose.count)").font(.headline)
+                                Text("Not in a room · \(loose.count)").font(.canopyHeadline)
                                 FlowLayout(spacing: 6) {
                                     ForEach(loose) { d in DeviceChip(device: d, rooms: rooms, result: $result) }
                                 }
@@ -87,7 +87,7 @@ private struct RoomCard: View {
             HStack {
                 Text(room.name).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                 let count = store.equipment.filter { $0.roomId == room.id }.count
-                Text("\(count) \(count == 1 ? "device" : "devices")").font(.caption).foregroundStyle(.secondary)
+                Text("\(count) \(count == 1 ? "device" : "devices")").font(.canopyCaption).foregroundStyle(.secondary)
                 Spacer()
                 if store.level.canEdit {
                     Button("Rename or move") { name = room.name; campus = room.campus; renaming = true }.buttonStyle(.borderless)
@@ -104,14 +104,14 @@ private struct RoomCard: View {
                     Button("Save") { Task { result = await store.updateRoom(room.id, name: name, campus: campus); if result?.ok == true { renaming = false } } }
                         .buttonStyle(.canopyPrimary)
                 }
-                if campus != room.campus { Text("Moving the room takes its racks and everything in it to that campus.").font(.caption).foregroundStyle(.secondary) }
+                if campus != room.campus { Text("Moving the room takes its racks and everything in it to that campus.").font(.canopyCaption).foregroundStyle(.secondary) }
             }
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(racks) { RackElevation(rack: $0, result: $result) }
                     if store.level.canEdit {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Add a rack").font(.headline)
+                            Text("Add a rack").font(.canopyHeadline)
                             TextField("Rack A, FOH rack…", text: $newRack).textFieldStyle(.roundedBorder).frame(width: 180)
                             Stepper("\(units) units", value: $units, in: 1...60)
                             Button("Add rack") { Task { result = await store.addRack(room: room.id, name: newRack, units: units); if result?.ok == true { newRack = "" } } }
@@ -123,7 +123,7 @@ private struct RoomCard: View {
                 }
             }
             if !shelf.isEmpty {
-                Text("Not in a rack").font(.caption).foregroundStyle(.secondary)
+                Text("Not in a rack").font(.canopyCaption).foregroundStyle(.secondary)
                 FlowLayout(spacing: 6) {
                     ForEach(shelf) { d in DeviceChip(device: d, rooms: store.rooms.filter { $0.campus == room.campus }, result: $result) }
                 }
@@ -154,7 +154,7 @@ private struct DeviceChip: View {
                 }
             }
         } label: {
-            Label(device.name, systemImage: device.role?.symbol ?? "shippingbox").font(.caption)
+            Label(device.name, systemImage: device.role?.symbol ?? "shippingbox").font(.canopyCaption)
         }
         .menuStyle(.button).fixedSize()
     }
@@ -179,8 +179,8 @@ private struct RackElevation: View {
         let candidates = store.equipment.filter { $0.campus == (store.roomsByID[rack.roomId]?.campus ?? "") && $0.rackId == nil }
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(rack.name).font(.headline)
-                Text("\(rack.units)U").font(.caption).foregroundStyle(.secondary)
+                Text(rack.name).font(.canopyHeadline)
+                Text("\(rack.units)U").font(.canopyCaption).foregroundStyle(.secondary)
                 Spacer()
                 if store.level.canEdit {
                     Menu {
@@ -201,7 +201,7 @@ private struct RackElevation: View {
                 VStack(spacing: 0) {
                     ForEach((1...rack.units).reversed(), id: \.self) { u in
                         HStack(spacing: 4) {
-                            Text("\(u)").font(.system(size: 9)).monospacedDigit().foregroundStyle(.tertiary).frame(width: 18, alignment: .trailing)
+                            Text("\(u)").font(.canopySans(9)).monospacedDigit().foregroundStyle(.tertiary).frame(width: 18, alignment: .trailing)
                             if store.level.canEdit && !placed.contains(where: { u >= $0.rackUnit! && u < $0.rackUnit! + $0.rackHeight }) {
                                 Menu {
                                     ForEach(candidates + unplaced) { d in
@@ -239,9 +239,9 @@ private struct RackElevation: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: d.role?.symbol ?? "shippingbox").font(.system(size: 9))
-                            Text(d.name).font(.system(size: 10, weight: .medium)).lineLimit(1)
+                            Text(d.name).font(.canopySans(10, weight: .medium)).lineLimit(1)
                             Spacer(minLength: 0)
-                            Text(InventoryRules.rackSpan(unit: d.rackUnit, height: d.rackHeight)).font(.system(size: 9)).foregroundStyle(.secondary)
+                            Text(InventoryRules.rackSpan(unit: d.rackUnit, height: d.rackHeight)).font(.canopySans(9)).foregroundStyle(.secondary)
                         }
                         .padding(.horizontal, 6)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -258,7 +258,7 @@ private struct RackElevation: View {
             .background(Color.canopyPaper, in: RoundedRectangle(cornerRadius: 6))
             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.canopyRule))
             if !unplaced.isEmpty {
-                Text("Unit not set: " + unplaced.map(\.name).joined(separator: ", ")).font(.caption).foregroundStyle(.secondary).frame(width: 220, alignment: .leading)
+                Text("Unit not set: " + unplaced.map(\.name).joined(separator: ", ")).font(.canopyCaption).foregroundStyle(.secondary).frame(width: 220, alignment: .leading)
             }
         }
         .frame(width: 220)
@@ -288,21 +288,21 @@ struct ConfigFilesView: View {
             HStack {
                 TextField("Search files and devices", text: $query).textFieldStyle(.roundedBorder).frame(maxWidth: 320)
                 Spacer()
-                Text("\(files.count) files · \(InventoryRules.size(files.map(\.size).reduce(0, +)))").font(.caption).foregroundStyle(.secondary)
+                Text("\(files.count) files · \(InventoryRules.size(files.map(\.size).reduce(0, +)))").font(.canopyCaption).foregroundStyle(.secondary)
             }
             .padding(.horizontal).padding(.vertical, 8)
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Every scene, show file, router backup and receipt attached to your equipment. Add files from a device's page.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                     ResultLine(result: result)
                     if files.isEmpty { Text("No files yet.").foregroundStyle(.secondary) }
                     ForEach(byDevice, id: \.key) { id, list in
                         VStack(alignment: .leading, spacing: 6) {
                             if let d = store.byID[id] {
                                 HStack {
-                                    Button(d.name) { nav.open(d.id) }.buttonStyle(.plain).font(.headline)
-                                    Text([d.makeModel, d.ipAddress, store.place(d)].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                                    Button(d.name) { nav.open(d.id) }.buttonStyle(.plain).font(.canopyHeadline)
+                                    Text([d.makeModel, d.ipAddress, store.place(d)].filter { !$0.isEmpty }.joined(separator: " · ")).font(.canopyCaption).foregroundStyle(.secondary)
                                 }
                             }
                             ForEach(list) { f in FileRow(file: f, result: $result, confirmDelete: $confirmDelete) }
@@ -360,7 +360,7 @@ struct InventoryReviewView: View {
                         ForEach(needsRole, id: \.0.id) { d, guess in
                             HStack {
                                 Button(d.name) { nav.open(d.id) }.buttonStyle(.link)
-                                Text(d.makeModel).font(.caption).foregroundStyle(.secondary)
+                                Text(d.makeModel).font(.canopyCaption).foregroundStyle(.secondary)
                                 Spacer()
                                 Menu(guess.map { "Use \($0.label)" } ?? "Set type…") {
                                     ForEach(DeviceRole.allCases) { r in Button(r.label) { Task { result = await store.setRole(d.id, r) } } }
@@ -387,7 +387,7 @@ struct InventoryReviewView: View {
                                 }
                                 .menuStyle(.button).fixedSize()
                             }
-                            .font(.callout)
+                            .font(.canopyCallout)
                         }
                     }
                 }
@@ -397,7 +397,7 @@ struct InventoryReviewView: View {
                             let usual = Signal.default(for: d.category)
                             HStack {
                                 Button(d.name) { nav.open(d.id) }.buttonStyle(.link)
-                                Text("\(d.category) device, channels set to \(d.ownPorts.first?.signal.label ?? "")").font(.caption).foregroundStyle(.secondary)
+                                Text("\(d.category) device, channels set to \(d.ownPorts.first?.signal.label ?? "")").font(.canopyCaption).foregroundStyle(.secondary)
                                 Spacer()
                                 Button("Set to \(usual.label)") { Task { result = await store.setDeviceSignal(d.id, usual) } }.buttonStyle(.canopySecondary)
                             }
@@ -409,7 +409,7 @@ struct InventoryReviewView: View {
                         ForEach(warranty) { d in
                             HStack {
                                 Button(d.name) { nav.open(d.id) }.buttonStyle(.link)
-                                Text("Until \(InventoryRules.formatDate(d.warrantyExpires))\(d.vendor.isEmpty ? "" : " · \(d.vendor)")").font(.caption).foregroundStyle(.secondary)
+                                Text("Until \(InventoryRules.formatDate(d.warrantyExpires))\(d.vendor.isEmpty ? "" : " · \(d.vendor)")").font(.canopyCaption).foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -419,7 +419,7 @@ struct InventoryReviewView: View {
                         ForEach(localOnly) { d in
                             HStack {
                                 Text(d.name).fontWeight(.medium)
-                                Text("\(d.kindLabel) · \(d.address)").font(.caption).foregroundStyle(.secondary)
+                                Text("\(d.kindLabel) · \(d.address)").font(.canopyCaption).foregroundStyle(.secondary)
                                 Spacer()
                                 Button("Add to inventory") {
                                     var draft = EquipmentDraft()
@@ -450,7 +450,7 @@ struct InventoryReviewView: View {
     private func section<Content: View>(_ title: String, _ blurb: String, @ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
-            Text(blurb).font(.caption).foregroundStyle(.secondary)
+            Text(blurb).font(.canopyCaption).foregroundStyle(.secondary)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

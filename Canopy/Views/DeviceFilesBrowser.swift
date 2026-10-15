@@ -269,7 +269,7 @@ struct DeviceFilesBrowser: View {
     private func toolbarRow(_ density: ToolbarDensity) -> some View {
         HStack(spacing: density == .regular ? 12 : 8) {
             if density != .minimal {
-                Text("Files").font(.headline).lineLimit(1).fixedSize()
+                Text("Files").font(.canopyHeadline).lineLimit(1).fixedSize()
             }
             if device.supportsFileBrowsing && density != .minimal {
                 StorageSummaryView(info: storageInfo, isLoading: isLoadingStorage,
@@ -293,9 +293,9 @@ struct DeviceFilesBrowser: View {
         let count = selectedIDs.count
         if density == .regular {
             Text(count == 0 ? "Select files…" : "\(count) selected")
-                .font(.caption).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                .font(.canopyCaption).foregroundStyle(.secondary).lineLimit(1).fixedSize()
         } else if count > 0 {
-            Text("\(count)").font(.caption).foregroundStyle(.secondary).fixedSize()
+            Text("\(count)").font(.canopyCaption).foregroundStyle(.secondary).fixedSize()
         }
         if isProcessingOperation {
             ProgressView().controlSize(.small)
@@ -447,7 +447,7 @@ struct DeviceFilesBrowser: View {
                 Image(systemName: "square.and.arrow.up.on.square")
                 if exportQueue.activeCount > 0 {
                     Text("\(exportQueue.activeCount)")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.canopySans(9, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(3)
                         .background(Color.accentColor, in: Circle())
@@ -665,7 +665,7 @@ struct DeviceFilesBrowser: View {
             .disabled(galleryPathIDs.isEmpty)
 
             ForEach(Array(galleryPathIDs.enumerated()), id: \.offset) { index, id in
-                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").font(.canopyCaption2).foregroundStyle(.secondary)
                 if let node = findNode(id: id, in: rootNodes) {
                     Button(node.name) {
                         galleryPathIDs = Array(galleryPathIDs.prefix(index + 1))
@@ -681,7 +681,7 @@ struct DeviceFilesBrowser: View {
                     .fixedSize()
             }
         }
-        .font(.caption)
+        .font(.canopyCaption)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(Color(NSColor.controlBackgroundColor))
@@ -702,8 +702,8 @@ struct DeviceFilesBrowser: View {
         VStack(spacing: 12) {
             Spacer()
             Image(systemName: "exclamationmark.triangle").font(.system(size: 40)).foregroundStyle(Color.canopyRust)
-            Text("Could not load files").font(.headline)
-            Text(message).font(.caption).foregroundStyle(.secondary)
+            Text("Could not load files").font(.canopyHeadline)
+            Text(message).font(.canopyCaption).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center).padding(.horizontal)
             Button("Retry", action: loadFiles).buttonStyle(.canopySecondary)
             Spacer()
@@ -1171,7 +1171,7 @@ struct FileNodeView: View {
                         .frame(width: 16)
                 } else if node.isDirectory {
                     Image(systemName: node.isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.caption2)
+                        .font(.canopyCaption2)
                         .foregroundStyle(.secondary)
                         .frame(width: 12)
                 } else {
@@ -1208,7 +1208,7 @@ struct FileNodeView: View {
                 }
                 if !node.sizeFormatted.isEmpty {
                     Text(node.sizeFormatted)
-                        .font(.caption)
+                        .font(.canopyCaption)
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -1382,7 +1382,7 @@ struct FileGalleryTile: View {
             .overlay(alignment: .bottomLeading) {
                 if let info, node.isVideo {
                     Text(info.durationLabel)
-                        .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                        .font(.canopySans(10, weight: .semibold).monospacedDigit())
                         .foregroundStyle(.white)
                         .padding(.horizontal, 5).padding(.vertical, 2)
                         .background(.black.opacity(0.6), in: Capsule())
@@ -1404,19 +1404,19 @@ struct FileGalleryTile: View {
             )
 
             Text(node.name)
-                .font(.caption)
+                .font(.canopyCaption)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .truncationMode(.middle)
             if let info, !info.summary.isEmpty {
                 Text(info.summary)
-                    .font(.system(size: 9))
+                    .font(.canopySans(9))
                     .foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.tail)
             }
             if !node.sizeFormatted.isEmpty {
                 Text(node.sizeFormatted)
-                    .font(.caption2)
+                    .font(.canopyCaption2)
                     .foregroundStyle(.tertiary)
             }
         }
@@ -1523,7 +1523,7 @@ struct StorageSummaryView: View {
                 }
                 if showsText || info.fraction == nil {
                     Text(info.summary)
-                        .font(.caption)
+                        .font(.canopyCaption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .fixedSize()

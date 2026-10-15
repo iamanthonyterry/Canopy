@@ -69,20 +69,20 @@ struct FolderPickerSheet: View {
                 } label: {
                     Label(store.volumeName.isEmpty ? store.name : store.volumeName,
                           systemImage: "externaldrive.fill")
-                        .font(.caption)
+                        .font(.canopyCaption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(navStack.isEmpty ? .primary : .secondary)
 
                 ForEach(navStack.indices, id: \.self) { i in
                     Image(systemName: "chevron.right")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .font(.canopyCaption2).foregroundStyle(.tertiary)
                     Button {
                         let slice = Array(navStack.prefix(i + 1))
                         navStack = slice
                         Task { await loadItems(at: slice.last!.url) }
                     } label: {
-                        Text(navStack[i].name).font(.caption)
+                        Text(navStack[i].name).font(.canopyCaption)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(i == navStack.count - 1 ? .primary : .secondary)
@@ -111,8 +111,8 @@ struct FolderPickerSheet: View {
                 Spacer()
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 36)).foregroundStyle(Color.canopyRust)
-                Text("Could not connect").font(.headline)
-                Text(error).font(.caption).foregroundStyle(.secondary)
+                Text("Could not connect").font(.canopyHeadline)
+                Text(error).font(.canopyCaption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).padding(.horizontal, 24)
                 Spacer()
             }
@@ -147,11 +147,11 @@ struct FolderPickerSheet: View {
             // Current selection label
             if let h = highlighted {
                 Label(h.name, systemImage: "folder.fill")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             } else {
                 Text(navStack.isEmpty ? "Volume root" : currentRelativePath)
-                    .font(.caption).foregroundStyle(.tertiary)
+                    .font(.canopyCaption).foregroundStyle(.tertiary)
             }
 
             Spacer()

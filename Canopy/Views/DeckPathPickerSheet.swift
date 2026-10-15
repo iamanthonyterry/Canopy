@@ -71,19 +71,19 @@ struct DeckPathPickerSheet: View {
                     Task { await load() }
                 } label: {
                     Label(ipAddress, systemImage: "externaldrive.fill")
-                        .font(.caption)
+                        .font(.canopyCaption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(navStack.isEmpty ? .primary : .secondary)
 
                 ForEach(navStack.indices, id: \.self) { i in
                     Image(systemName: "chevron.right")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .font(.canopyCaption2).foregroundStyle(.tertiary)
                     Button {
                         navStack = Array(navStack.prefix(i + 1))
                         Task { await load() }
                     } label: {
-                        Text(navStack[i]).font(.caption)
+                        Text(navStack[i]).font(.canopyCaption)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(i == navStack.count - 1 ? .primary : .secondary)
@@ -110,7 +110,7 @@ struct DeckPathPickerSheet: View {
                     .foregroundStyle(.secondary)
                 if navStack.isEmpty {
                     Text("Check the IP address and credentials above.")
-                        .font(.caption).foregroundStyle(.tertiary)
+                        .font(.canopyCaption).foregroundStyle(.tertiary)
                 }
                 Spacer()
             }
@@ -135,11 +135,11 @@ struct DeckPathPickerSheet: View {
         HStack {
             if let h = highlighted {
                 Label(h.name, systemImage: "folder.fill")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             } else {
                 Text(navStack.isEmpty ? "Volume root" : currentPath)
-                    .font(.caption).foregroundStyle(.tertiary)
+                    .font(.canopyCaption).foregroundStyle(.tertiary)
                     .lineLimit(1).truncationMode(.head)
             }
 

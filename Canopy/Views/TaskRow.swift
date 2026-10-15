@@ -10,22 +10,22 @@ struct TaskRow: View {
                 CanopyPhaseIndicator(progress: ringProgress, isDone: task.phase == .done,
                                      icon: phaseIcon, color: phaseColor, size: 14)
                 Text(task.deckName)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.canopySans(10, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Text(task.fileName)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.canopyMono(10, relativeTo: .caption))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
                 if let label = task.verification.label {
                     Label(label, systemImage: verificationIcon)
                         .labelStyle(.titleAndIcon)
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.canopySans(10, weight: .semibold))
                         .foregroundStyle(verificationColor)
                         .help(task.sha256.map { "SHA-256 \($0)" } ?? label)
                 }
                 Text(task.phase.label)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.canopySans(10, weight: .bold))
                     .foregroundStyle(phaseColor)
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(phaseColor.opacity(0.12))
@@ -38,7 +38,7 @@ struct TaskRow: View {
                 progressBar(label: "Download", value: task.syncProgress, color: .accentColor)
                 if let detail = transferDetail {
                     Text(detail)
-                        .font(.system(size: 9, design: .monospaced))
+                        .font(.canopyMono(9))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
@@ -50,8 +50,8 @@ struct TaskRow: View {
             case .error:
                 if let msg = task.errorMessage {
                     HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Color.canopyRust).font(.caption2)
-                        Text(msg).font(.caption2).foregroundStyle(Color.canopyRust)
+                        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Color.canopyRust).font(.canopyCaption2)
+                        Text(msg).font(.canopyCaption2).foregroundStyle(Color.canopyRust)
                     }
                 }
             default:
@@ -85,13 +85,13 @@ struct TaskRow: View {
     private func progressBar(label: String, value: Double, color: Color) -> some View {
         HStack(spacing: 6) {
             Text(label)
-                .font(.system(size: 9, weight: .bold))
+                .font(.canopySans(9, weight: .bold))
                 .foregroundStyle(.secondary)
                 .frame(width: 52, alignment: .leading)
             ProgressView(value: value)
                 .tint(color)
             Text("\(Int(value * 100))%")
-                .font(.system(size: 9, design: .monospaced))
+                .font(.canopyMono(9))
                 .foregroundStyle(.secondary)
                 .frame(width: 28, alignment: .trailing)
         }

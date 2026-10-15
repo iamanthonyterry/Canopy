@@ -120,8 +120,8 @@ struct DashboardView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(Color.canopyRust)
             VStack(alignment: .leading, spacing: 2) {
-                Text("\"\(session.workflow.name)\" stopped — couldn't reach storage").font(.subheadline).bold()
-                Text(session.mountError ?? "").font(.caption).foregroundStyle(.secondary)
+                Text("\"\(session.workflow.name)\" stopped — couldn't reach storage").font(.canopySubheadline).bold()
+                Text(session.mountError ?? "").font(.canopyCaption).foregroundStyle(.secondary)
             }
             Spacer()
             if appState.isAdmin {
@@ -171,7 +171,7 @@ struct DashboardView: View {
                     Text(appState.isAdmin
                         ? "\(appState.hyperDecks.count) decks · \(appState.cloudStores.count) network storage · \(appState.localFolders.count) local folders"
                         : "\(appState.cloudStores.count) network storage · \(appState.localFolders.count) local folders")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(.canopySubheadline).foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
@@ -191,7 +191,7 @@ struct DashboardView: View {
             } else if !compact {
                 HStack(spacing: 6) {
                     Circle().fill(Color.gray.opacity(0.4)).frame(width: 9, height: 9)
-                    Text("Idle").font(.subheadline).foregroundStyle(.secondary)
+                    Text("Idle").font(.canopySubheadline).foregroundStyle(.secondary)
                 }
                 .fixedSize()
             }
@@ -320,9 +320,9 @@ struct DashboardView: View {
                 .font(.system(size: 36))
                 .foregroundStyle(.secondary)
             Text("Select a device")
-                .font(.headline)
+                .font(.canopyHeadline)
             Text("Choose a device on the left to view its content and controls.")
-                .font(.subheadline)
+                .font(.canopySubheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
@@ -387,10 +387,10 @@ struct DashboardView: View {
                 if let last = appState.workflowRunHistory.first {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Last run: \(last.workflowName) · \(last.finishedAt.formatted(.relative(presentation: .named)))")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.canopyCaption).foregroundStyle(.secondary)
                             .lineLimit(1).truncationMode(.tail)
                         Text("\(last.processed) processed · \(last.durationFormatted)")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.canopyCaption).foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
                     .padding(.leading)
@@ -443,10 +443,10 @@ struct DashboardView: View {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(session.workflow.name).font(.subheadline).bold().lineLimit(1)
+                        Text(session.workflow.name).font(.canopySubheadline).bold().lineLimit(1)
                         if let lastLine = session.lines.last {
                             Text(lastLine)
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.canopyMono(11))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
@@ -488,7 +488,7 @@ struct DashboardView: View {
 
         if runnable.isEmpty {
             Label("No workflows yet — create one in Workflows", systemImage: "flowchart")
-                .font(.subheadline).foregroundStyle(.secondary)
+                .font(.canopySubheadline).foregroundStyle(.secondary)
         } else {
             Menu {
                 ForEach(runnable.sorted { $0.sortOrder < $1.sortOrder }) { workflow in

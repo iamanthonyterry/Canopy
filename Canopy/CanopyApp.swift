@@ -5,9 +5,14 @@ struct CanopyApp: App {
     @StateObject private var appState  = AppState.shared
     @StateObject private var scheduler = SchedulerService.shared
 
+    init() {
+        CanopyFonts.register()
+    }
+
     var body: some Scene {
         Window("Canopy by Roses as Humans", id: "main") {
             ContentView()
+                .font(.canopyBody)
                 .frame(minWidth: 760, minHeight: 480)
                 .environmentObject(appState)
                 .onAppear {

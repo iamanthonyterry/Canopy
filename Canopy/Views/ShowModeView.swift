@@ -52,7 +52,7 @@ struct ShowModeView: View {
                     .foregroundStyle(Color.canopyInk)
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text(context.date.formatted(date: .abbreviated, time: .standard))
-                        .font(.system(size: 15, design: .monospaced))
+                        .font(.canopyMono(15))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -61,7 +61,7 @@ struct ShowModeView: View {
                 onExit()
             } label: {
                 Label("Exit Show Mode", systemImage: "xmark.circle.fill")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.canopySans(15, weight: .semibold))
                     .padding(.horizontal, 6).padding(.vertical, 4)
             }
             .buttonStyle(.canopyPrimary)
@@ -123,12 +123,12 @@ struct ShowModeView: View {
     private func deviceCard(name: String, status: DeckStatus) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(name)
-                .font(.system(size: 22, weight: .semibold))
+                .font(.canopySans(22, weight: .semibold))
                 .lineLimit(1)
             HStack(spacing: 8) {
                 Circle().fill(statusColor(status)).frame(width: 12, height: 12)
                 Text(statusLabel(status))
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.canopySans(17, weight: .medium))
                     .foregroundStyle(statusColor(status))
             }
         }
@@ -174,10 +174,10 @@ private struct ActiveRunCard: View {
                 Circle().fill(session.isPaused ? Color.orange : Color.accentColor).frame(width: 16, height: 16)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(session.workflow.name)
-                        .font(.system(size: 24, weight: .semibold))
+                        .font(.canopySans(24, weight: .semibold))
                     if let lastLine = session.lines.last {
                         Text(lastLine)
-                            .font(.system(size: 14, design: .monospaced))
+                            .font(.canopyMono(14))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -185,13 +185,13 @@ private struct ActiveRunCard: View {
                 Spacer()
                 TimelineView(.periodic(from: session.startedAt, by: 1)) { context in
                     Text(elapsedTimeString(context.date.timeIntervalSince(session.startedAt)))
-                        .font(.system(size: 22, weight: .medium, design: .monospaced))
+                        .font(.canopyMono(22, weight: .medium))
                 }
                 Button {
                     session.isPaused ? session.resume() : session.pause()
                 } label: {
                     Label(session.isPaused ? "Resume" : "Pause", systemImage: session.isPaused ? "play.fill" : "pause.fill")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.canopySans(15, weight: .semibold))
                         .padding(.horizontal, 4).padding(.vertical, 2)
                 }
                 .buttonStyle(.bordered).controlSize(.large)
@@ -199,7 +199,7 @@ private struct ActiveRunCard: View {
                     engine.stop(session)
                 } label: {
                     Label("Stop", systemImage: "stop.fill")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.canopySans(15, weight: .semibold))
                         .padding(.horizontal, 4).padding(.vertical, 2)
                 }
                 .buttonStyle(.bordered).tint(Color.canopyRust).controlSize(.large)
@@ -274,19 +274,19 @@ private struct ShowModeDeckCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(deck.name)
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(.canopySans(22, weight: .semibold))
                     .lineLimit(1)
                 Spacer()
                 if isRecording {
                     Label("REC", systemImage: "circle.fill")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.canopySans(13, weight: .bold))
                         .foregroundStyle(.red)
                 }
             }
             HStack(spacing: 8) {
                 Circle().fill(statusColor(status)).frame(width: 12, height: 12)
                 Text(statusLabel(status))
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.canopySans(17, weight: .medium))
                     .foregroundStyle(statusColor(status))
             }
 

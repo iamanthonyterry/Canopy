@@ -25,7 +25,7 @@ struct AIModelSettingsView: View {
                     .labelsHidden()
                     .disabled(isDownloading)
 
-                    Text(models.choice.detail).font(.caption).foregroundStyle(.secondary)
+                    Text(models.choice.detail).font(.canopyCaption).foregroundStyle(.secondary)
 
                     downloadRow
                 }
@@ -50,7 +50,7 @@ struct AIModelSettingsView: View {
                 ProgressView(value: fraction).tint(Color.canopySage)
                 HStack {
                     Text("Downloading… \(Int(fraction * 100))%")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                     Spacer()
                     Button("Cancel") { models.cancelDownload() }
                         .controlSize(.small)
@@ -59,14 +59,14 @@ struct AIModelSettingsView: View {
         case .failed(let message):
             VStack(alignment: .leading, spacing: 6) {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(Color.canopyRust)
+                    .font(.canopyCaption).foregroundStyle(Color.canopyRust)
                 Button("Try Again") { models.download() }.controlSize(.small)
             }
         case .idle:
             if models.isDownloaded {
                 HStack {
                     Label("Ready — in use", systemImage: "checkmark.circle.fill")
-                        .font(.caption).foregroundStyle(Color.canopySage)
+                        .font(.canopyCaption).foregroundStyle(Color.canopySage)
                     Spacer()
                     Button("Delete Download", role: .destructive) { models.deleteDownload() }
                         .controlSize(.small)
@@ -74,7 +74,7 @@ struct AIModelSettingsView: View {
             } else {
                 HStack {
                     Text("Not downloaded yet. Until it is, Apple's built-in model is used.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                     Spacer()
                     Button("Download") { models.download() }
                         .buttonStyle(.canopyPrimary)
@@ -85,6 +85,6 @@ struct AIModelSettingsView: View {
     }
 
     private func note(_ text: String) -> some View {
-        Text(text).font(.caption2).foregroundStyle(.tertiary)
+        Text(text).font(.canopyCaption2).foregroundStyle(.tertiary)
     }
 }

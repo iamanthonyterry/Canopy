@@ -10,10 +10,10 @@ struct FeatureSettingsView: View {
                 ForEach(AppFeature.allCases) { feature in
                     VStack(alignment: .leading, spacing: 2) {
                         Toggle(isOn: features.binding(for: feature)) {
-                            Label(feature.title, systemImage: feature.icon).font(.caption)
+                            Label(feature.title, systemImage: feature.icon).font(.canopyCaption)
                         }
                         Text(feature.summary)
-                            .font(.caption2)
+                            .font(.canopyCaption2)
                             .foregroundStyle(.tertiary)
                             .padding(.leading, 20)
                     }

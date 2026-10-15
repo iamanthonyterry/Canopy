@@ -87,7 +87,7 @@ struct CloudStoreEditSheet: View {
                         Spacer()
                         if let result = mountResult {
                             Text(result)
-                                .font(.subheadline)
+                                .font(.canopySubheadline)
                                 .foregroundStyle(result.hasPrefix("✅") ? .canopySage : .canopyRust)
                         } else if pingStatus != .unknown {
                             Label(
@@ -95,7 +95,7 @@ struct CloudStoreEditSheet: View {
                                 systemImage: pingStatus == .online ? "checkmark.circle.fill" : "xmark.circle.fill"
                             )
                             .foregroundStyle(pingStatus == .online ? .canopySage : .canopyRust)
-                            .font(.subheadline)
+                            .font(.canopySubheadline)
                         }
                     }
                 }

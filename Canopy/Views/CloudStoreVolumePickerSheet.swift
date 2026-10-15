@@ -73,33 +73,33 @@ struct CloudStoreVolumePickerSheet: View {
                     goToShareList()
                 } label: {
                     Label("Shares", systemImage: "server.rack")
-                        .font(.caption)
+                        .font(.canopyCaption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
 
                 Image(systemName: "chevron.right")
-                    .font(.caption2).foregroundStyle(.tertiary)
+                    .font(.canopyCaption2).foregroundStyle(.tertiary)
 
                 Button {
                     navStack = []
                     if let mountPath { Task { await loadItems(at: URL(fileURLWithPath: mountPath)) } }
                 } label: {
                     Label(currentShare ?? "", systemImage: "externaldrive.fill")
-                        .font(.caption)
+                        .font(.canopyCaption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(navStack.isEmpty ? .primary : .secondary)
 
                 ForEach(navStack.indices, id: \.self) { i in
                     Image(systemName: "chevron.right")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .font(.canopyCaption2).foregroundStyle(.tertiary)
                     Button {
                         let slice = Array(navStack.prefix(i + 1))
                         navStack = slice
                         Task { await loadItems(at: slice.last!.url) }
                     } label: {
-                        Text(navStack[i].name).font(.caption)
+                        Text(navStack[i].name).font(.canopyCaption)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(i == navStack.count - 1 ? .primary : .secondary)
@@ -134,7 +134,7 @@ struct CloudStoreVolumePickerSheet: View {
                 Text("No shares found")
                     .foregroundStyle(.secondary)
                 Text("Check the IP address and credentials above.")
-                    .font(.caption).foregroundStyle(.tertiary)
+                    .font(.canopyCaption).foregroundStyle(.tertiary)
                 Button("Retry") { Task { await loadShares() } }.buttonStyle(.bordered)
                 Spacer()
             }
@@ -168,8 +168,8 @@ struct CloudStoreVolumePickerSheet: View {
                 Spacer()
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 36)).foregroundStyle(Color.canopyRust)
-                Text("Could not connect").font(.headline)
-                Text(error).font(.caption).foregroundStyle(.secondary)
+                Text("Could not connect").font(.canopyHeadline)
+                Text(error).font(.canopyCaption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).padding(.horizontal, 24)
                 Spacer()
             }
@@ -211,11 +211,11 @@ struct CloudStoreVolumePickerSheet: View {
             } else {
                 if let h = highlightedItem {
                     Label(h.name, systemImage: "folder.fill")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                 } else {
                     Text(currentFullPath)
-                        .font(.caption).foregroundStyle(.tertiary)
+                        .font(.canopyCaption).foregroundStyle(.tertiary)
                         .lineLimit(1).truncationMode(.middle)
                 }
 

@@ -8,7 +8,7 @@ struct SocialShareView: View {
                 .foregroundStyle(Color.canopySage)
             Text("Social Share").font(.canopyTitle).foregroundStyle(Color.canopyInk)
             Text("Coming soon")
-                .font(.callout)
+                .font(.canopyCallout)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

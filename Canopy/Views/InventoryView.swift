@@ -85,7 +85,7 @@ struct InventoryView: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Inventory").font(.canopyTitle).foregroundStyle(Color.canopyInk)
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                    Text(subtitle).font(.canopyCaption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if store.isLoading { ProgressView().controlSize(.small) }
@@ -124,7 +124,7 @@ struct InventoryView: View {
                 ForEach(tabs) { tab in
                     Button { nav.tab = tab } label: {
                         Label(tab.rawValue, systemImage: tab.symbol)
-                            .font(.system(size: 12, weight: nav.tab == tab ? .semibold : .regular))
+                            .font(.canopySans(12, weight: nav.tab == tab ? .semibold : .regular))
                             .padding(.horizontal, 10).padding(.vertical, 5)
                             .background(nav.tab == tab ? Color.canopySageTint : .clear, in: Capsule())
                             .foregroundStyle(nav.tab == tab ? Color.canopyInk : .secondary)
@@ -169,12 +169,12 @@ struct InventoryView: View {
         } else {
             VStack(spacing: 0) {
                 if let error = store.error {
-                    Text(error).font(.caption).foregroundStyle(Color.canopyRust).padding(.horizontal).padding(.top, 6)
+                    Text(error).font(.canopyCaption).foregroundStyle(Color.canopyRust).padding(.horizontal).padding(.top, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if !store.level.canViewDetails {
                     Text("Your access is the patch sheet only, so device details, prices and logins are hidden. Ask an admin on the website's Team page for more.")
-                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 6)
+                        .font(.canopyCaption).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 switch nav.tab {
@@ -209,13 +209,13 @@ struct InventoryView: View {
                 }
             }
             if let error = account.lastError {
-                Text(error).font(.caption).foregroundStyle(Color.canopyRust)
+                Text(error).font(.canopyCaption).foregroundStyle(Color.canopyRust)
             }
             DisclosureGroup("Site address", isExpanded: $showAdvanced) {
                 TextField("https://", text: $account.baseURL).textFieldStyle(.roundedBorder)
-                Text("Only change this if your church uses its own domain.").font(.caption).foregroundStyle(.secondary)
+                Text("Only change this if your church uses its own domain.").font(.canopyCaption).foregroundStyle(.secondary)
             }
-            .font(.caption)
+            .font(.canopyCaption)
         }
         .canopyCard()
     }
@@ -233,7 +233,7 @@ struct ResultLine: View {
     let result: (ok: Bool, message: String)?
     var body: some View {
         if let result {
-            Text(result.message).font(.caption).foregroundStyle(result.ok ? Color.canopySage : Color.canopyRust)
+            Text(result.message).font(.canopyCaption).foregroundStyle(result.ok ? Color.canopySage : Color.canopyRust)
         }
     }
 }
@@ -242,7 +242,7 @@ struct SignalTag: View {
     let signal: Signal
     var body: some View {
         if signal.isTagged {
-            Text(signal.label).font(.system(size: 10, weight: .semibold))
+            Text(signal.label).font(.canopySans(10, weight: .semibold))
                 .padding(.horizontal, 5).padding(.vertical, 1)
                 .background(signal.color.opacity(0.15), in: Capsule())
                 .foregroundStyle(signal.color)
@@ -305,7 +305,7 @@ struct SceneRecallSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Recall a scene on \(name)").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
             Text("Recalls a scene already stored on the console. This changes the console right now.")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.canopyCallout).foregroundStyle(.secondary)
             Stepper("Scene \(scene)", value: $scene, in: 1...500)
             Stepper("MIDI channel \(channel)", value: $channel, in: 1...12)
             HStack {

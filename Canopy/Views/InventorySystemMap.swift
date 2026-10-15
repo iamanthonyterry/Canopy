@@ -91,7 +91,7 @@ struct SystemMapView: View {
                 legend(edges)
                 Slider(value: $zoom, in: 0.4...1.6) { Text("Zoom") }.frame(width: 160)
             }
-            .font(.caption)
+            .font(.canopyCaption)
             .padding(.horizontal).padding(.vertical, 8)
             if positions.isEmpty {
                 Text("Patch some cables or connect a stage box, and the map of your system appears here.")
@@ -101,7 +101,7 @@ struct SystemMapView: View {
                     ZStack(alignment: .topLeading) {
                         ForEach(Array(columns.enumerated()), id: \.offset) { ci, stage in
                             Text(Self.stageNames[min(stage, Self.stageNames.count - 1)].uppercased())
-                                .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                                .font(.canopySans(10, weight: .semibold)).foregroundStyle(.secondary)
                                 .frame(width: Self.nodeSize.width)
                                 .position(x: 20 + CGFloat(ci) * (Self.nodeSize.width + Self.columnGap) + Self.nodeSize.width / 2, y: 16)
                         }
@@ -118,7 +118,7 @@ struct SystemMapView: View {
                         ForEach(edges) { e in
                             if let a = positions[e.from], let b = positions[e.to], hovered == nil || hovered == e.from || hovered == e.to {
                                 Text("\(e.count)")
-                                    .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                                    .font(.canopySans(10, weight: .semibold)).monospacedDigit()
                                     .padding(.horizontal, 4)
                                     .background(Color.canopyPaper, in: Capsule())
                                     .foregroundStyle(e.signal.color)
@@ -146,9 +146,9 @@ struct SystemMapView: View {
             HStack(spacing: 8) {
                 Image(systemName: d.role?.symbol ?? "shippingbox").foregroundStyle(Color.canopySage).frame(width: 18)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(d.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    Text(d.name).font(.canopySans(12, weight: .semibold)).lineLimit(1)
                     Text([store.place(d), connections > 0 ? "\(connections)" : ""].filter { !$0.isEmpty }.joined(separator: " · "))
-                        .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                        .font(.canopySans(10)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }

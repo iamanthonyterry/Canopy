@@ -98,7 +98,7 @@ struct WorkflowStepConfigSheet: View {
 
             Form {
                 Text(step.kind.subtitle)
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
 
                 if step.kind.usesHyperDeck {
                     deckFields
@@ -137,7 +137,7 @@ struct WorkflowStepConfigSheet: View {
 
                 case .upload:
                     Label("Uploading is coming soon. Until it's ready this step does nothing when the workflow runs, so you can plan around it now — YouTube, Dropbox and Google Drive are first.", systemImage: "clock.badge")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.canopyCallout).foregroundStyle(.secondary)
 
                 case .writeCopy:
                     writeCopyFields
@@ -153,7 +153,7 @@ struct WorkflowStepConfigSheet: View {
 
                 case .format:
                     Label("This step erases the device's drive. All footage still on it will be permanently deleted — this cannot be undone.", systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout).foregroundStyle(Color.canopyRust)
+                        .font(.canopyCallout).foregroundStyle(Color.canopyRust)
 
                 case .cleanup:
                     cleanupFields
@@ -169,7 +169,7 @@ struct WorkflowStepConfigSheet: View {
                     Toggle("Ask for confirmation before this step", isOn: $requiresConfirmation)
                 } footer: {
                     Text("Pauses the workflow here until someone confirms it should continue.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)
@@ -256,14 +256,14 @@ struct WorkflowStepConfigSheet: View {
                 }
             }
             if appState.hyperDecks.isEmpty {
-                Text("No HyperDecks added yet.").font(.caption).foregroundStyle(.secondary)
+                Text("No HyperDecks added yet.").font(.canopyCaption).foregroundStyle(.secondary)
             }
             if step.kind == .sync {
                 Text("On a folder there's nothing to download — Offload just picks up the files already in it. Turn every deck off for a workflow that only works on folders.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
             } else if decks.isNone {
                 Text("With no HyperDeck chosen this step does nothing.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
             }
         }
     }
@@ -271,7 +271,7 @@ struct WorkflowStepConfigSheet: View {
     private var syncFields: some View {
         Group {
             Text("Downloads any files not already synced.")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.canopyCallout).foregroundStyle(.secondary)
 
             Toggle("Verify with SHA-256", isOn: Binding(
                 get: { syncVerify || syncDeleteFromDevice },
@@ -279,11 +279,11 @@ struct WorkflowStepConfigSheet: View {
             ))
             .disabled(syncDeleteFromDevice)
             Text("Re-reads each file from the device and compares it with the copy on the destination, then writes a checksums.sha256 manifest next to the footage. Adds time to every offload.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
 
             Toggle("Remove from device after offload", isOn: $syncDeleteFromDevice)
             Text("Deletes each file from the HyperDeck once its copy has been verified — an alternative to a Format Drive step. Always verifies first, and a file that fails verification is left on the device. A clip that's still recording is never touched. Doesn't apply to folders.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
 
             if !availableFolderSteps.isEmpty {
                 Picker("Destination", selection: $syncUsesCreatedFolder) {
@@ -307,7 +307,7 @@ struct WorkflowStepConfigSheet: View {
                     }
                     .labelsHidden()
                     Text("Uses the folder created earlier in this workflow.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                 }
             } else {
                 Section("Sync Destination") {
@@ -344,7 +344,7 @@ struct WorkflowStepConfigSheet: View {
                                     }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .font(.callout)
+                                .font(.canopyCallout)
 
                                 if !syncCloudStorePath.isEmpty {
                                     Button {
@@ -368,12 +368,12 @@ struct WorkflowStepConfigSheet: View {
                         let folder = syncCloudStorePath.isEmpty ? "/" : "/\(syncCloudStorePath)"
                         Label("→ \(store.name)\(folder)",
                               systemImage: "externaldrive.connected.to.line.below")
-                            .font(.caption)
+                            .font(.canopyCaption)
                             .foregroundStyle(.secondary)
                     } else {
                         Label("Uses the global sync destination from Settings.",
                               systemImage: "info.circle")
-                            .font(.caption)
+                            .font(.canopyCaption)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -397,13 +397,13 @@ struct WorkflowStepConfigSheet: View {
                     }
                 }
                 Text("Preview: \(FolderNameEngine.resolve(createFolderNameTemplate))")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
 
                 Toggle("Create a subfolder for each device", isOn: $createFolderGroupByDevice)
                 Text(createFolderGroupByDevice
                      ? "Each device in this workflow gets its own subfolder, named after the device (e.g. \"ISO 1\"), inside the created folder."
                      : "All devices in this workflow share the created folder directly.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
             }
 
             Section("Location") {
@@ -438,7 +438,7 @@ struct WorkflowStepConfigSheet: View {
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .font(.callout)
+                            .font(.canopyCallout)
 
                             if !createFolderParentPath.isEmpty {
                                 Button {
@@ -462,12 +462,12 @@ struct WorkflowStepConfigSheet: View {
                     let folder = createFolderParentPath.isEmpty ? "/" : "/\(createFolderParentPath)/"
                     Label("→ \(store.name)\(folder)\(FolderNameEngine.resolve(createFolderNameTemplate))",
                           systemImage: "folder.badge.plus")
-                        .font(.caption)
+                        .font(.canopyCaption)
                         .foregroundStyle(.secondary)
                 } else {
                     Label("Creates the folder inside the global sync destination from Settings.",
                           systemImage: "info.circle")
-                        .font(.caption)
+                        .font(.canopyCaption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -485,10 +485,10 @@ struct WorkflowStepConfigSheet: View {
 
             if controlCommand == .start {
                 Text("Recording keeps rolling while the workflow moves on. Add a Wait and then a Stop Recording step to end it after a set time.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
             } else {
                 Text("Stops recording on the device if it's currently rolling.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
             }
         }
     }
@@ -511,7 +511,7 @@ struct WorkflowStepConfigSheet: View {
                 }
             }
             Text("Pauses the workflow for \(WaitDurationFormatter.string(forMinutes: waitValue * (waitUnit == .hours ? 60 : 1))) before moving to the next step.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
         }
     }
 
@@ -533,13 +533,13 @@ struct WorkflowStepConfigSheet: View {
             Text(convertInPlace
                  ? "Converted files are saved alongside the originals in the same folder."
                  : "Converted files are saved into a \"Converted\" subfolder.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
             Toggle("Delete original after converting", isOn: $deleteOriginal)
             LabeledContent("Max Parallel Jobs") {
                 Stepper("\(maxParallelJobs)", value: $maxParallelJobs, in: 1...8)
             }
             Text("How many files this step converts at the same time.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
         }
     }
 
@@ -551,11 +551,11 @@ struct WorkflowStepConfigSheet: View {
             }
             renamePreview
             VStack(alignment: .leading, spacing: 4) {
-                Text("Available tokens").font(.caption).bold()
+                Text("Available tokens").font(.canopyCaption).bold()
                 ForEach(RenameToken.allCases, id: \.self) { token in
                     HStack {
-                        Text(token.rawValue).font(.system(.caption, design: .monospaced))
-                        Text(token.label).font(.caption).foregroundStyle(.secondary)
+                        Text(token.rawValue).font(.canopyMono(10, relativeTo: .caption))
+                        Text(token.label).font(.canopyCaption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -570,7 +570,7 @@ struct WorkflowStepConfigSheet: View {
             ("Clip0002.mov", 2)
         ]
         return VStack(alignment: .leading, spacing: 6) {
-            Text("Preview").font(.caption).bold()
+            Text("Preview").font(.canopyCaption).bold()
             ForEach(examples, id: \.0) { original, index in
                 let newName = RenamePatternEngine.apply(
                     pattern: pattern.isEmpty ? "{name}" : pattern,
@@ -582,12 +582,12 @@ struct WorkflowStepConfigSheet: View {
                 )
                 HStack(spacing: 6) {
                     Text(original)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.canopyMono(10, relativeTo: .caption))
                         .foregroundStyle(.secondary)
                     Image(systemName: "arrow.right")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.canopyCaption2).foregroundStyle(.secondary)
                     Text("\(newName).\((original as NSString).pathExtension)")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.canopyMono(10, relativeTo: .caption))
                         .bold()
                 }
             }
@@ -602,7 +602,7 @@ struct WorkflowStepConfigSheet: View {
                 Stepper("\(retentionDays) day\(retentionDays == 1 ? "" : "s")", value: $retentionDays, in: 1...365)
             }
             Text("Deletes files older than this from the workflow's destination folder — not from the device itself.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
         }
     }
 
@@ -617,7 +617,7 @@ struct WorkflowStepConfigSheet: View {
             Toggle("Skip clips that already have a transcript", isOn: $transcribeSkipExisting)
             Toggle("Delete the new transcript files when the workflow is over", isOn: $transcribeDeleteWhenDone)
             Text("Runs entirely on this Mac. A .transcript.json file is saved next to each clip for later steps to use. The first run in a language downloads its speech model.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
         }
     }
 
@@ -630,7 +630,7 @@ struct WorkflowStepConfigSheet: View {
             }
             Stepper("Up to \(copyHashtagCount) hashtag\(copyHashtagCount == 1 ? "" : "s")", value: $copyHashtagCount, in: 0...10)
             Text("Drafts a headline, caption and hashtags for each suggested clip from what's said in it, on this Mac. Put this after Find Clips. The copy is saved with the clip suggestions and shown in the player's clip panel; rendered posts also get a matching .txt file.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
         }
     }
 
@@ -650,12 +650,12 @@ struct WorkflowStepConfigSheet: View {
                 switch webhookTestState {
                 case .idle:           EmptyView()
                 case .sending:        ProgressView().controlSize(.small)
-                case .sent:           Label("Delivered", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
-                case .failed(let why): Text(why).font(.caption).foregroundStyle(Color.canopyRust).lineLimit(2)
+                case .sent:           Label("Delivered", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.canopyCaption)
+                case .failed(let why): Text(why).font(.canopyCaption).foregroundStyle(Color.canopyRust).lineLimit(2)
                 }
             }
             Text("Sends one request per device when this step runs, with the workflow name, the files it handled, and any clip suggestions and copy. A failed request is logged but doesn't stop the workflow. Treat the URL as a secret — it's stored with the workflow.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
         }
     }
 
@@ -690,7 +690,7 @@ struct WorkflowStepConfigSheet: View {
                             .frame(width: 200)
                     }
                     Label("→ \(folder.path)\(copyToPath.isEmpty ? "" : "/" + copyToPath)", systemImage: "externaldrive")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                 } else if case .cloudStore(let id) = copyToChoice, let store = appState.cloudStores.first(where: { $0.id == id }) {
                     LabeledContent("Folder") {
                         HStack(spacing: 8) {
@@ -698,7 +698,7 @@ struct WorkflowStepConfigSheet: View {
                                 .foregroundStyle(copyToPath.isEmpty ? .secondary : .primary)
                                 .lineLimit(1).truncationMode(.head)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .font(.callout)
+                                .font(.canopyCallout)
                             Button { showCopyToFolderPicker = true } label: {
                                 Label("Browse…", systemImage: "folder")
                             }
@@ -706,17 +706,17 @@ struct WorkflowStepConfigSheet: View {
                         }
                     }
                     Label("→ \(store.name)/\(copyToPath)", systemImage: "externaldrive.connected.to.line.below")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                 } else {
                     Label("Uses the global sync destination from Settings, in a folder named after the device.",
                           systemImage: "info.circle")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                 }
             }
             Toggle("Verify with SHA-256", isOn: $copyToVerify)
             Toggle("Include transcripts and clip suggestions", isOn: $copyToSidecars)
             Text("Copies the files this workflow handled to a second location. Files already there with the same contents are skipped, so it's safe to re-run. Each copy is written under a temporary name and only moved into place once it's complete.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
         }
     }
 
@@ -749,7 +749,7 @@ struct WorkflowStepConfigSheet: View {
                 value: $queueClipsMinScore, in: 0...100, step: 5
             )
             Text("Adds each video's clips from a Find Clips step to the Export Queue as trimmed items. Put this after Find Clips. Nothing exports until you choose a destination in the Export Queue and start it.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
         }
     }
 
@@ -760,7 +760,7 @@ struct WorkflowStepConfigSheet: View {
             Stepper("At least \(findClipsMinSeconds) seconds", value: $findClipsMinSeconds, in: 10...120, step: 5)
             Stepper("At most \(findClipsMaxSeconds) seconds", value: $findClipsMaxSeconds, in: 15...180, step: 5)
             Text("Reads each video's transcript (making one first if needed) and suggests moments that work as standalone short posts. Suggestions are saved next to the video; open it in the player to review and export them. Add an Export Posts step after this one to render them automatically. Runs on this Mac.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
         }
     }
 
@@ -773,7 +773,7 @@ struct WorkflowStepConfigSheet: View {
             }
             Toggle("Burn in captions", isOn: $exportPostsCaptions)
             Text("Renders each clip from a Find Clips step, cropped to follow the speaker, into a Social Posts folder next to the video. Put this after Find Clips. Rendering takes a few seconds per clip.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
         }
     }
 
@@ -786,7 +786,7 @@ struct WorkflowStepConfigSheet: View {
             }
             Toggle("Keep the main subject in frame", isOn: $reframeFollowSubject)
             Text("Saves a cropped MP4 for each clip in a Reframed folder; the originals are untouched. The crop follows people in the shot, or whatever else stands out, and holds steady when they do. Turn this off for a plain centered crop.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
         }
     }
 
@@ -808,7 +808,7 @@ struct WorkflowStepConfigSheet: View {
         Group {
             if availableWorkflows.isEmpty {
                 Text("No other workflows to trigger yet — create another workflow first.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
             } else {
                 LabeledContent("Workflow") {
                     Picker("", selection: $triggerWorkflowID) {
@@ -825,7 +825,7 @@ struct WorkflowStepConfigSheet: View {
                 Text(triggerWaitForCompletion
                      ? "This workflow pauses here until the triggered one finishes."
                      : "This workflow starts the other one and immediately continues to its next step.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
             }
         }
     }
@@ -834,7 +834,7 @@ struct WorkflowStepConfigSheet: View {
         Group {
             if GmailAuthService.shared.connectedEmail == nil {
                 Label("No Gmail account connected — this step won't be able to send email. Connect one in Settings.", systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout).foregroundStyle(.orange)
+                    .font(.canopyCallout).foregroundStyle(.orange)
             }
 
             Section("Delivery Options") {
@@ -852,7 +852,7 @@ struct WorkflowStepConfigSheet: View {
                         .focused($notifyFocusedField, equals: .header)
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Message").font(.caption).foregroundStyle(.secondary)
+                    Text("Message").font(.canopyCaption).foregroundStyle(.secondary)
                     TextEditor(text: $notifyMessage, selection: $notifyMessageSelection)
                         .frame(minHeight: 80, maxHeight: 160)
                         .scrollContentBackground(.hidden)
@@ -864,11 +864,11 @@ struct WorkflowStepConfigSheet: View {
                         )
                         .focused($notifyFocusedField, equals: .message)
                     Text("HTML tags (e.g. <b>, <a href>) are sent as formatted email; plain text is sent as-is.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.canopyCaption2).foregroundStyle(.secondary)
 
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Click to insert into \(notifyLastFocusedField == .header ? "header" : "message")")
-                            .font(.caption).bold()
+                            .font(.canopyCaption).bold()
                             .padding(.top, 4)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 6)], alignment: .leading, spacing: 6) {
                             ForEach(Self.notifyVariables, id: \.token) { variable in
@@ -876,7 +876,7 @@ struct WorkflowStepConfigSheet: View {
                                     insertNotifyVariable(variable.token)
                                 } label: {
                                     Text(variable.token)
-                                        .font(.system(.caption, design: .monospaced))
+                                        .font(.canopyMono(10, relativeTo: .caption))
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 4)
                                         .background(Capsule().fill(Color.accentColor.opacity(0.12)))
@@ -895,13 +895,13 @@ struct WorkflowStepConfigSheet: View {
 
             Section {
                 HStack {
-                    Text("Recipients").font(.caption).foregroundStyle(.secondary)
+                    Text("Recipients").font(.canopyCaption).foregroundStyle(.secondary)
                     Spacer()
                     Button {
                         showingAddRecipient = true
                     } label: {
                         Label("Add", systemImage: "plus")
-                            .font(.caption)
+                            .font(.canopyCaption)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -909,7 +909,7 @@ struct WorkflowStepConfigSheet: View {
 
                 if notifyRecipients.isEmpty {
                     Text("No recipients added yet.")
-                        .font(.caption)
+                        .font(.canopyCaption)
                         .foregroundStyle(.tertiary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, 8)
@@ -917,8 +917,8 @@ struct WorkflowStepConfigSheet: View {
                     ForEach(notifyRecipients) { recipient in
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(recipient.name).font(.body)
-                                Text(recipient.email).font(.caption).foregroundStyle(.secondary)
+                                Text(recipient.name).font(.canopyBody)
+                                Text(recipient.email).font(.canopyCaption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Button {

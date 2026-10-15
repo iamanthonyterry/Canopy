@@ -78,11 +78,11 @@ struct RunRow: View {
                 Image(systemName: run.errors == 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                     .foregroundStyle(run.errors == 0 ? Color.canopySage : .orange)
                 Text(run.workflowName)
-                    .font(.headline)
+                    .font(.canopyHeadline)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Text(run.durationFormatted)
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
                     .lineLimit(1).fixedSize()
             }
             HStack(spacing: 12) {
@@ -95,7 +95,7 @@ struct RunRow: View {
                 Text(run.startedAt, style: .time)
             }
         }
-        .font(.caption).foregroundStyle(.secondary)
+        .font(.canopyCaption).foregroundStyle(.secondary)
         .padding(.vertical, 4)
     }
 }
@@ -154,7 +154,7 @@ struct RunDetailView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             ForEach(run.log, id: \.self) { line in
                                 Text(line)
-                                    .font(.system(size: 11, design: .monospaced))
+                                    .font(.canopyMono(11))
                                     .foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -166,7 +166,7 @@ struct RunDetailView: View {
                 } label: {
                     HStack {
                         Label("Run Log (\(run.log.count) lines)", systemImage: "doc.text")
-                            .font(.headline)
+                            .font(.canopyHeadline)
                         Spacer()
                         Button {
                             exportLog()
@@ -229,8 +229,8 @@ struct RunDetailView: View {
 
     private func statCard(value: String, label: String, color: Color) -> some View {
         VStack(spacing: 4) {
-            Text(value).font(.title2).bold().foregroundStyle(color)
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(value).font(.canopyDisplay(17)).foregroundStyle(color)
+            Text(label).font(.canopyCaption).foregroundStyle(.secondary)
         }
         .frame(minWidth: 80)
         .padding(.vertical, 12)
@@ -241,8 +241,8 @@ struct RunDetailView: View {
 
     private func labelRow(_ label: String, _ value: String) -> some View {
         HStack(alignment: .top) {
-            Text(label).font(.subheadline).foregroundStyle(.secondary).frame(width: 80, alignment: .leading)
-            Text(value).font(.subheadline)
+            Text(label).font(.canopySubheadline).foregroundStyle(.secondary).frame(width: 80, alignment: .leading)
+            Text(value).font(.canopySubheadline)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }

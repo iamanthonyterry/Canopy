@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreText
 
 // MARK: - Canopy Design System
 // A warm, editorial visual language for the app: serif display type over
@@ -21,15 +22,51 @@ extension Color {
 }
 
 // MARK: Typography
+// Plus Jakarta Sans for text and headings, Space Mono for logs, timecodes
+// and other fixed-width readouts — the same pairing as the Church Landing
+// Page, rosesashumans.com and creativesgarden.app. The fonts ship in
+// Resources/Fonts and are registered at launch by CanopyFonts.register().
+enum CanopyFonts {
+    static let sans = "PlusJakartaSans-Regular"
+    static let mono = "SpaceMono-Regular"
+
+    static func register() {
+        let urls = (Bundle.main.urls(forResourcesWithExtension: "woff2", subdirectory: nil) ?? [])
+            + (Bundle.main.urls(forResourcesWithExtension: "woff2", subdirectory: "Fonts") ?? [])
+        for url in urls {
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
+    }
+}
+
 extension Font {
-    /// Serif display type (renders as New York on macOS) for headings and
-    /// masthead-style titles — the main departure from stock system type.
-    static func canopyDisplay(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-        .system(size: size, weight: weight, design: .serif)
+    /// Plus Jakarta Sans. It's a variable font, so `.weight(_:)` and `.bold()`
+    /// work on it like on the system font.
+    static func canopySans(_ size: CGFloat, weight: Font.Weight = .regular, relativeTo style: Font.TextStyle = .body) -> Font {
+        .custom(CanopyFonts.sans, size: size, relativeTo: style).weight(weight)
+    }
+    /// Space Mono (Regular and Bold only; heavier weights resolve to Bold).
+    static func canopyMono(_ size: CGFloat, weight: Font.Weight = .regular, relativeTo style: Font.TextStyle = .body) -> Font {
+        .custom(CanopyFonts.mono, size: size, relativeTo: style).weight(weight)
+    }
+
+    /// Bold Jakarta for headings and masthead-style titles, like the
+    /// landing page's own headings.
+    static func canopyDisplay(_ size: CGFloat, weight: Font.Weight = .bold) -> Font {
+        canopySans(size, weight: weight, relativeTo: .title)
     }
     static let canopyLargeTitle = canopyDisplay(28)
     static let canopyTitle = canopyDisplay(20)
     static let canopyTitle2 = canopyDisplay(16)
+
+    // Jakarta versions of the macOS text styles, at the same point sizes.
+    static let canopyBody = canopySans(13, relativeTo: .body)
+    static let canopyHeadline = canopySans(13, weight: .bold, relativeTo: .headline)
+    static let canopyCallout = canopySans(12, relativeTo: .callout)
+    static let canopySubheadline = canopySans(11, relativeTo: .subheadline)
+    static let canopyFootnote = canopySans(10, relativeTo: .footnote)
+    static let canopyCaption = canopySans(10, relativeTo: .caption)
+    static let canopyCaption2 = canopySans(10, weight: .medium, relativeTo: .caption2)
 }
 
 // MARK: - Card surface
@@ -67,7 +104,7 @@ struct CanopyPill: View {
 
     var body: some View {
         Text(label)
-            .font(.system(size: 11, weight: .semibold))
+            .font(.canopySans(11, weight: .semibold))
             .padding(.horizontal, 10).padding(.vertical, 4)
             .background(color.opacity(0.15))
             .foregroundStyle(color)
@@ -79,7 +116,7 @@ struct CanopyPill: View {
 struct CanopyPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .semibold))
+            .font(.canopySans(13, weight: .semibold))
             .padding(.horizontal, 16).padding(.vertical, 8)
             .foregroundStyle(.white)
             .background(Color.accentColor.opacity(configuration.isPressed ? 0.85 : 1))
@@ -90,7 +127,7 @@ struct CanopyPrimaryButtonStyle: ButtonStyle {
 struct CanopySecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .medium))
+            .font(.canopySans(13, weight: .medium))
             .padding(.horizontal, 16).padding(.vertical, 8)
             .foregroundStyle(Color.canopyInk)
             .background(Color.canopyPaperElevated.opacity(configuration.isPressed ? 0.6 : 1))

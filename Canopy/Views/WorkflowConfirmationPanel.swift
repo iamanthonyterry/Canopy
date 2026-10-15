@@ -130,6 +130,7 @@ struct WorkflowConfirmationPanelContent: View {
                 }
             }
         }
+        .font(.canopyBody)
         .frame(width: 440)
         .background(Color.canopyPaperElevated)
     }
@@ -142,11 +143,11 @@ struct WorkflowConfirmationPanelContent: View {
                     .foregroundStyle(.orange)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\"\(session.workflow.name)\" needs your OK")
-                        .font(.headline)
+                        .font(.canopyHeadline)
                     Text("Confirm \"\(step.kind.title)\"?")
-                        .font(.subheadline)
+                        .font(.canopySubheadline)
                     Text(step.action.summary)
-                        .font(.caption)
+                        .font(.canopyCaption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)

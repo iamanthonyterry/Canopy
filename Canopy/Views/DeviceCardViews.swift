@@ -29,7 +29,7 @@ struct StatusBadge: View {
         }
 
         Text(label)
-            .font(.caption).bold()
+            .font(.canopyCaption).bold()
             .padding(.horizontal, 8).padding(.vertical, 4)
             .background(color.opacity(0.15))
             .foregroundStyle(color)
@@ -63,7 +63,7 @@ struct CloudStoreContentPane: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(store.name).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                     .lineLimit(1).truncationMode(.tail)
-                Text(store.ipAddress).font(.caption).foregroundStyle(.secondary)
+                Text(store.ipAddress).font(.canopyCaption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer()
@@ -126,12 +126,12 @@ struct LocalFolderContentPane: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(folder.name).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                     .lineLimit(1).truncationMode(.tail)
-                Text(folder.path).font(.caption).foregroundStyle(.secondary)
+                Text(folder.path).font(.canopyCaption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer()
             Label(folder.exists ? "Available" : "Not Found", systemImage: folder.exists ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .font(.caption).bold()
+                .font(.canopyCaption).bold()
                 .foregroundStyle(folder.exists ? Color.canopySage : Color.canopyRust)
                 .lineLimit(1).fixedSize()
             if appState.isAdmin {
@@ -177,8 +177,8 @@ struct DiscoveredDeviceRow: View {
             Image(systemName: icon)
                 .font(.title3).foregroundStyle(.secondary).frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
-                Text(name).font(.headline)
-                Text(ip).font(.caption).foregroundStyle(.secondary)
+                Text(name).font(.canopyHeadline)
+                Text(ip).font(.canopyCaption).foregroundStyle(.secondary)
             }
             Spacer()
             Button("Add") { onAdd() }.buttonStyle(.canopySecondary).controlSize(.small)

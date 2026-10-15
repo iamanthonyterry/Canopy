@@ -56,7 +56,7 @@ struct ContentView: View {
 
                 List(visibleNavItems, id: \.self, selection: $selection) { item in
                     Label {
-                        Text(item.rawValue).font(.system(size: 13, weight: .medium))
+                        Text(item.rawValue).font(.canopySans(13, weight: .medium))
                     } icon: {
                         Image(systemName: item.icon)
                     }
@@ -70,10 +70,10 @@ struct ContentView: View {
                     Rectangle().fill(Color.canopyRule).frame(height: 1)
                     HStack(spacing: 6) {
                         Image(systemName: "clock.fill")
-                            .font(.caption)
+                            .font(.canopyCaption)
                             .foregroundStyle(Color.canopySage)
                         Text(scheduleBadgeText)
-                            .font(.caption)
+                            .font(.canopyCaption)
                             .foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 12)
@@ -146,7 +146,7 @@ struct ContentView: View {
                 .font(.canopyTitle)
                 .foregroundStyle(Color.canopyInk)
             Text("by Roses as Humans")
-                .font(.system(size: 10, weight: .medium))
+                .font(.canopySans(10, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
@@ -175,7 +175,7 @@ struct ContentView: View {
             HStack(spacing: 6) {
                 Image(systemName: appState.userRole.icon)
                 Text(appState.userRole.rawValue)
-                    .font(.caption)
+                    .font(.canopyCaption)
                 Spacer()
             }
         }

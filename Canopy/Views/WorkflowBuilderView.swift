@@ -147,7 +147,7 @@ struct WorkflowBuilderView: View {
             Spacer()
 
             if isDirty {
-                Text("Unsaved changes").font(.caption).foregroundStyle(.secondary)
+                Text("Unsaved changes").font(.canopyCaption).foregroundStyle(.secondary)
                     .lineLimit(1)
                     .layoutPriority(-1)
             }
@@ -213,7 +213,7 @@ struct WorkflowBuilderView: View {
                     }
                     if paletteKinds.isEmpty && paletteModes.isEmpty {
                         Text("Nothing matches \"\(query)\".")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.canopyCaption).foregroundStyle(.secondary)
                             .padding(.top, 8)
                     }
                 }
@@ -227,8 +227,8 @@ struct WorkflowBuilderView: View {
     private func paletteHeader(_ title: String, hint: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(title.uppercased())
-                .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-            Text(hint).font(.caption2).foregroundStyle(.tertiary)
+                .font(.canopySans(11, weight: .semibold)).foregroundStyle(.secondary)
+            Text(hint).font(.canopyCaption2).foregroundStyle(.tertiary)
         }
         .padding(.vertical, 4)
     }
@@ -289,16 +289,16 @@ struct WorkflowBuilderView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     if let assistantError {
                         Label(assistantError, systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption).foregroundStyle(Color.canopyRust)
+                            .font(.canopyCaption).foregroundStyle(Color.canopyRust)
                     }
                     ForEach(assistantNotes, id: \.self) { note in
                         Label(note, systemImage: "checkmark.circle")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.canopyCaption).foregroundStyle(.secondary)
                     }
                 }
                 if assistantUndo != nil {
                     Button("Undo last change") { undoAssistantChange() }
-                        .buttonStyle(.link).font(.caption)
+                        .buttonStyle(.link).font(.canopyCaption)
                 }
             }
 
@@ -326,7 +326,7 @@ struct WorkflowBuilderView: View {
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.canopyRule, lineWidth: 1))
 
             if let assistantUnavailableReason {
-                Text(assistantUnavailableReason).font(.caption2).foregroundStyle(.secondary)
+                Text(assistantUnavailableReason).font(.canopyCaption2).foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 24).padding(.vertical, 12)
@@ -392,7 +392,7 @@ struct WorkflowBuilderView: View {
 
     private func sectionLabel(_ title: String, systemImage: String) -> some View {
         Label(title.uppercased(), systemImage: systemImage)
-            .font(.system(size: 11, weight: .semibold))
+            .font(.canopySans(11, weight: .semibold))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.bottom, 8)
@@ -426,7 +426,7 @@ struct WorkflowBuilderView: View {
                     Text(triggers.isEmpty
                          ? "Runs when started manually — drop a trigger here to automate it"
                          : "Drop another trigger here")
-                        .font(.caption)
+                        .font(.canopyCaption)
                 }
                 .foregroundStyle(triggerZoneTargeted ? Color.canopySage : .secondary)
                 .frame(maxWidth: .infinity)
@@ -486,8 +486,8 @@ struct WorkflowBuilderView: View {
             NodeIcon(systemImage: trigger.mode.icon,
                      color: trigger.isEnabled ? Color.canopySage : .secondary)
             VStack(alignment: .leading, spacing: 2) {
-                Text(triggerTitle(trigger)).font(.body)
-                Text(triggerDetail(trigger)).font(.caption).foregroundStyle(.secondary)
+                Text(triggerTitle(trigger)).font(.canopyBody)
+                Text(triggerDetail(trigger)).font(.canopyCaption).foregroundStyle(.secondary)
             }
             Spacer()
             Toggle("", isOn: Binding(
@@ -547,7 +547,7 @@ struct WorkflowBuilderView: View {
             sectionLabel("Folders to process", systemImage: "folder")
             VStack(alignment: .leading, spacing: 8) {
                 Text("HyperDecks are chosen on the Offload, Control HyperDeck and Format Drive steps. Tick a folder to also run the steps on the files already in it.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
 
                 ForEach(appState.localFolders) { folder in
                     targetToggle(.localFolder(folder.id), label: folder.name, icon: "folder")
@@ -580,10 +580,10 @@ struct WorkflowBuilderView: View {
 
                 if choosesFolderAtRun {
                     Text("No HyperDeck or folder is set, so you'll be asked for a folder when you press Run. You can also run it on any folder from the file browser's Run Workflow menu.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                     if !triggers.isEmpty {
                         Label("Triggers can't start it — there's no folder to run on until you pick one.", systemImage: "exclamationmark.triangle")
-                            .font(.caption).foregroundStyle(Color.canopyRust)
+                            .font(.canopyCaption).foregroundStyle(Color.canopyRust)
                     }
                 }
             }
@@ -626,9 +626,9 @@ struct WorkflowBuilderView: View {
                     Image(systemName: "square.stack.3d.down.right")
                         .font(.system(size: 28)).foregroundStyle(Color.canopySage)
                     Text("Drag steps here to build your workflow")
-                        .font(.headline).foregroundStyle(Color.canopyInk)
+                        .font(.canopyHeadline).foregroundStyle(Color.canopyInk)
                     Text("Pick from the list on the left. Steps run top to bottom, and files flow from one step to the next.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
@@ -645,7 +645,7 @@ struct WorkflowBuilderView: View {
             }
             if !steps.isEmpty {
                 Text("Steps run in order, top to bottom. Files flow from one step to the next.")
-                    .font(.caption2).foregroundStyle(.tertiary)
+                    .font(.canopyCaption2).foregroundStyle(.tertiary)
                     .padding(.top, 4)
             }
         }
@@ -654,27 +654,27 @@ struct WorkflowBuilderView: View {
     private func stepNode(_ step: WorkflowStep, index: Int) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "line.3.horizontal")
-                .font(.caption).foregroundStyle(.tertiary)
+                .font(.canopyCaption).foregroundStyle(.tertiary)
                 .help("Drag to reorder")
             Text("\(index + 1)")
-                .font(.caption.weight(.semibold).monospacedDigit())
+                .font(.canopyCaption.weight(.semibold).monospacedDigit())
                 .frame(width: 22, height: 22)
                 .background(Circle().fill(step.kind.color.opacity(0.15)))
                 .foregroundStyle(step.kind.color)
             NodeIcon(systemImage: step.kind.icon, color: step.kind.color)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
-                    Text(step.kind.title).font(.body)
+                    Text(step.kind.title).font(.canopyBody)
                     if step.requiresConfirmation {
                         Image(systemName: "hand.raised.fill")
-                            .font(.caption2).foregroundStyle(.orange)
+                            .font(.canopyCaption2).foregroundStyle(.orange)
                             .help("Asks for confirmation before running")
                     }
                 }
                 Text(step.kind.usesHyperDeck
                      ? "\(appState.label(for: step.decks)) · \(step.action.summary)"
                      : step.action.summary)
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    .font(.canopyCaption).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer()
             Button { editingStep = step } label: { Image(systemName: "slider.horizontal.3") }
@@ -713,15 +713,15 @@ struct WorkflowBuilderView: View {
         if !kinds.isEmpty {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.turn.down.right")
-                    .font(.caption).foregroundStyle(.tertiary)
+                    .font(.canopyCaption).foregroundStyle(.tertiary)
                 Text("Suggested next")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
                 ForEach(kinds, id: \.shortLabel) { action in
                     Button {
                         insertSuggestion(action, after: index)
                     } label: {
                         Label(action.shortLabel, systemImage: "plus")
-                            .font(.caption.weight(.medium))
+                            .font(.canopyCaption.weight(.medium))
                             .padding(.horizontal, 10).padding(.vertical, 5)
                             .background(Capsule().strokeBorder(action.kind.color.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
                             .foregroundStyle(action.kind.color)
@@ -820,8 +820,8 @@ private struct PaletteTile: View {
         HStack(spacing: 10) {
             NodeIcon(systemImage: icon, color: color)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                Text(title).font(.canopySans(13, weight: .medium)).lineLimit(1)
+                Text(subtitle).font(.canopyCaption2).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer(minLength: 0)
         }
@@ -894,7 +894,7 @@ private struct StepDropGap: View {
                 Capsule().fill(Color.canopySage).frame(height: 4)
                     .overlay(alignment: .center) {
                         Text("Drop here")
-                            .font(.caption2.weight(.semibold))
+                            .font(.canopyCaption2.weight(.semibold))
                             .padding(.horizontal, 8).padding(.vertical, 2)
                             .background(Capsule().fill(Color.canopySage))
                             .foregroundStyle(.white)
@@ -991,7 +991,7 @@ struct ScheduleTriggerConfigSheet: View {
                         Stepper(value: $trigger.minute, in: 0...59, step: 5) {
                             Text(String(format: "%02d", trigger.minute)).monospacedDigit().frame(width: 28)
                         }
-                        Text(trigger.displayTime).font(.caption).foregroundStyle(.secondary).padding(.leading, 4)
+                        Text(trigger.displayTime).font(.canopyCaption).foregroundStyle(.secondary).padding(.leading, 4)
                     }
                     Toggle("Repeat Daily", isOn: $trigger.repeatDaily)
                     if trigger.repeatDaily {
@@ -1006,7 +1006,7 @@ struct ScheduleTriggerConfigSheet: View {
                         displayedComponents: [.date, .hourAndMinute]
                     )
                     Text("Runs once at the selected date and time, then turns off.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
 
                 case .recordingStopped:
                     deckPicker
@@ -1069,12 +1069,12 @@ struct ScheduleTriggerConfigSheet: View {
     }
 
     private func note(_ text: String) -> some View {
-        Text(text).font(.caption).foregroundStyle(.secondary)
+        Text(text).font(.canopyCaption).foregroundStyle(.secondary)
     }
 
     private var weekdaySelector: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Runs On").font(.caption).foregroundStyle(.secondary)
+            Text("Runs On").font(.canopyCaption).foregroundStyle(.secondary)
             HStack(spacing: 6) {
                 ForEach(Weekday.allCases) { day in
                     let isOn = trigger.selectedWeekdays.contains(day)
@@ -1086,7 +1086,7 @@ struct ScheduleTriggerConfigSheet: View {
                         }
                     } label: {
                         Text(day.shortLabel)
-                            .font(.caption).bold()
+                            .font(.canopyCaption).bold()
                             .frame(width: 32, height: 28)
                             .background(isOn ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
                             .foregroundStyle(isOn ? .white : .primary)
@@ -1096,7 +1096,7 @@ struct ScheduleTriggerConfigSheet: View {
                 }
             }
             Text(trigger.displayWeekdays)
-                .font(.caption2).foregroundStyle(.tertiary)
+                .font(.canopyCaption2).foregroundStyle(.tertiary)
         }
         .padding(.top, 2)
     }

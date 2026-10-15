@@ -94,7 +94,7 @@ struct DeckContentPane: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(deck.name).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                     .lineLimit(1).truncationMode(.tail)
-                Text(deck.ipAddress).font(.caption).foregroundStyle(.secondary)
+                Text(deck.ipAddress).font(.canopyCaption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer()
@@ -135,15 +135,15 @@ struct DeckContentPane: View {
     // MARK: - Task progress
     private var taskProgress: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Sync Progress").font(.subheadline).bold()
+            Text("Sync Progress").font(.canopySubheadline).bold()
             ForEach(deckTasks.prefix(4)) { task in
                 HStack(spacing: 6) {
                     Image(systemName: taskIcon(task.phase))
-                        .font(.caption2)
+                        .font(.canopyCaption2)
                         .foregroundStyle(taskColor(task.phase))
                         .frame(width: 12)
                     Text(task.fileName)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.canopyMono(10))
                         .lineLimit(1)
                     Spacer()
                     ProgressView(value: task.overallProgress)
@@ -194,7 +194,7 @@ struct HyperDeckControls: View {
                     .frame(width: 8, height: 8)
                     .symbolEffect(.pulse)
                 Text("REC")
-                    .font(.caption).bold()
+                    .font(.canopyCaption).bold()
                     .foregroundStyle(Color.canopyRust)
             }
 

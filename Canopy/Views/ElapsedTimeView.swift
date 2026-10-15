@@ -28,11 +28,11 @@ struct ElapsedTimeView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Label("Running", systemImage: "clock")
-                    .font(.caption).bold()
+                    .font(.canopyCaption).bold()
                     .foregroundStyle(Color.accentColor)
                 Spacer()
                 Text(trailingLabel(elapsed, now: now))
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.canopyMono(10, relativeTo: .caption))
                     .foregroundStyle(.secondary)
             }
             ProgressView(value: progressValue(elapsed, now: now))
@@ -62,7 +62,7 @@ struct ElapsedTimeView: View {
                 .tint(Color.accentColor)
                 .frame(width: 80)
             Text(trailingLabel(elapsed, now: now))
-                .font(.system(.caption2, design: .monospaced))
+                .font(.canopyMono(10, relativeTo: .caption2))
                 .foregroundStyle(.secondary)
         }
     }

@@ -35,8 +35,8 @@ struct DeckListRow: View {
         HStack(spacing: 10) {
             StatusDot(status: status)
             VStack(alignment: .leading, spacing: 2) {
-                Text(deck.name).font(.body)
-                Text(deck.ipAddress).font(.caption).foregroundStyle(.secondary)
+                Text(deck.name).font(.canopyBody)
+                Text(deck.ipAddress).font(.canopyCaption).foregroundStyle(.secondary)
             }
             Spacer()
             if appState.isAdmin {
@@ -82,8 +82,8 @@ struct CloudStoreListRow: View {
         HStack(spacing: 10) {
             StatusDot(status: status)
             VStack(alignment: .leading, spacing: 2) {
-                Text(store.name).font(.body)
-                Text(store.ipAddress).font(.caption).foregroundStyle(.secondary)
+                Text(store.name).font(.canopyBody)
+                Text(store.ipAddress).font(.canopyCaption).foregroundStyle(.secondary)
             }
             Spacer()
             if appState.isAdmin {
@@ -128,8 +128,8 @@ struct LocalFolderListRow: View {
         HStack(spacing: 10) {
             Circle().fill(folder.exists ? Color.canopySage : Color.canopyRust).frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 2) {
-                Text(folder.name).font(.body)
-                Text(folder.path).font(.caption).foregroundStyle(.secondary)
+                Text(folder.name).font(.canopyBody)
+                Text(folder.path).font(.canopyCaption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer()

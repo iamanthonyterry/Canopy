@@ -38,11 +38,11 @@ struct WorkflowAssistantSheet: View {
                 VStack(alignment: .leading, spacing: 14) {
                     if let unavailableReason {
                         Label(unavailableReason, systemImage: "exclamationmark.triangle.fill")
-                            .font(.callout).foregroundStyle(Color.canopyRust)
+                            .font(.canopyCallout).foregroundStyle(Color.canopyRust)
                     }
 
                     TextEditor(text: $request)
-                        .font(.body)
+                        .font(.canopyBody)
                         .focused($focused)
                         .frame(height: 90)
                         .scrollContentBackground(.hidden)
@@ -53,7 +53,7 @@ struct WorkflowAssistantSheet: View {
 
                     if result == nil {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Try").font(.caption).foregroundStyle(.secondary)
+                            Text("Try").font(.canopyCaption).foregroundStyle(.secondary)
                             ForEach(examples, id: \.self) { example in
                                 Button(example) { request = example }
                                     .buttonStyle(.link)
@@ -63,7 +63,7 @@ struct WorkflowAssistantSheet: View {
                     }
 
                     if let errorMessage {
-                        Text(errorMessage).font(.callout).foregroundStyle(Color.canopyRust)
+                        Text(errorMessage).font(.canopyCallout).foregroundStyle(Color.canopyRust)
                     }
 
                     if let result { preview(result) }
@@ -83,25 +83,25 @@ struct WorkflowAssistantSheet: View {
 
     private func preview(_ result: WorkflowDraftResult) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(result.workflow.name).font(.headline)
+            Text(result.workflow.name).font(.canopyHeadline)
             ForEach(Array(result.workflow.steps.enumerated()), id: \.element.id) { index, step in
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: step.kind.icon)
                         .foregroundStyle(step.kind.color).frame(width: 22)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(index + 1). \(step.kind.title)").font(.subheadline.weight(.medium))
-                        Text(step.action.summary).font(.caption).foregroundStyle(.secondary)
+                        Text("\(index + 1). \(step.kind.title)").font(.canopySubheadline.weight(.medium))
+                        Text(step.action.summary).font(.canopyCaption).foregroundStyle(.secondary)
                     }
                 }
             }
             ForEach(result.workflow.triggers) { trigger in
                 Label("Starts \(TriggerContext(appState: appState).describe(trigger))",
                       systemImage: trigger.mode.icon)
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
             }
             ForEach(result.notes, id: \.self) { note in
                 Label(note, systemImage: "info.circle")
-                    .font(.caption).foregroundStyle(Color.canopyRust)
+                    .font(.canopyCaption).foregroundStyle(Color.canopyRust)
             }
         }
         .padding(12)

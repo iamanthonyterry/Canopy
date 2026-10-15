@@ -64,9 +64,9 @@ private struct ClipNoteEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Note").font(.caption).foregroundStyle(.secondary)
+            Text("Note").font(.canopyCaption).foregroundStyle(.secondary)
             TextEditor(text: $text)
-                .font(.body)
+                .font(.canopyBody)
                 .frame(width: 260, height: 100)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.canopyRule, lineWidth: 1))
             HStack {

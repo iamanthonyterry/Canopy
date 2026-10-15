@@ -11,7 +11,7 @@ struct EmailNotificationsView: View {
         GroupBox(label: Label("Email Integration", systemImage: "envelope")) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Send From")
-                    .font(.caption)
+                    .font(.canopyCaption)
                     .foregroundStyle(.secondary)
 
                 if let email = gmailAuth.connectedEmail {
@@ -19,7 +19,7 @@ struct EmailNotificationsView: View {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(Color.canopySage)
                         Text(email)
-                            .font(.body)
+                            .font(.canopyBody)
                         Spacer()
                         Button("Disconnect") {
                             gmailAuth.signOut()
@@ -44,13 +44,13 @@ struct EmailNotificationsView: View {
                     }
                     if let error = gmailAuth.lastError {
                         Text(error)
-                            .font(.caption2)
+                            .font(.canopyCaption2)
                             .foregroundStyle(Color.canopyRust)
                     }
                 }
 
                 Text("Add a Notification step to any workflow to send email with a custom header, message, and recipients.")
-                    .font(.caption2)
+                    .font(.canopyCaption2)
                     .foregroundStyle(.tertiary)
             }
             .padding(.top, 8)

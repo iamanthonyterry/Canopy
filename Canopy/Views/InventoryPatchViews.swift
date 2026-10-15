@@ -45,7 +45,7 @@ struct PatchSheetView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 14) {
                     Text("\(patches.count) \(patches.count == 1 ? "cable" : "cables") across \(devices.count) \(devices.count == 1 ? "device" : "devices"), plus \(store.scopedHops.count) channels over stage box links. \(own.count) ports in all, \(unpatched.count) not patched.")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.canopyCallout).foregroundStyle(.secondary)
                     ResultLine(result: result)
                     if patches.isEmpty {
                         Text(store.level.canEdit ? "Nothing is patched yet. Open a device to patch its channels, or import a spreadsheet." : "Nothing is patched yet.")
@@ -57,9 +57,9 @@ struct PatchSheetView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(alignment: .firstTextBaseline) {
                                 if let d = g.device {
-                                    Button(d.name) { nav.open(d.id) }.buttonStyle(.plain).font(.headline).foregroundStyle(Color.canopyInk)
+                                    Button(d.name) { nav.open(d.id) }.buttonStyle(.plain).font(.canopyHeadline).foregroundStyle(Color.canopyInk)
                                     Text([store.place(d), "\(g.rows.count) \(g.rows.count == 1 ? "cable" : "cables") \(byInputs ? "in" : "out")"].filter { !$0.isEmpty }.joined(separator: " · "))
-                                        .font(.caption).foregroundStyle(.secondary)
+                                        .font(.canopyCaption).foregroundStyle(.secondary)
                                 }
                             }
                             ForEach(g.rows) { p in row(p) }
@@ -74,7 +74,7 @@ struct PatchSheetView: View {
                                 HStack {
                                     Button(store.byID[id]?.name ?? "") { nav.open(id) }.buttonStyle(.link)
                                     let c = InventoryRules.counts(ports)
-                                    Text("\(c.inputs) in · \(c.outputs) out not patched").font(.caption).foregroundStyle(.secondary)
+                                    Text("\(c.inputs) in · \(c.outputs) out not patched").font(.canopyCaption).foregroundStyle(.secondary)
                                 }
                             }
                         }
@@ -95,7 +95,7 @@ struct PatchSheetView: View {
         let other = byInputs ? p.from : p.to
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(mine.name).fontWeight(.medium).frame(width: 220, alignment: .leading).lineLimit(1)
-            Text(mine.port.kind).font(.caption).foregroundStyle(.secondary).frame(width: 60, alignment: .leading)
+            Text(mine.port.kind).font(.canopyCaption).foregroundStyle(.secondary).frame(width: 60, alignment: .leading)
             Text(byInputs ? "←" : "→").foregroundStyle(.secondary)
             Button(other.device.name) { nav.open(other.device.id) }.buttonStyle(.link)
             Text("· \(other.title)").lineLimit(1)
@@ -104,12 +104,12 @@ struct PatchSheetView: View {
                 Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange).help("\(p.from.port.signal.label) into \(p.to.port.signal.label)")
             }
             Spacer()
-            Text(p.cable.note).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Text(p.cable.note).font(.canopyCaption).foregroundStyle(.secondary).lineLimit(1)
             if store.level.canEdit {
                 Button { confirm = p } label: { Image(systemName: "xmark.circle") }.buttonStyle(.borderless).help("Disconnect")
             }
         }
-        .font(.callout)
+        .font(.canopyCallout)
     }
 
     private func export(_ patches: [Patch]) {
@@ -148,13 +148,13 @@ struct SignalFlowView: View {
             HStack {
                 TextField("Follow a device, channel or room…", text: $query).textFieldStyle(.roundedBorder).frame(maxWidth: 320)
                 Spacer()
-                Text("\(shown.count) of \(chains.count) paths").font(.caption).foregroundStyle(.secondary)
+                Text("\(shown.count) of \(chains.count) paths").font(.canopyCaption).foregroundStyle(.secondary)
             }
             .padding(.horizontal).padding(.vertical, 8)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
                     Text("Each line follows a signal from where it starts to where it ends, over cables (→) and stage box links (⇒). A console's mix is inside it, so a line ends at a console input and new ones start at its outputs.")
-                        .font(.caption).foregroundStyle(.secondary).padding(.bottom, 4)
+                        .font(.canopyCaption).foregroundStyle(.secondary).padding(.bottom, 4)
                     if shown.isEmpty {
                         Text(chains.isEmpty ? "Nothing is patched yet." : "No signal paths match.").foregroundStyle(.secondary)
                     }
@@ -175,10 +175,10 @@ struct SignalFlowView: View {
                                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.canopyRule))
                             }
                             if c.notes.contains(where: { !$0.isEmpty }) {
-                                Text(c.notes.filter { !$0.isEmpty }.joined(separator: "; ")).font(.caption).foregroundStyle(.secondary)
+                                Text(c.notes.filter { !$0.isEmpty }.joined(separator: "; ")).font(.canopyCaption).foregroundStyle(.secondary)
                             }
                         }
-                        .font(.callout)
+                        .font(.canopyCallout)
                         .padding(.vertical, 3)
                         Divider().opacity(0.4)
                     }
@@ -248,7 +248,7 @@ struct PatchImportView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Import a patch sheet").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                     Text("Bring cables in from a spreadsheet saved as CSV, or paste rows copied from one. Devices are matched by name and channels by number (or name); anything missing is added. A row replaces whatever fed that input before. Headings: \(PatchImport.headers.joined(separator: ", ")).")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.canopyCallout).foregroundStyle(.secondary)
                     HStack {
                         Button("Open CSV…") { opening = true }.buttonStyle(.canopySecondary)
                         Button("Paste") { text = NSPasteboard.general.string(forType: .string) ?? "" }.buttonStyle(.canopySecondary)
@@ -261,8 +261,8 @@ struct PatchImportView: View {
 
                 if !text.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("\(parsed.0.count) \(parsed.0.count == 1 ? "cable" : "cables") ready").font(.headline)
-                        ForEach(parsed.1, id: \.self) { Text($0).font(.caption).foregroundStyle(Color.canopyRust) }
+                        Text("\(parsed.0.count) \(parsed.0.count == 1 ? "cable" : "cables") ready").font(.canopyHeadline)
+                        ForEach(parsed.1, id: \.self) { Text($0).font(.canopyCaption).foregroundStyle(Color.canopyRust) }
                         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
                             GridRow { Text("From").bold(); Text("Channel").bold(); Text("To").bold(); Text("Channel").bold(); Text("Note").bold() }
                             ForEach(Array(parsed.0.prefix(200).enumerated()), id: \.offset) { _, r in
@@ -273,10 +273,10 @@ struct PatchImportView: View {
                                     Text([r.toChannel.map(String.init) ?? "", r.toName].filter { !$0.isEmpty }.joined(separator: ". "))
                                     Text(r.note).foregroundStyle(.secondary)
                                 }
-                                .font(.caption)
+                                .font(.canopyCaption)
                             }
                         }
-                        if parsed.0.count > 200 { Text("…and \(parsed.0.count - 200) more").font(.caption).foregroundStyle(.secondary) }
+                        if parsed.0.count > 200 { Text("…and \(parsed.0.count - 200) more").font(.canopyCaption).foregroundStyle(.secondary) }
                         HStack {
                             Picker("Into", selection: $campus) {
                                 if store.campuses.isEmpty { Text("No campus").tag("") }

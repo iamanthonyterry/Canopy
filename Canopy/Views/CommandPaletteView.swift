@@ -180,7 +180,7 @@ struct CommandPaletteView: View {
                 .foregroundStyle(selected ? Color.white : Color.canopySage)
             Text(item.title).lineLimit(1).truncationMode(.middle)
             Spacer()
-            Text(item.subtitle).font(.caption)
+            Text(item.subtitle).font(.canopyCaption)
                 .foregroundStyle(selected ? Color.white.opacity(0.8) : Color.secondary)
         }
         .padding(.horizontal, 10).padding(.vertical, 7)

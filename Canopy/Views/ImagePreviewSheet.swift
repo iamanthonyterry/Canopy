@@ -200,9 +200,9 @@ struct ImagePreviewSheet: View {
                 Spacer()
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 40)).foregroundStyle(Color.canopyRust)
-                Text("Can't preview this file").font(.headline)
+                Text("Can't preview this file").font(.canopyHeadline)
                 Text(errorMessage)
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
                 Spacer()
@@ -214,7 +214,7 @@ struct ImagePreviewSheet: View {
                 if isDownloading {
                     ProgressView(value: downloadProgress).frame(width: 220)
                     Text("Downloading for preview… \(Int(downloadProgress * 100))%")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                 } else {
                     ProgressView("Loading…")
                 }

@@ -110,8 +110,8 @@ private struct DriveRow: View {
             HStack(spacing: 10) {
                 driveIcon
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(deck.name).font(.headline)
-                    Text(deck.ipAddress).font(.caption).foregroundStyle(.secondary)
+                    Text(deck.name).font(.canopyHeadline)
+                    Text(deck.ipAddress).font(.canopyCaption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 statusBadge(pingStatus)
@@ -143,7 +143,7 @@ private struct DriveRow: View {
     private var destinationPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Sync to", systemImage: "arrow.right.circle")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.canopyCaption).foregroundStyle(.secondary)
 
             // Cloud store selector
             Picker("Cloud Store", selection: $selectedStoreID) {
@@ -160,17 +160,17 @@ private struct DriveRow: View {
                 if isLoadingFolders {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.mini)
-                        Text("Loading folders…").font(.caption).foregroundStyle(.secondary)
+                        Text("Loading folders…").font(.canopyCaption).foregroundStyle(.secondary)
                     }
                 } else if let error = folderLoadError {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                        Text(error).font(.caption).foregroundStyle(.orange)
+                        Text(error).font(.canopyCaption).foregroundStyle(.orange)
                     }
                 } else if rootNodes.isEmpty {
                     HStack(spacing: 6) {
                         Image(systemName: "folder.badge.questionmark").foregroundStyle(.secondary)
-                        Text("No folders found").font(.caption).foregroundStyle(.secondary)
+                        Text("No folders found").font(.canopyCaption).foregroundStyle(.secondary)
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 0) {
@@ -189,7 +189,7 @@ private struct DriveRow: View {
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.canopySage)
                         Text("→ \(store.name) / \(node.name)")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.canopyCaption).foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
                     .padding(.top, 2)
@@ -308,11 +308,11 @@ private struct FolderTreeRow: View {
                 }
 
                 Image(systemName: node.isExpanded ? "folder.fill" : "folder")
-                    .font(.caption)
+                    .font(.canopyCaption)
                     .foregroundStyle(Color.canopySage)
 
                 Text(node.name)
-                    .font(.caption)
+                    .font(.canopyCaption)
                     .lineLimit(1)
 
                 Spacer()
@@ -381,11 +381,11 @@ private struct SelectableFolderTreeRow: View {
                 }
 
                 Image(systemName: node.isExpanded ? "folder.fill" : "folder")
-                    .font(.caption)
+                    .font(.canopyCaption)
                     .foregroundStyle(isSelected ? .white : Color.canopySage)
 
                 Text(node.name)
-                    .font(.caption)
+                    .font(.canopyCaption)
                     .lineLimit(1)
                     .foregroundStyle(isSelected ? .white : .primary)
 
@@ -432,8 +432,8 @@ private struct CloudStorePairingRow: View {
             HStack(spacing: 10) {
                 storeIcon
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(store.name).font(.headline)
-                    Text(store.ipAddress).font(.caption).foregroundStyle(.secondary)
+                    Text(store.name).font(.canopyHeadline)
+                    Text(store.ipAddress).font(.canopyCaption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 statusBadge(pingStatus)
@@ -445,15 +445,15 @@ private struct CloudStorePairingRow: View {
                 if isLoading {
                     HStack {
                         ProgressView().controlSize(.mini)
-                        Text("Mounting…").font(.caption).foregroundStyle(.secondary)
+                        Text("Mounting…").font(.canopyCaption).foregroundStyle(.secondary)
                     }.padding(.vertical, 4)
                 } else if let error = loadError {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                        Text(error).font(.caption).foregroundStyle(.orange)
+                        Text(error).font(.canopyCaption).foregroundStyle(.orange)
                     }.padding(.vertical, 4)
                 } else if rootNodes.isEmpty {
-                    Text("No folders found").font(.caption).foregroundStyle(.secondary)
+                    Text("No folders found").font(.canopyCaption).foregroundStyle(.secondary)
                         .padding(.vertical, 4)
                 } else {
                     FolderTreeView(nodes: rootNodes, depth: 0)
@@ -461,7 +461,7 @@ private struct CloudStorePairingRow: View {
                 }
             } label: {
                 Label("Folders", systemImage: "folder")
-                    .font(.subheadline).bold()
+                    .font(.canopySubheadline).bold()
             }
             .onChange(of: isExpanded) { _, expanded in
                 if expanded && rootNodes.isEmpty { loadRootFolders() }
@@ -514,7 +514,7 @@ private func panelHeader(title: String, icon: String, count: Int, tint: Color) -
         Image(systemName: icon).foregroundStyle(tint)
         Text(title).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
         Spacer()
-        Text("\(count)").font(.caption).padding(.horizontal, 8).padding(.vertical, 3)
+        Text("\(count)").font(.canopyCaption).padding(.horizontal, 8).padding(.vertical, 3)
             .background(tint.opacity(0.12)).foregroundStyle(tint).clipShape(Capsule())
     }
     .padding(.horizontal).padding(.vertical, 12)

@@ -80,19 +80,19 @@ struct DeviceFolderPickerSheet: View {
                     Task { await load() }
                 } label: {
                     Label(rootLabel, systemImage: "externaldrive.fill")
-                        .font(.caption)
+                        .font(.canopyCaption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(navStack.isEmpty ? .primary : .secondary)
 
                 ForEach(navStack.indices, id: \.self) { i in
                     Image(systemName: "chevron.right")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .font(.canopyCaption2).foregroundStyle(.tertiary)
                     Button {
                         navStack = Array(navStack.prefix(i + 1))
                         Task { await load() }
                     } label: {
-                        Text(navStack[i]).font(.caption)
+                        Text(navStack[i]).font(.canopyCaption)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(i == navStack.count - 1 ? .primary : .secondary)
@@ -114,7 +114,7 @@ struct DeviceFolderPickerSheet: View {
             VStack(spacing: 8) {
                 Spacer()
                 Image(systemName: "exclamationmark.triangle").font(.system(size: 36)).foregroundStyle(Color.canopyRust)
-                Text(loadError).font(.caption).foregroundStyle(.secondary)
+                Text(loadError).font(.canopyCaption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).padding(.horizontal)
                 Spacer()
             }
@@ -147,11 +147,11 @@ struct DeviceFolderPickerSheet: View {
         HStack {
             if let h = highlighted {
                 Label(h, systemImage: "folder.fill")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             } else {
                 Text(navStack.isEmpty ? "Device root" : currentRelativePath)
-                    .font(.caption).foregroundStyle(.tertiary)
+                    .font(.canopyCaption).foregroundStyle(.tertiary)
                     .lineLimit(1).truncationMode(.head)
             }
 

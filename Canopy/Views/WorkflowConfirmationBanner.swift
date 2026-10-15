@@ -32,8 +32,8 @@ struct WorkflowConfirmationBanner: View {
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\"\(session.workflow.name)\" — confirm \"\(step.kind.title)\"?")
-                    .font(.subheadline).bold()
-                Text(step.action.summary).font(.caption).foregroundStyle(.secondary)
+                    .font(.canopySubheadline).bold()
+                Text(step.action.summary).font(.canopyCaption).foregroundStyle(.secondary)
             }
             Spacer()
             Button("Stop") { session.resolveConfirmation(proceed: false) }

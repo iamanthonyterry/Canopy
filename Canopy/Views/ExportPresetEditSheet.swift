@@ -28,7 +28,7 @@ struct ExportPresetsListView: View {
                         .font(.system(size: 32)).foregroundStyle(Color.canopySage)
                     Text("No presets yet").foregroundStyle(.secondary)
                     Text("Save a destination and quality once, then export to it in one click.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.canopyCaption).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 280)
                     Spacer()
@@ -41,9 +41,9 @@ struct ExportPresetsListView: View {
                             editingPreset = preset
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(preset.name).font(.system(size: 13, weight: .medium))
+                                Text(preset.name).font(.canopySans(13, weight: .medium))
                                 Text(preset.destinationPath)
-                                    .font(.caption).foregroundStyle(.secondary)
+                                    .font(.canopyCaption).foregroundStyle(.secondary)
                                     .lineLimit(1).truncationMode(.middle)
                             }
                         }
@@ -121,7 +121,7 @@ struct ExportPresetEditSheet: View {
                     LabeledContent("Destination") {
                         HStack(spacing: 8) {
                             Text(destinationPath.isEmpty ? "No folder chosen" : destinationPath)
-                                .font(.caption)
+                                .font(.canopyCaption)
                                 .foregroundStyle(destinationPath.isEmpty ? .secondary : .primary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -151,10 +151,10 @@ struct ExportPresetEditSheet: View {
                             }
                         }
                         Text(quality.description)
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.canopyCaption).foregroundStyle(.secondary)
                     } else {
                         Text("Keeps the original codec — fast, no quality loss, larger files.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.canopyCaption).foregroundStyle(.secondary)
                     }
                 }
             }

@@ -22,7 +22,7 @@ struct ServiceLogSection: View {
             HStack {
                 Text("Service log").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                 let spent = entries.compactMap(\.cost).reduce(0, +)
-                if spent > 0 { Text("\(InventoryRules.money(spent)) spent").font(.caption).foregroundStyle(.secondary) }
+                if spent > 0 { Text("\(InventoryRules.money(spent)) spent").font(.canopyCaption).foregroundStyle(.secondary) }
                 Spacer()
                 if store.level.canEdit && !adding { Button("Add entry") { adding = true }.buttonStyle(.canopySecondary) }
             }
@@ -37,7 +37,7 @@ struct ServiceLogSection: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(s.summary)
                         let extra = [s.vendor, s.cost.map { InventoryRules.money($0) } ?? ""].filter { !$0.isEmpty }
-                        if !extra.isEmpty { Text(extra.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary) }
+                        if !extra.isEmpty { Text(extra.joined(separator: " · ")).font(.canopyCaption).foregroundStyle(.secondary) }
                     }
                     Spacer()
                     if store.level.canEdit {
@@ -45,7 +45,7 @@ struct ServiceLogSection: View {
                             .buttonStyle(.borderless).help("Delete this entry")
                     }
                 }
-                .font(.callout)
+                .font(.canopyCallout)
             }
             ResultLine(result: result)
         }
@@ -101,7 +101,7 @@ struct FilesSection: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Files").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
-                Text("Scenes, show files, router backups, manuals, receipts").font(.caption).foregroundStyle(.secondary)
+                Text("Scenes, show files, router backups, manuals, receipts").font(.canopyCaption).foregroundStyle(.secondary)
                 Spacer()
                 if working { ProgressView().controlSize(.small) }
                 Button("Add file…") { importing = true }.buttonStyle(.canopySecondary).disabled(working)
@@ -145,13 +145,13 @@ struct FileRow: View {
                 Text(file.name)
                 Text([showDevice ? store.byID[file.equipmentId]?.name ?? "" : "", InventoryRules.size(file.size), String(file.createdAt.prefix(10))]
                     .filter { !$0.isEmpty }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.canopyCaption).foregroundStyle(.secondary)
             }
             Spacer()
             Button("Save…") { save() }.buttonStyle(.borderless)
             Button { confirmDelete = file } label: { Image(systemName: "trash") }.buttonStyle(.borderless)
         }
-        .font(.callout)
+        .font(.canopyCallout)
     }
 
     private func save() {
@@ -216,7 +216,7 @@ struct EquipmentEditorSheet: View {
                     if draft.role == nil, let guess = InventoryRules.suggestRole(name: draft.name, makeModel: draft.makeModel, category: draft.category) {
                         Button("Looks like a \(guess.label.lowercased()). Use that?") { draft.role = guess }.buttonStyle(.link)
                     }
-                    Text("The type is used to suggest what to patch to, and to warn about unusual cables.").font(.caption).foregroundStyle(.secondary)
+                    Text("The type is used to suggest what to patch to, and to warn about unusual cables.").font(.canopyCaption).foregroundStyle(.secondary)
                 }
                 Section("Channels") {
                     Stepper("Inputs: \(draft.inputs)", value: $draft.inputs, in: 0...256)
@@ -227,7 +227,7 @@ struct EquipmentEditorSheet: View {
                     }
                     Stepper("Option card slots: \(draft.cardSlots)", value: $draft.cardSlots, in: 0...16)
                     if existing != nil {
-                        Text("Lowering a count removes the highest-numbered channels and their cables.").font(.caption).foregroundStyle(.secondary)
+                        Text("Lowering a count removes the highest-numbered channels and their cables.").font(.canopyCaption).foregroundStyle(.secondary)
                     }
                 }
                 Section("Where it is") {
@@ -258,7 +258,7 @@ struct EquipmentEditorSheet: View {
                         Stepper("Height: \(draft.rackHeight)U", value: $draft.rackHeight, in: 1...rack.units)
                     }
                     TextField("Spot in the room", text: $draft.location, prompt: Text("Left shelf, under the desk, stage right…"))
-                    Text("Add rooms and racks on the Rooms & Racks tab.").font(.caption).foregroundStyle(.secondary)
+                    Text("Add rooms and racks on the Rooms & Racks tab.").font(.canopyCaption).foregroundStyle(.secondary)
                 }
                 Section("More") {
                     DisclosureGroup("Status, purchase and warranty, network login, notes", isExpanded: $more) {
@@ -278,7 +278,7 @@ struct EquipmentEditorSheet: View {
                         TextField("IP address", text: $draft.ipAddress)
                         TextField("Username", text: $draft.username)
                         SecureField("Password", text: $draft.password)
-                        Text("Logins are visible only to people who can view everything.").font(.caption).foregroundStyle(.secondary)
+                        Text("Logins are visible only to people who can view everything.").font(.canopyCaption).foregroundStyle(.secondary)
                         TextField("Notes", text: $draft.notes, axis: .vertical).lineLimit(3...8)
                     }
                 }
@@ -304,13 +304,13 @@ struct EquipmentEditorSheet: View {
                         HStack {
                             Text(p.name)
                             Spacer()
-                            Text("\(p.inputs) in · \(p.outputs) out\(p.price.map { " · " + InventoryRules.money($0) } ?? "")").font(.caption).foregroundStyle(.secondary)
+                            Text("\(p.inputs) in · \(p.outputs) out\(p.price.map { " · " + InventoryRules.money($0) } ?? "")").font(.canopyCaption).foregroundStyle(.secondary)
                         }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
-                if hits.isEmpty { Text("Not in the list. Fill it in below.").font(.caption).foregroundStyle(.secondary) }
+                if hits.isEmpty { Text("Not in the list. Fill it in below.").font(.canopyCaption).foregroundStyle(.secondary) }
             }
         }
     }
