@@ -270,6 +270,22 @@ enum SyncDestination: Hashable, Codable {
     }
 }
 
+// MARK: - Trigger Folder
+// Where a workflow started by a Trigger Workflow step runs. By default it runs
+// on its own devices and folders. `.createdFolder` runs it in place on the
+// folder a Create Folder step earlier in this workflow made — and when that
+// step groups by device, `deviceID` picks one device's subfolder inside it
+// (nil = the created folder itself).
+enum TriggerFolder: Hashable, Codable {
+    case ownTargets
+    case createdFolder(stepID: UUID, deviceID: UUID?)
+
+    var createdFolderStepID: UUID? {
+        if case .createdFolder(let stepID, _) = self { return stepID }
+        return nil
+    }
+}
+
 // MARK: - Folder Name Engine
 // Resolves the optional {date} token in a Create Folder step's name — the
 // only dynamic piece a folder name needs, unlike the rename step's richer
@@ -387,7 +403,9 @@ enum StepAction: Hashable {
     case format
     case cleanup(retentionDays: Int)
     case notify(header: String, message: String, recipients: [NotificationRecipient], sendPerDrive: Bool)
-    case triggerWorkflow(workflowID: UUID?, waitForCompletion: Bool)
+    /// `folder` points the triggered workflow at a folder this workflow made,
+    /// rather than at the triggered workflow's own devices and folders.
+    case triggerWorkflow(workflowID: UUID?, waitForCompletion: Bool, folder: TriggerFolder = .ownTargets)
 
     var kind: StepKind {
         switch self {
@@ -530,11 +548,17 @@ enum StepAction: Hashable {
             let who = recipients.isEmpty ? "no recipients set" : "\(recipients.count) recipient\(recipients.count == 1 ? "" : "s")"
             let mode = sendPerDrive ? "per drive" : "entire workflow"
             return "\"\(header)\" → \(who) (\(mode))"
-        case .triggerWorkflow(let workflowID, let waitForCompletion):
+        case .triggerWorkflow(let workflowID, let waitForCompletion, let folder):
             guard workflowID != nil else { return "No workflow selected" }
-            return waitForCompletion
+            let start = waitForCompletion
                 ? "Starts the selected workflow and waits for it to finish"
                 : "Starts the selected workflow and continues immediately"
+            switch folder {
+            case .ownTargets:
+                return start
+            case .createdFolder(_, let deviceID):
+                return start + (deviceID == nil ? " · runs on the created folder" : " · runs on a device's subfolder of the created folder")
+            }
         }
     }
 }
@@ -627,7 +651,7 @@ extension StepAction: Codable {
     }
 
     enum TriggerWorkflowKeys: String, CodingKey {
-        case workflowID, waitForCompletion
+        case workflowID, waitForCompletion, folder
     }
 
     private enum DummyKeys: CodingKey {}
@@ -748,7 +772,9 @@ extension StepAction: Codable {
             let nested = try container.nestedContainer(keyedBy: TriggerWorkflowKeys.self, forKey: .triggerWorkflow)
             let workflowID = try nested.decodeIfPresent(UUID.self, forKey: .workflowID)
             let waitForCompletion = try nested.decodeIfPresent(Bool.self, forKey: .waitForCompletion) ?? false
-            self = .triggerWorkflow(workflowID: workflowID, waitForCompletion: waitForCompletion)
+            // Absent in workflows saved before a trigger could pick a folder.
+            let folder = try nested.decodeIfPresent(TriggerFolder.self, forKey: .folder) ?? .ownTargets
+            self = .triggerWorkflow(workflowID: workflowID, waitForCompletion: waitForCompletion, folder: folder)
         } else {
             throw DecodingError.dataCorrupted(DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unknown StepAction case"))
         }
@@ -832,10 +858,11 @@ extension StepAction: Codable {
             try nested.encode(message, forKey: .message)
             try nested.encode(recipients, forKey: .recipients)
             try nested.encode(sendPerDrive, forKey: .sendPerDrive)
-        case .triggerWorkflow(let workflowID, let waitForCompletion):
+        case .triggerWorkflow(let workflowID, let waitForCompletion, let folder):
             var nested = container.nestedContainer(keyedBy: TriggerWorkflowKeys.self, forKey: .triggerWorkflow)
             try nested.encode(workflowID, forKey: .workflowID)
             try nested.encode(waitForCompletion, forKey: .waitForCompletion)
+            try nested.encode(folder, forKey: .folder)
         }
     }
 }

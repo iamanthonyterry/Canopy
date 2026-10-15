@@ -276,6 +276,11 @@ final class WorkflowEngine: ObservableObject {
             return nil
         }.first ?? false
 
+        // Every folder a Create Folder step has made so far in this run, by
+        // step ID — what a Trigger Workflow step points at when it's set to
+        // run on a created folder.
+        var createdFolders: [UUID: URL] = [:]
+
         var stepIndex = 0
         if let resuming {
             contexts = await restoreContexts(contexts, from: resuming, session: session, mountedPaths: &mountedPaths)
@@ -378,6 +383,7 @@ final class WorkflowEngine: ObservableObject {
                         session: session, cache: &mountedPaths
                     )
                     session.log("📁 Created folder: \(folderURL.path)")
+                    createdFolders[step.id] = folderURL
                     if step.id == referencedFolderStepID {
                         contexts = contexts.map {
                             var context = $0
@@ -407,9 +413,10 @@ final class WorkflowEngine: ObservableObject {
 
             // Trigger Workflow runs once for the whole workflow, like Create
             // Folder above — it isn't tied to any one device's files.
-            if case .triggerWorkflow(let workflowID, let waitForCompletion) = step.action {
+            if case .triggerWorkflow(let workflowID, let waitForCompletion, let folder) = step.action {
                 await runTriggerWorkflow(
-                    workflowID: workflowID, waitForCompletion: waitForCompletion,
+                    workflowID: workflowID, waitForCompletion: waitForCompletion, folder: folder,
+                    createdFolders: createdFolders,
                     session: session, triggerChain: triggerChain
                 )
                 session.endStep(step.id)
@@ -1810,8 +1817,13 @@ final class WorkflowEngine: ObservableObject {
     /// normal `start` path — its own session, its own log, its own history
     /// entry — so it shows up in the Dashboard exactly like a manually or
     /// schedule-triggered run.
+    ///
+    /// With a `.createdFolder` choice the target runs in place on that
+    /// folder — or on one device's subfolder of it — instead of on its own
+    /// devices, the same as running it on a folder from the file browser.
     private func runTriggerWorkflow(
-        workflowID: UUID?, waitForCompletion: Bool,
+        workflowID: UUID?, waitForCompletion: Bool, folder: TriggerFolder,
+        createdFolders: [UUID: URL],
         session: WorkflowRunSession, triggerChain: Set<UUID>
     ) async {
         guard let workflowID, let target = appState.workflows.first(where: { $0.id == workflowID }) else {
@@ -1824,14 +1836,46 @@ final class WorkflowEngine: ObservableObject {
             session.errors += 1
             return
         }
-        guard appState.canRun(target) else {
-            session.log("  ⚠️ Trigger Workflow: \"\(target.name)\" can't start — one of its devices is already busy")
-            return
+        var folderTarget: WorkflowTargetDevice?
+        if case .createdFolder(let stepID, let deviceID) = folder {
+            guard let folderURL = createdFolders[stepID] else {
+                session.log("  ❌ Trigger Workflow: skipped \"\(target.name)\" — the folder it should run on hasn't been created yet in this run")
+                session.errors += 1
+                return
+            }
+            var url = folderURL
+            // Shown for the run and checked for conflicts by name, so a
+            // device's subfolder must not simply borrow the device's own
+            // name — the run that triggered this one is using that device.
+            var runName = folderURL.lastPathComponent
+            if let deviceID {
+                guard let deck = appState.hyperDecks.first(where: { $0.id == deviceID }) else {
+                    session.log("  ❌ Trigger Workflow: skipped \"\(target.name)\" — the device it should run on no longer exists")
+                    session.errors += 1
+                    return
+                }
+                // Named after the device, the same way Create Folder's
+                // "one subfolder per device" lays it out.
+                url = folderURL.appendingPathComponent(deck.name)
+                runName = "\(folderURL.lastPathComponent)/\(deck.name)"
+                try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            }
+            let device = WorkflowTargetDevice.localFolder(LocalFolder(name: runName, path: url.path))
+            guard appState.canRun(deviceNames: [device.name], resourceKeys: [device.resourceKey]) else {
+                session.log("  ⚠️ Trigger Workflow: \"\(target.name)\" can't start — \(runName) is already in use by another run")
+                return
+            }
+            folderTarget = device
+        } else {
+            guard appState.canRun(target) else {
+                session.log("  ⚠️ Trigger Workflow: \"\(target.name)\" can't start — one of its devices is already busy")
+                return
+            }
         }
 
         // The target may itself have been mid-run when the app died. Pick
         // that run back up rather than starting a second one beside it.
-        if let interrupted = WorkflowCheckpointStore.shared.interrupted.first(where: { $0.workflow.id == workflowID }) {
+        if folderTarget == nil, let interrupted = WorkflowCheckpointStore.shared.interrupted.first(where: { $0.workflow.id == workflowID }) {
             session.log("  🔗 Resuming interrupted run of \"\(target.name)\"...")
             if waitForCompletion {
                 await resume(interrupted)
@@ -1843,8 +1887,11 @@ final class WorkflowEngine: ObservableObject {
         }
 
         let nextChain = triggerChain.union([workflowID])
-        let targets = targetDevices(for: target)
+        let targets = folderTarget.map { [$0] } ?? targetDevices(for: target)
 
+        if let folderTarget {
+            session.log("  🔗 Running \"\(target.name)\" on \(folderTarget.name)")
+        }
         if waitForCompletion {
             session.log("  🔗 Triggering \"\(target.name)\" and waiting for it to finish...")
             await start(target, targets: targets, triggerChain: nextChain)

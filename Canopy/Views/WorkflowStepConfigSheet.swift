@@ -9,6 +9,9 @@ struct WorkflowStepConfigSheet: View {
     /// Other Create Folder steps in this workflow, so the Sync step can
     /// offer "use the folder that step creates" as a destination option.
     var availableFolderSteps: [WorkflowStep] = []
+    /// Create Folder steps that run before this one — the only folders a
+    /// Trigger Workflow step can already point the workflow it starts at.
+    var precedingFolderSteps: [WorkflowStep] = []
     /// The workflow this step belongs to, if it's being edited (nil for a
     /// brand-new workflow) — excluded from the Trigger Workflow picker so a
     /// workflow can't be pointed directly at itself.
@@ -71,6 +74,9 @@ struct WorkflowStepConfigSheet: View {
     @State private var decks = DeckSelection.all
     @State private var triggerWorkflowID: UUID? = nil
     @State private var triggerWaitForCompletion = false
+    @State private var triggerUsesCreatedFolder = false
+    @State private var triggerFolderStepID: UUID? = nil
+    @State private var triggerFolderDeviceID: UUID? = nil   // nil = the created folder itself
 
     // Tracks which notify field a variable pill should insert into — the
     // one that most recently had the cursor, since tapping a pill steals
@@ -821,6 +827,10 @@ struct WorkflowStepConfigSheet: View {
                     .frame(width: 220)
                 }
 
+                if !precedingFolderSteps.isEmpty {
+                    triggerFolderFields
+                }
+
                 Toggle("Wait for it to finish before continuing", isOn: $triggerWaitForCompletion)
                 Text(triggerWaitForCompletion
                      ? "This workflow pauses here until the triggered one finishes."
@@ -828,6 +838,66 @@ struct WorkflowStepConfigSheet: View {
                     .font(.canopyCaption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// Whether the folder the Trigger Workflow step runs on groups its files
+    /// into one subfolder per device — only then is there a device to pick.
+    private var triggerFolderGroupsByDevice: Bool {
+        guard let id = triggerFolderStepID,
+              let folderStep = precedingFolderSteps.first(where: { $0.id == id }),
+              case .createFolder(_, _, _, let groupByDevice) = folderStep.action else { return false }
+        return groupByDevice
+    }
+
+    @ViewBuilder
+    private var triggerFolderFields: some View {
+        Picker("Run on", selection: $triggerUsesCreatedFolder) {
+            Text("Its own devices and folders").tag(false)
+            Text("A folder created in this workflow").tag(true)
+        }
+        .onChange(of: triggerUsesCreatedFolder) {
+            if triggerUsesCreatedFolder && triggerFolderStepID == nil {
+                triggerFolderStepID = precedingFolderSteps.first?.id
+            }
+        }
+
+        if triggerUsesCreatedFolder {
+            LabeledContent("Folder") {
+                Picker("", selection: $triggerFolderStepID) {
+                    ForEach(precedingFolderSteps) { folderStep in
+                        Text(folderStepLabel(folderStep)).tag(Optional(folderStep.id))
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 220)
+            }
+
+            if triggerFolderGroupsByDevice {
+                LabeledContent("Subfolder") {
+                    Picker("", selection: $triggerFolderDeviceID) {
+                        Text("The whole folder").tag(Optional<UUID>.none)
+                        if !appState.hyperDecks.isEmpty {
+                            Divider()
+                            ForEach(appState.hyperDecks) { deck in
+                                Text(deck.name).tag(Optional(deck.id))
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 220)
+                }
+            }
+
+            Text(triggerFolderCaption)
+                .font(.canopyCaption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var triggerFolderCaption: String {
+        if triggerFolderGroupsByDevice, triggerFolderDeviceID != nil {
+            return "The triggered workflow runs on that device's subfolder, in place on the files already there."
+        }
+        return "The triggered workflow runs on this folder, in place on the files already there, instead of on its own devices."
     }
 
     private var notifyFields: some View {
@@ -1049,9 +1119,14 @@ struct WorkflowStepConfigSheet: View {
             notifyMessage = message
             notifyRecipients = recipients
             notifySendPerDrive = sendPerDrive
-        case .triggerWorkflow(let workflowID, let waitForCompletion):
+        case .triggerWorkflow(let workflowID, let waitForCompletion, let folder):
             triggerWorkflowID = workflowID
             triggerWaitForCompletion = waitForCompletion
+            if case .createdFolder(let stepID, let deviceID) = folder {
+                triggerUsesCreatedFolder = true
+                triggerFolderStepID = stepID
+                triggerFolderDeviceID = deviceID
+            }
         }
     }
 
@@ -1109,7 +1184,17 @@ struct WorkflowStepConfigSheet: View {
                 sendPerDrive: notifySendPerDrive
             )
         case .triggerWorkflow:
-            step.action = .triggerWorkflow(workflowID: triggerWorkflowID, waitForCompletion: triggerWaitForCompletion)
+            var folder = TriggerFolder.ownTargets
+            if triggerUsesCreatedFolder, !precedingFolderSteps.isEmpty {
+                // A step that has since been removed or moved below this one
+                // falls back to the nearest Create Folder before it.
+                let stepID = precedingFolderSteps.contains(where: { $0.id == triggerFolderStepID })
+                    ? triggerFolderStepID! : precedingFolderSteps[0].id
+                folder = .createdFolder(stepID: stepID, deviceID: triggerFolderGroupsByDevice ? triggerFolderDeviceID : nil)
+            }
+            step.action = .triggerWorkflow(
+                workflowID: triggerWorkflowID, waitForCompletion: triggerWaitForCompletion, folder: folder
+            )
         }
         dismiss()
     }

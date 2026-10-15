@@ -127,7 +127,7 @@ extension WorkflowRunSession {
                     add(work.seconds)
                 }
 
-            case .transcribe, .findClips, .exportPosts, .writeCopy, .copyTo, .reframe, .triggerWorkflow(_, true):
+            case .transcribe, .findClips, .exportPosts, .writeCopy, .copyTo, .reframe, .triggerWorkflow(_, true, _):
                 add(learned(run))
 
             default:

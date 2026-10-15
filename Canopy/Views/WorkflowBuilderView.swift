@@ -97,6 +97,7 @@ struct WorkflowBuilderView: View {
                 WorkflowStepConfigSheet(
                     step: $steps[index],
                     availableFolderSteps: steps.filter { $0.kind == .createFolder && $0.id != step.id },
+                    precedingFolderSteps: steps.prefix(upTo: index).filter { $0.kind == .createFolder },
                     excludingWorkflowID: existingWorkflow?.id
                 )
                 .environmentObject(appState)
