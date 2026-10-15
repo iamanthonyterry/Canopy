@@ -235,11 +235,21 @@ struct InventoryImportView: View {
 
 struct PatchImportView: View {
     @ObservedObject private var store = InventoryStore.shared
+    @ObservedObject private var ai = AIModels.shared
     @Binding var text: String
     @State private var campus = ""
     @State private var result: (ok: Bool, message: String)?
     @State private var opening = false
     @State private var working = false
+    /// The file the text came from, so the model knows what it's reading.
+    @State private var fileName = ""
+    @State private var task: Task<Void, Never>?
+    /// Which run `task` is, so a cancelled one finishing late doesn't clear the next one's progress.
+    @State private var run = UUID()
+    @State private var progress: (done: Int, total: Int)?
+    @State private var convertError: String?
+    /// Set once the model has rewritten the text as a patch sheet: the file it came from and anything it flagged.
+    @State private var converted: (from: String, warnings: [String])?
 
     var body: some View {
         let parsed = text.isEmpty ? ([], []) : PatchImport.parse(text)
@@ -249,20 +259,35 @@ struct PatchImportView: View {
                     Text("Import a patch sheet").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                     Text("Bring cables in from a spreadsheet saved as CSV, or paste rows copied from one. Devices are matched by name and channels by number (or name); anything missing is added. A row replaces whatever fed that input before. Headings: \(PatchImport.headers.joined(separator: ", ")).")
                         .font(.canopyCallout).foregroundStyle(.secondary)
+                    Text("Another layout, or a PDF? Open it anyway and Canopy's on-device model can convert it into this layout for you to check before importing.")
+                        .font(.canopyCallout).foregroundStyle(.secondary)
                     HStack {
-                        Button("Open CSV…") { opening = true }.buttonStyle(.canopySecondary)
-                        Button("Paste") { text = NSPasteboard.general.string(forType: .string) ?? "" }.buttonStyle(.canopySecondary)
+                        Button("Open CSV or PDF…") { opening = true }.buttonStyle(.canopySecondary)
+                        Button("Paste") { reset(); text = NSPasteboard.general.string(forType: .string) ?? "" }.buttonStyle(.canopySecondary)
                         Button("Save template…") { saveTemplate() }.buttonStyle(.canopySecondary)
-                        if !text.isEmpty { Button("Clear") { text = ""; result = nil }.buttonStyle(.canopySecondary) }
+                        if !text.isEmpty { Button("Clear") { reset(); text = "" }.buttonStyle(.canopySecondary) }
                         Spacer()
+                        if progress != nil && text.isEmpty { ProgressView().controlSize(.small) }
                     }
                 }
                 .canopyCard(padding: 14)
 
-                if !text.isEmpty {
+                if let convertError, text.isEmpty { Text(convertError).font(.canopyCallout).foregroundStyle(Color.canopyRust) }
+
+                if !text.isEmpty && parsed.0.isEmpty {
+                    convertCard(problems: parsed.1)
+                } else if !text.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("\(parsed.0.count) \(parsed.0.count == 1 ? "cable" : "cables") ready").font(.canopyHeadline)
+                        if let converted {
+                            Label("Converted from \(converted.from) by the on-device model. Check the devices and channels before importing.", systemImage: "sparkles")
+                                .font(.canopyCaption).foregroundStyle(Color.canopySage)
+                            ForEach(converted.warnings, id: \.self) { Label($0, systemImage: "exclamationmark.triangle").font(.canopyCaption).foregroundStyle(.orange) }
+                        }
                         ForEach(parsed.1, id: \.self) { Text($0).font(.canopyCaption).foregroundStyle(Color.canopyRust) }
+                        if converted == nil && !parsed.1.isEmpty {
+                            convertButton(label: "Convert with AI instead").buttonStyle(.borderless).font(.canopyCaption)
+                        }
                         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
                             GridRow { Text("From").bold(); Text("Channel").bold(); Text("To").bold(); Text("Channel").bold(); Text("Note").bold() }
                             ForEach(Array(parsed.0.prefix(200).enumerated()), id: \.offset) { _, r in
@@ -284,13 +309,14 @@ struct PatchImportView: View {
                             }
                             .frame(maxWidth: 260)
                             Spacer()
+                            if converted != nil { Button("Save as CSV…") { saveConverted() }.buttonStyle(.borderless).font(.canopyCaption) }
                             if working { ProgressView().controlSize(.small) }
                             Button("Import \(parsed.0.count) \(parsed.0.count == 1 ? "cable" : "cables")") {
                                 Task {
                                     working = true
                                     result = await store.importCables(parsed.0, campus: campus)
                                     working = false
-                                    if result?.ok == true { text = "" }
+                                    if result?.ok == true { reset(); text = "" }
                                 }
                             }
                             .buttonStyle(.canopyPrimary).disabled(parsed.0.isEmpty || working)
@@ -306,12 +332,121 @@ struct PatchImportView: View {
             let real = store.scope == InventoryRules.unassigned ? "" : store.scope
             campus = real.isEmpty ? store.campuses.first?.id ?? "" : real
         }
-        .fileImporter(isPresented: $opening, allowedContentTypes: [.commaSeparatedText, .tabSeparatedText, .plainText]) { picked in
+        .onDisappear { task?.cancel() }
+        .fileImporter(isPresented: $opening, allowedContentTypes: [.commaSeparatedText, .tabSeparatedText, .plainText, .pdf]
+                      + DocumentReader.readableTypes.compactMap { UTType(filenameExtension: $0) }) { picked in
             guard case .success(let url) = picked else { return }
+            open(url)
+        }
+    }
+
+    // MARK: Converting with the model
+
+    private var modelLine: String {
+        if ai.isEnhancedActive { return "Converts on this Mac with the enhanced model (\(ai.choice.title)). Nothing is uploaded." }
+        return "Converts on this Mac with Apple Intelligence. Nothing is uploaded. For long or messy files, turn on the enhanced model in Settings."
+    }
+
+    /// Shown when the text isn't a patch sheet Canopy can read as is.
+    private func convertCard(problems: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(fileName.isEmpty ? "This isn't in the patch-sheet layout" : "\(fileName) isn't in the patch-sheet layout").font(.canopyHeadline)
+            Text("Canopy can read it with the on-device model and lay out every cable it finds as a patch sheet. Nothing is imported until you've checked them here.")
+                .font(.canopyCallout).foregroundStyle(.secondary)
+            Label(modelLine, systemImage: "lock.shield").font(.canopyCaption).foregroundStyle(.secondary)
+            if let reason = ai.unavailableReason {
+                Label(reason, systemImage: "exclamationmark.triangle").font(.canopyCaption).foregroundStyle(Color.canopyRust)
+            }
+            if converted == nil, !fileName.lowercased().hasSuffix(".pdf") {
+                ForEach(problems.prefix(3), id: \.self) { Text($0).font(.canopyCaption).foregroundStyle(.secondary) }
+            }
+            if let convertError { Text(convertError).font(.canopyCallout).foregroundStyle(Color.canopyRust) }
+            HStack {
+                Spacer()
+                convertButton(label: "Convert with AI").buttonStyle(.canopyPrimary)
+            }
+        }
+        .canopyCard(padding: 14)
+    }
+
+    @ViewBuilder private func convertButton(label: String) -> some View {
+        if let progress {
+            HStack {
+                ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1))).frame(width: 140)
+                Text(progress.total == 0 ? "Getting the text…" : "Reading part \(min(progress.done + 1, progress.total)) of \(progress.total)…")
+                    .font(.canopyCaption).foregroundStyle(.secondary).monospacedDigit()
+                Button("Cancel") { task?.cancel() }.buttonStyle(.canopySecondary)
+            }
+        } else {
+            Button(label) { convert() }.disabled(ai.unavailableReason != nil)
+        }
+    }
+
+    private func reset() {
+        task?.cancel(); task = nil; progress = nil
+        fileName = ""; converted = nil; convertError = nil; result = nil
+    }
+
+    /// Gets the words out of any file (a PDF's text, or a scan's), so it can be imported as is or converted.
+    private func open(_ url: URL) {
+        reset()
+        text = ""
+        fileName = url.lastPathComponent
+        progress = (0, 0)
+        let id = UUID()
+        run = id
+        task = Task {
+            defer { if run == id { progress = nil; task = nil } }
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            text = (try? String(contentsOf: url, encoding: .utf8)) ?? (try? String(contentsOf: url, encoding: .isoLatin1)) ?? ""
+            do {
+                let raw = try await DocumentReader.text(of: url).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard run == id else { return }
+                guard !raw.isEmpty else { convertError = "Couldn't find any text in \(url.lastPathComponent)."; return }
+                text = raw
+            } catch is CancellationError {
+            } catch where run == id {
+                convertError = error.localizedDescription
+            } catch {}
         }
+    }
+
+    /// Has the model find the cables in the text and rewrites it as a patch sheet, for review in the table above.
+    private func convert() {
+        let source = text
+        let name = fileName.isEmpty ? "Pasted rows" : fileName
+        let known = store.equipment.filter { $0.campus == campus }.map(\.name)
+        convertError = nil; result = nil; progress = (0, 0)
+        let id = UUID()
+        run = id
+        task = Task {
+            defer { if run == id { progress = nil; task = nil } }
+            do {
+                let reading = try await DocumentReader.read(
+                    text: source, fileName: name, known: known,
+                    about: "A patch sheet or input list: report each cable from the device the signal comes from to the device it goes to, with the channel on each end."
+                ) { done, total in if run == id { progress = (done, total) } }
+                guard run == id else { return }
+                guard !reading.cables.isEmpty else {
+                    convertError = "The model didn't find any cables in \(name). Check it's a patch or input list, or lay it out with the template."
+                    return
+                }
+                text = PatchImport.sheet(from: reading)
+                converted = (name, reading.warnings)
+            } catch is CancellationError {
+                if run == id { convertError = "Stopped." }
+            } catch where run == id {
+                convertError = error.localizedDescription
+            } catch {}
+        }
+    }
+
+    private func saveConverted() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "\(((converted?.from ?? "Patch sheet") as NSString).deletingPathExtension) patch sheet.csv"
+        panel.allowedContentTypes = [.commaSeparatedText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? text.write(to: url, atomically: true, encoding: .utf8)
     }
 
     private func saveTemplate() {

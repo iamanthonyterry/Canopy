@@ -51,6 +51,18 @@ struct InventoryTests {
         #expect(rows == [ImportRow(fromDevice: "Stage box", fromChannel: 1, toDevice: "Mixer, FOH", toChannel: 1, toName: "Kick", note: "say \"hi\"")])
     }
 
+    @Test func aConvertedDocumentReadsBackAsAPatchSheet() {
+        let reading = DocumentReading(
+            summary: "",
+            devices: [FoundDevice(key: "d1", name: "Stage box, left"), FoundDevice(key: "d2", name: "FOH Mixer")],
+            cables: [ImportRow(fromDevice: "d1", fromChannel: 4, fromName: "Pastor", toDevice: "d2", toCard: "Dante", toChannel: 12, toName: "Pastor", note: "wireless")],
+            warnings: [])
+        let (rows, problems) = PatchImport.parse(PatchImport.sheet(from: reading))
+        #expect(problems.isEmpty)
+        #expect(rows == [ImportRow(fromDevice: "Stage box, left", fromChannel: 4, fromName: "Pastor",
+                                   toDevice: "FOH Mixer", toCard: "Dante", toChannel: 12, toName: "Pastor", note: "wireless")])
+    }
+
     // MARK: Links and signal flow
 
     @Test func stageBoxLandsOneToOnePlusOffsetUnlessReassigned() {
