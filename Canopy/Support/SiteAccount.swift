@@ -4,12 +4,13 @@ import Network
 import Combine
 
 // MARK: - Church site account
-// Connects Canopy to the church's website (the church landing page) so it can
-// read and add to that campus's equipment inventory. Sign-in happens in the
-// browser: Canopy listens on this Mac's loopback address, opens the site's
-// /auth/canopy page, and the site redirects back with a campus-scoped key once
-// an admin has signed in and picked a campus. The key lives in the Keychain.
-// It only reaches that campus's inventory (never device logins).
+// Connects Canopy to the church's Supabase project, signed in as the person at
+// the keyboard. Sign-in happens in the browser: Canopy listens on this Mac's
+// loopback address, opens the church site's /auth/canopy page, and once they've
+// signed in and confirmed, the site redirects back with a one-time sign-in
+// token. Canopy trades it with Supabase for a session of its own (kept in the
+// Keychain and refreshed as it runs). From then on Canopy reads and writes the
+// inventory directly, and Row Level Security applies their inventory level.
 
 @MainActor
 final class SiteAccount: ObservableObject {
@@ -17,16 +18,21 @@ final class SiteAccount: ObservableObject {
 
     static let defaultBaseURL = "https://churchlandingpage.rosesashumans.com"
 
-    @Published private(set) var campusName: String?
+    @Published private(set) var email: String?
     @Published private(set) var isConnecting = false
     @Published private(set) var lastError: String?
+    @Published private(set) var client: SupabaseClient?
     @Published var baseURL: String {
         didSet { UserDefaults.standard.set(baseURL, forKey: Self.baseURLKey) }
     }
 
     private static let baseURLKey = "siteAccount.baseURL"
-    private static let campusKey  = "siteAccount.campusName"
-    private static let keychainKey = "siteAccount.canopyKey"
+    private static let projectKey = "siteAccount.supabaseURL"
+    private static let apiKeyKey  = "siteAccount.supabaseKey"
+    private static let sessionKey = "siteAccount.supabaseSession"
+    // From before Canopy signed in as a person: a per-campus key that only reached the site's API.
+    private static let legacyKeys = ["siteAccount.canopyKey"]
+    private static let legacyDefaults = ["siteAccount.campusName"]
 
     private var listener: NWListener?
     private var pendingState: String?
@@ -34,11 +40,12 @@ final class SiteAccount: ObservableObject {
 
     private init() {
         baseURL = UserDefaults.standard.string(forKey: Self.baseURLKey) ?? Self.defaultBaseURL
-        campusName = UserDefaults.standard.string(forKey: Self.campusKey)
+        for k in Self.legacyKeys { KeychainStore.delete(key: k) }
+        for k in Self.legacyDefaults { UserDefaults.standard.removeObject(forKey: k) }
+        restore()
     }
 
-    var key: String? { KeychainStore.get(key: Self.keychainKey) }
-    var isConnected: Bool { key != nil }
+    var isConnected: Bool { client != nil }
 
     /// The site's origin, only if it's https (or this Mac, for local development).
     var origin: URL? {
@@ -46,6 +53,33 @@ final class SiteAccount: ObservableObject {
               c.scheme == "https" || c.host == "localhost" || c.host == "127.0.0.1" else { return nil }
         c.path = ""; c.query = nil; c.fragment = nil
         return c.url
+    }
+
+    private func restore() {
+        guard let raw = KeychainStore.get(key: Self.sessionKey),
+              let session = try? JSONDecoder().decode(SupabaseSession.self, from: Data(raw.utf8)),
+              let project = UserDefaults.standard.string(forKey: Self.projectKey).flatMap(URL.init(string:)),
+              let apiKey = UserDefaults.standard.string(forKey: Self.apiKeyKey) else { return }
+        connect(project: project, apiKey: apiKey, session: session)
+    }
+
+    private func connect(project: URL, apiKey: String, session: SupabaseSession) {
+        let client = SupabaseClient(baseURL: project, apiKey: apiKey, session: session)
+        client.onSessionChange = { Self.save($0) }
+        self.client = client
+        email = session.email
+    }
+
+    private static func save(_ session: SupabaseSession) {
+        if let data = try? JSONEncoder().encode(session) {
+            KeychainStore.set(String(decoding: data, as: UTF8.self), key: sessionKey)
+        }
+    }
+
+    /// Called when the database says the session is no longer good.
+    func sessionExpired() {
+        signOut()
+        lastError = "Your sign-in has expired. Sign in again."
     }
 
     // MARK: Sign in
@@ -100,9 +134,9 @@ final class SiteAccount: ObservableObject {
     }
 
     func signOut() {
-        KeychainStore.delete(key: Self.keychainKey)
-        UserDefaults.standard.removeObject(forKey: Self.campusKey)
-        campusName = nil
+        KeychainStore.delete(key: Self.sessionKey)
+        client = nil
+        email = nil
         lastError = nil
     }
 
@@ -134,7 +168,7 @@ final class SiteAccount: ObservableObject {
         }
     }
 
-    /// Reads `GET /callback?state=…&key=…&campus=…&name=…` and keeps the key only if the state matches ours.
+    /// Reads `GET /callback?state=…&token=…&supabase=…&apikey=…` and keeps the token only if the state matches ours.
     private func accept(request: String) -> Bool {
         guard let line = request.components(separatedBy: "\r\n").first,
               line.hasPrefix("GET /callback?"),
@@ -142,14 +176,25 @@ final class SiteAccount: ObservableObject {
               let comps = URLComponents(string: "http://127.0.0.1\(target)") else { return false }
         func value(_ name: String) -> String? { comps.queryItems?.first { $0.name == name }?.value }
         guard let state = value("state"), state == pendingState,
-              let key = value("key"), key.range(of: #"^[0-9a-f]{48}$"#, options: .regularExpression) != nil else { return false }
+              let token = value("token"), token.range(of: #"^[0-9a-f]{20,128}$"#, options: .regularExpression) != nil,
+              let project = value("supabase").flatMap(URL.init(string:)), project.scheme == "https", project.host?.hasSuffix(".supabase.co") == true,
+              let apiKey = value("apikey"), !apiKey.isEmpty else { return false }
 
-        KeychainStore.set(key, key: Self.keychainKey)
-        let name = value("name") ?? "Campus"
-        UserDefaults.standard.set(name, forKey: Self.campusKey)
-        campusName = name
-        lastError = nil
         finishListening()
+        isConnecting = true
+        Task {
+            defer { isConnecting = false }
+            do {
+                let session = try await SupabaseClient.verify(baseURL: project, apiKey: apiKey, tokenHash: token)
+                UserDefaults.standard.set(project.absoluteString, forKey: Self.projectKey)
+                UserDefaults.standard.set(apiKey, forKey: Self.apiKeyKey)
+                Self.save(session)
+                connect(project: project, apiKey: apiKey, session: session)
+                lastError = nil
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
         return true
     }
 
