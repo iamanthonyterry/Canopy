@@ -183,7 +183,11 @@ struct EquipmentEditorSheet: View {
     @State private var error: String?
     @State private var presetQuery = ""
     @State private var more = false
+    @State private var quantity = 1
+    /// How many of a multi-add are already made, so a retry after a failure carries on instead of duplicating.
+    @State private var created = 0
 
+    private var copies: Int { existing == nil ? min(max(quantity, 1), BatchDeviceAdd.maxQuantity(forAddress: draft.ipAddress)) : 1 }
     private var roomsHere: [Room] { store.rooms.filter { $0.campus == draft.campus } }
     private var racksHere: [Rack] { store.racks.filter { $0.roomId == draft.roomId } }
 
@@ -193,7 +197,7 @@ struct EquipmentEditorSheet: View {
                 Text(title).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(existing == nil ? "Add" : "Save") { save() }
+                Button(existing != nil ? "Save" : copies > 1 ? "Add \(copies)" : "Add") { save() }
                     .buttonStyle(.canopyPrimary)
                     .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty || saving)
                     .keyboardShortcut(.defaultAction)
@@ -217,6 +221,7 @@ struct EquipmentEditorSheet: View {
                         Button("Looks like a \(guess.label.lowercased()). Use that?") { draft.role = guess }.buttonStyle(.link)
                     }
                     Text("The type is used to suggest what to patch to, and to warn about unusual cables.").font(.canopyCaption).foregroundStyle(.secondary)
+                    if existing == nil { quantityRows }
                 }
                 Section("Channels") {
                     Stepper("Inputs: \(draft.inputs)", value: $draft.inputs, in: 0...256)
@@ -291,6 +296,37 @@ struct EquipmentEditorSheet: View {
         .frame(minWidth: 540, idealWidth: 580, minHeight: 560, idealHeight: 720)
     }
 
+    @ViewBuilder private var quantityRows: some View {
+        Stepper("Quantity: \(copies)", value: $quantity, in: 1...BatchDeviceAdd.maxQuantity(forAddress: draft.ipAddress))
+            .disabled(created > 0)
+        if copies > 1 {
+            Text(quantityNote).font(.canopyCaption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var quantityNote: String {
+        let names = BatchDeviceAdd.names(base: draft.name, count: copies)
+        let ips = BatchDeviceAdd.addresses(base: draft.ipAddress, count: copies)
+        var notes = ["Adds \(names.first ?? "") to \(names.last ?? ""), each with its own channels."]
+        if ips.dropFirst().contains(where: { !$0.isEmpty }) { notes.append("IP addresses count up from \(ips[0]).") }
+        else if !ips[0].isEmpty { notes.append("The IP address and serial number go on the first only.") }
+        else if !draft.serial.isEmpty { notes.append("The serial number goes on the first only.") }
+        if draft.rackUnit != nil { notes.append("Only the first takes the rack unit; place the others from their own pages.") }
+        return notes.joined(separator: " ")
+    }
+
+    /// The form as it applies to copy `index` (0 is the one the user filled in).
+    private func draft(forCopy index: Int, count: Int) -> EquipmentDraft {
+        var d = draft
+        d.name = BatchDeviceAdd.names(base: draft.name, count: count)[index]
+        d.ipAddress = BatchDeviceAdd.addresses(base: draft.ipAddress, count: count)[index]
+        if index > 0 {
+            d.serial = ""
+            d.rackUnit = nil // two devices can't share a unit; the rack and room are kept
+        }
+        return d
+    }
+
     private var startFrom: some View {
         Section("Start from") {
             TextField("Search devices, e.g. SQ-5 or Shure", text: $presetQuery)
@@ -317,12 +353,22 @@ struct EquipmentEditorSheet: View {
 
     private func save() {
         saving = true; error = nil
+        let count = copies
         Task {
             do {
-                try await onSave(draft)
+                if created == 0 {
+                    try await onSave(count > 1 ? draft(forCopy: 0, count: count) : draft)
+                    created = 1
+                }
+                while created < count {
+                    _ = try await store.createEquipment(draft(forCopy: created, count: count))
+                    created += 1
+                }
                 dismiss()
             } catch {
-                self.error = error.localizedDescription
+                self.error = count > 1 && created > 0
+                    ? "Added \(created) of \(count). \(error.localizedDescription) Fix that and press Add again to finish the rest."
+                    : error.localizedDescription
             }
             saving = false
         }
