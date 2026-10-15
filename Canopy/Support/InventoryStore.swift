@@ -267,11 +267,12 @@ final class InventoryStore: ObservableObject {
             return InventoryRules.byPort(a.from.port, b.from.port)
         }
         let overrides = Dictionary(grouping: linkMap, by: \.linkId).mapValues { Dictionary($0.map { ($0.boxPort, $0.hostPort) }, uniquingKeysWith: { $1 }) }
-        // Inputs a cable or a reassigned channel already feeds: a box's default landing doesn't stack on top of them.
-        let fed = Set(cables.map(\.toPort) + linkMap.map(\.hostPort))
+        // Console channels already in use (a cable into an input or out of an output, or a box channel reassigned onto
+        // it): a box's default landing doesn't stack on top of them.
+        let taken = Set(cables.flatMap { [$0.fromPort, $0.toPort] } + linkMap.map(\.hostPort))
         hops = links.flatMap { l -> [Hop] in
             guard let box = byID[l.equipmentId], let host = byID[l.hostId], InventoryRules.landsChannels(box: box.role, host: host.role) else { return [] }
-            return InventoryRules.resolveLink(l, box: box.ports, host: host.ports, overrides: overrides[l.id] ?? [:], fed: fed).compactMap { pair in
+            return InventoryRules.resolveLink(l, box: box.ports, host: host.ports, overrides: overrides[l.id] ?? [:], taken: taken).compactMap { pair in
                 guard let b = patchPorts[pair.box.id], let h = patchPorts[pair.host.id] else { return nil }
                 // Inputs flow from the box to the console; the console's outputs flow back out to the box's outputs.
                 return pair.box.direction == .input ? Hop(from: b, to: h, custom: pair.custom, linkId: l.id) : Hop(from: h, to: b, custom: pair.custom, linkId: l.id)
@@ -686,7 +687,8 @@ final class InventoryStore: ObservableObject {
     // Cables
 
     /// Patches a channel to another device's channel, replacing the cable it had (`previous`). A cable is stored output
-    /// to input whichever end you started from, and an input takes one source.
+    /// to input whichever end you started from. An input takes one source, and an output takes one cable unless it's
+    /// audio over a network (Dante, AVB, SoundGrid), which any number of inputs can subscribe to.
     func patch(_ mine: String, to other: String, replacing previous: String? = nil) async -> (ok: Bool, message: String) {
         await run {
             let db = try editor()
@@ -697,6 +699,7 @@ final class InventoryStore: ObservableObject {
             if let previous { try await db.delete("equipment_connections", [.eq("id", previous)]) }
             let (from, to) = a.direction == .output || b.direction == .input ? (a, b) : (b, a)
             if to.direction == .input { try await db.delete("equipment_connections", [.eq("to_port", to.id)]) }
+            if from.direction == .output, !from.signal.fansOut { try await db.delete("equipment_connections", [.eq("from_port", from.id)]) }
             do {
                 _ = try await db.insert("equipment_connections", [["church_id": churchId, "from_port": from.id, "to_port": to.id]])
             } catch let e as SupabaseError where e.isUnique { throw InventoryError("Those are already connected.") }
@@ -1123,7 +1126,8 @@ final class InventoryStore: ObservableObject {
             }
             for (s, fill) in fills.values { try await db.update("equipment_ports", fill, [.eq("id", s.id)]) }
 
-            // Cables: the last row for an input wins. A channel can't be patched to itself.
+            // Cables: the last row for an input wins, and for an output that takes one cable (anything but audio over
+            // a network) the last row from it wins too. A channel can't be patched to itself.
             var byInput: [String: (from: String, note: String)] = [:]
             var order: [String] = []
             var skipped = 0
@@ -1132,6 +1136,12 @@ final class InventoryStore: ObservableObject {
                 if byInput[t.id] == nil { order.append(t.id) }
                 byInput[t.id] = (f.id, r.note)
             }
+            // A channel this import made carries what the database gives it, which is analog.
+            let single = Set(byInput.values.map(\.from).filter { !(port($0)?.1.signal.fansOut ?? false) })
+            var lastInto: [String: String] = [:]
+            for t in order where single.contains(byInput[t]!.from) { lastInto[byInput[t]!.from] = t }
+            let moved = order.filter { t in single.contains(byInput[t]!.from) && lastInto[byInput[t]!.from] != t }.count
+            order.removeAll { t in single.contains(byInput[t]!.from) && lastInto[byInput[t]!.from] != t }
             for start in stride(from: 0, to: order.count, by: 100) {
                 try await db.delete("equipment_connections", [.in("to_port", Array(order[start..<min(order.count, start + 100)]))])
             }
@@ -1142,6 +1152,7 @@ final class InventoryStore: ObservableObject {
             if !wanted.isEmpty { bits.append("added \(wanted.count) new \(wanted.count == 1 ? "device" : "devices")") }
             if !fresh.isEmpty { bits.append("\(fresh.count) new \(fresh.count == 1 ? "channel" : "channels")") }
             if skipped > 0 { bits.append("skipped \(skipped) patched to themselves") }
+            if moved > 0 { bits.append("skipped \(moved) \(moved == 1 ? "row" : "rows") sending an analog output to a second input (the last one wins)") }
             return bits.joined(separator: ", ")
     }
 

@@ -114,7 +114,9 @@ private struct ChannelRow: View {
                 if cables.isEmpty && feed == nil && store.channels(at: port.id).isEmpty && !canEdit { Text("—").foregroundStyle(.tertiary) }
             }
             Spacer(minLength: 0)
-            if canEdit && (cables.isEmpty || port.direction != .input) {
+            // An input has one source and most outputs one cable (change those from the cable's menu); audio over a
+            // network can go to many inputs.
+            if canEdit && (cables.isEmpty || port.direction == .both || (port.direction == .output && port.signal.fansOut)) {
                 Button { picking = true } label: { Image(systemName: cables.isEmpty ? "cable.connector" : "plus") }
                     .buttonStyle(.borderless)
                     .help(cables.isEmpty ? "Patch this channel" : "Patch another destination")
@@ -249,7 +251,8 @@ struct PatchPicker: View {
                 List {
                     if let id = device ?? ranked.first?.0.id, let list = byDevice[id] {
                         ForEach(list.sorted { InventoryRules.byPort($0.port, $1.port) }.filter { q.isEmpty || $0.device.name.lowercased().contains(q) || $0.port.label.lowercased().contains(q) || $0.device.portName($0.port).lowercased().contains(q) }) { c in
-                            let busy = c.port.direction == .input && !store.cable(at: c.port.id).isEmpty
+                            let cabled = !store.cable(at: c.port.id).isEmpty
+                            let busy = cabled && (c.port.direction == .input || (c.port.direction == .output && !c.port.signal.fansOut))
                             Button {
                                 Task { done(await store.patch(port.id, to: c.port.id, replacing: replacing)) }
                             } label: {
@@ -263,7 +266,8 @@ struct PatchPicker: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .help(busy ? "Patching here replaces what feeds this input now." : c.warning)
+                            .help(!busy ? c.warning : c.port.direction == .input ? "Patching here replaces what feeds this input now."
+                                  : "This output takes one cable, so patching here moves it from where it goes now.")
                         }
                     }
                 }

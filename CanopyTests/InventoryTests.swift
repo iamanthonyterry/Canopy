@@ -62,12 +62,28 @@ struct InventoryTests {
     }
 
     @Test func aBoxsDefaultLandingGivesWayToACableOrAReassignedChannel() {
-        let box = [port("b1", "box", 1, .input), port("b2", "box", 2, .input), port("b3", "box", 3, .input), port("bo1", "box", 1, .output)]
-        let host = [port("h1", "con", 1, .input), port("h2", "con", 2, .input), port("h3", "con", 3, .input), port("ho1", "con", 1, .output)]
+        let box = [port("b1", "box", 1, .input), port("b2", "box", 2, .input), port("b3", "box", 3, .input),
+                   port("bo1", "box", 1, .output), port("bo2", "box", 2, .output)]
+        let host = [port("h1", "con", 1, .input), port("h2", "con", 2, .input), port("h3", "con", 3, .input),
+                    port("ho1", "con", 1, .output), port("ho2", "con", 2, .output)]
         let link = StageLink(id: "l", equipmentId: "box", hostId: "con", hostCardId: nil, signal: .gigaace, portOffset: 0)
-        // A Dante cable feeds console input 2, and box channel 3 was reassigned onto console input 1.
-        let pairs = InventoryRules.resolveLink(link, box: box, host: host, overrides: ["b3": "h1"], fed: ["h2", "ho1"])
-        #expect(pairs.map { "\($0.box.id)>\($0.host.id)" } == ["b3>h1", "bo1>ho1"])  // outputs still come back
+        // A Dante cable feeds console input 2, box channel 3 was reassigned onto console input 1, and console output 1
+        // is cabled to a processor.
+        let pairs = InventoryRules.resolveLink(link, box: box, host: host, overrides: ["b3": "h1"], taken: ["h2", "ho1"])
+        #expect(pairs.map { "\($0.box.id)>\($0.host.id)" } == ["b3>h1", "bo2>ho2"])
+    }
+
+    @Test func onlyAudioOverANetworkFansOut() {
+        #expect(Signal.allCases.filter(\.fansOut) == [.dante, .soundgrid, .avb])
+    }
+
+    @Test func aReassignedBoxOutputCanStillShareAConsoleOutput() {
+        let box = [port("bo1", "box", 1, .output)]
+        let host = [port("ho1", "con", 1, .output), port("ho5", "con", 5, .output)]
+        let link = StageLink(id: "l", equipmentId: "box", hostId: "con", hostCardId: nil, signal: .gigaace, portOffset: 0)
+        // Chosen on purpose, so a mix already cabled elsewhere can go out of the box too.
+        let pairs = InventoryRules.resolveLink(link, box: box, host: host, overrides: ["bo1": "ho5"], taken: ["ho5"])
+        #expect(pairs.map { "\($0.box.id)>\($0.host.id)" } == ["bo1>ho5"])
     }
 
     @Test func linksThroughACardOnlyUseThatCardsChannels() {

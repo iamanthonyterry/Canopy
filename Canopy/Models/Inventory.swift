@@ -35,6 +35,9 @@ nonisolated enum Signal: String, Codable, CaseIterable, Identifiable, Sendable {
     }
     /// Digital audio links are worth showing beside a port; plain analog, video, DMX and network stay untagged.
     var isTagged: Bool { ![.analog, .network, .video, .dmx].contains(self) }
+    /// Whether one output can feed many inputs. Audio over a network can: any number of receivers subscribe to one
+    /// transmit channel. Everything else is a socket, and a socket takes one cable. Either way an input has one source.
+    var fansOut: Bool { [.dante, .avb, .soundgrid].contains(self) }
 }
 
 nonisolated enum DeviceRole: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -401,11 +404,11 @@ nonisolated enum InventoryRules {
 
     /// The box's channels paired with the console channels they land on: 1:1 plus the offset, unless a channel was
     /// reassigned (`overrides`: box port id → console port id). Box inputs go to console inputs; console outputs come back.
-    /// A console input takes one source, so a box input's default landing gives way where that input already has one:
-    /// a cable (`fed`: console input port ids) or another box channel reassigned onto it.
-    static func resolveLink(_ link: StageLink, box: [EquipmentPort], host: [EquipmentPort], overrides: [String: String], fed: Set<String> = []) -> [(box: EquipmentPort, host: EquipmentPort, custom: Bool)] {
+    /// A default landing only uses a console channel nothing else uses: it gives way where a cable already feeds that
+    /// input or leaves that output (`taken`: console port ids), or another box channel was reassigned onto it.
+    static func resolveLink(_ link: StageLink, box: [EquipmentPort], host: [EquipmentPort], overrides: [String: String], taken: Set<String> = []) -> [(box: EquipmentPort, host: EquipmentPort, custom: Bool)] {
         var pairs: [(EquipmentPort, EquipmentPort, Bool)] = []
-        let claimed = fed.union(overrides.values)
+        let claimed = taken.union(overrides.values)
         for b in box where b.cardId == nil && b.direction != .both {
             let target: EquipmentPort?
             if let forced = overrides[b.id] {
@@ -413,7 +416,7 @@ nonisolated enum InventoryRules {
             } else {
                 target = host.first { h in
                     h.direction == b.direction && h.cardId == link.hostCardId && h.number != nil && b.number != nil && h.number == b.number! + link.portOffset
-                }.flatMap { h in h.direction == .input && claimed.contains(h.id) ? nil : h }
+                }.flatMap { h in claimed.contains(h.id) ? nil : h }
             }
             if let target { pairs.append((b, target, overrides[b.id] != nil)) }
         }
