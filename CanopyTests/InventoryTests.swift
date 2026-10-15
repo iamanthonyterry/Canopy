@@ -163,6 +163,7 @@ struct InventoryTests {
         #expect(InventoryRules.suggestRole(name: "dLive DM64", makeModel: "", category: "Audio") == .console)
         #expect(InventoryRules.suggestRole(name: "DX168 stage left", makeModel: "", category: "Audio") == .stageBox)
         #expect(InventoryRules.suggestRole(name: "Shure PSM1000", makeModel: "", category: "Audio") == .iemTransmitter)
+        #expect(InventoryRules.suggestRole(name: "Shure AD4Q", makeModel: "", category: "Audio") == .wirelessReceiver)
         #expect(InventoryRules.suggestRole(name: "NovaStar VX1000", makeModel: "", category: "Video") == .ledProcessor)
         #expect(InventoryRules.suggestRole(name: "Coffee maker", makeModel: "", category: "") == nil)
     }

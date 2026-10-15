@@ -519,7 +519,7 @@ nonisolated enum InventoryRules {
         func has(_ words: String...) -> Bool { words.contains { text.contains($0) } }
         if has("stage box", "stagebox", "expander", "dx168", "ab168", "gx4816", "rio3224", "rio1608", "dl16", "dl32", "s16") { return .stageBox }
         if has("iem", "psm", "in-ear", "in ear") { return .iemTransmitter }
-        if has("receiver", "qlx", "slx", "ulx", "ew-d", "ew-dx") { return .wirelessReceiver }
+        if has("receiver", "qlx", "slx", "ulx", "ad4d", "ad4q", "axt400", "ew-d", "ew-dx") { return .wirelessReceiver }
         if has("dlive"), has("surface") { return .surface }
         if has("dlive", "dm0", "mixrack", "console", "mixer", "x32", "m32", "avantis", "sq-5", "sq-6", "sq-7", "qu-16", "qu-24", "tf1", "tf3", "tf5", "soundcraft", "xr18") {
             return category == "Lighting" ? .lightingConsole : .console
