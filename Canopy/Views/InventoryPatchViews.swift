@@ -276,6 +276,7 @@ struct PatchImportView: View {
 
                 if !text.isEmpty && parsed.0.isEmpty {
                     convertCard(problems: parsed.1)
+                    if progress != nil { PatchingAnimation() }
                 } else if !text.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("\(parsed.0.count) \(parsed.0.count == 1 ? "cable" : "cables") ready").font(.canopyHeadline)
@@ -288,6 +289,7 @@ struct PatchImportView: View {
                         if converted == nil && !parsed.1.isEmpty {
                             convertButton(label: "Convert with AI instead").buttonStyle(.borderless).font(.canopyCaption)
                         }
+                        if progress != nil { PatchingAnimation() }
                         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
                             GridRow { Text("From").bold(); Text("Channel").bold(); Text("To").bold(); Text("Channel").bold(); Text("Note").bold() }
                             ForEach(Array(parsed.0.prefix(200).enumerated()), id: \.offset) { _, r in
@@ -455,5 +457,84 @@ struct PatchImportView: View {
         panel.allowedContentTypes = [.commaSeparatedText]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         try? PatchImport.templateCSV.write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
+/// While the model converts a file: cables patch themselves from a stage box into a console, one at a time, with a
+/// signal running down each finished one. Still under Reduce Motion, with only the captions changing.
+private struct PatchingAnimation: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var start = Date()
+
+    private static let captions = [
+        "Untangling the snake…", "Following every XLR…", "Asking the stage box nicely…", "Counting the channels twice…",
+        "Labelling it with gaffer tape…", "Finding where the pastor's mic went…", "Matching inputs to faders…", "Coiling over-under…",
+    ]
+    /// Where each stage box channel lands on the console: crossed, the way real patches are.
+    private static let lands = [2, 0, 5, 1, 7, 3, 6, 4]
+    private static let step = 0.45, hold = 1.6
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
+            let t = reduceMotion ? 0 : timeline.date.timeIntervalSince(start)
+            let cycle = Double(Self.lands.count) * Self.step + Self.hold
+            VStack(spacing: 8) {
+                Canvas { context, size in draw(&context, size, phase: reduceMotion ? cycle : t.truncatingRemainder(dividingBy: cycle), time: t) }
+                    .frame(width: 300, height: 128)
+                Text(Self.captions[Int(timeline.date.timeIntervalSince(start) / 2.4) % Self.captions.count])
+                    .font(.canopyCaption).foregroundStyle(.secondary)
+                    .contentTransition(.opacity)
+                    .animation(.easeInOut, value: Int(timeline.date.timeIntervalSince(start) / 2.4))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Converting")
+    }
+
+    private func draw(_ context: inout GraphicsContext, _ size: CGSize, phase: Double, time: Double) {
+        let n = Self.lands.count
+        let boxW: CGFloat = 54, top: CGFloat = 4, bottom = size.height - 18
+        let left = CGRect(x: 0, y: top, width: boxW, height: bottom - top)
+        let right = CGRect(x: size.width - boxW, y: top, width: boxW, height: bottom - top)
+        for (box, name) in [(left, "STAGE BOX"), (right, "CONSOLE")] {
+            context.fill(Path(roundedRect: box, cornerRadius: 8), with: .color(Color.canopyInk.opacity(0.06)))
+            context.stroke(Path(roundedRect: box, cornerRadius: 8), with: .color(Color.canopyInk.opacity(0.25)), lineWidth: 1)
+            context.draw(Text(name).font(.canopyCaption2).foregroundStyle(.secondary), at: CGPoint(x: box.midX, y: size.height - 6))
+        }
+        func jack(_ box: CGRect, _ i: Int, out: Bool) -> CGPoint {
+            CGPoint(x: out ? box.maxX - 10 : box.minX + 10, y: box.minY + 10 + CGFloat(i) * (box.height - 20) / CGFloat(n - 1))
+        }
+        let colors: [Color] = [.canopySage, .canopyRust, .canopyInk]
+        for i in 0..<n {
+            for (box, out) in [(left, true), (right, false)] {
+                let p = jack(box, i, out: out)
+                context.fill(Path(ellipseIn: CGRect(x: p.x - 4, y: p.y - 4, width: 8, height: 8)), with: .color(Color.canopyInk.opacity(0.35)))
+            }
+        }
+        for i in 0..<n {
+            let drawn = min(max((phase - Double(i) * Self.step) / Self.step, 0), 1)
+            guard drawn > 0 else { continue }
+            let a = jack(left, i, out: true), b = jack(right, Self.lands[i], out: false)
+            var cable = Path()
+            cable.move(to: a)
+            // A little slack: the middle of the cable hangs below a straight line.
+            let sag: CGFloat = 18 + CGFloat(i % 3) * 6
+            cable.addCurve(to: b, control1: CGPoint(x: a.x + 60, y: a.y + sag), control2: CGPoint(x: b.x - 60, y: b.y + sag))
+            let color = colors[i % colors.count]
+            context.stroke(cable.trimmedPath(from: 0, to: drawn), with: .color(color.opacity(0.8)), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            for end in [a] + (drawn >= 1 ? [b] : []) {
+                context.fill(Path(ellipseIn: CGRect(x: end.x - 4.5, y: end.y - 4.5, width: 9, height: 9)), with: .color(color))
+            }
+            // A finished cable carries signal: a bright dot running from the stage box to the console.
+            if drawn >= 1, !reduceMotion {
+                let f = (time * 0.9 + Double(i) * 0.37).truncatingRemainder(dividingBy: 1)
+                if let dot = cable.trimmedPath(from: 0, to: f).currentPoint {
+                    context.fill(Path(ellipseIn: CGRect(x: dot.x - 3, y: dot.y - 3, width: 6, height: 6)), with: .color(.white))
+                    context.stroke(Path(ellipseIn: CGRect(x: dot.x - 3, y: dot.y - 3, width: 6, height: 6)), with: .color(color), lineWidth: 1.5)
+                }
+            }
+        }
     }
 }
