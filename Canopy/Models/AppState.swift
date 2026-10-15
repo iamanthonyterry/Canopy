@@ -340,6 +340,7 @@ class AppState: ObservableObject {
     /// to show for it.
     func finish(_ session: WorkflowRunSession) {
         session.isFinished = true
+        WorkflowRunPublisher.shared.runFinished(session)
         if session.mountError == nil && session.failedTasks.isEmpty {
             activeRuns.removeAll { $0.id == session.id }
         }

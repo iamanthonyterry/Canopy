@@ -113,6 +113,7 @@ struct InventoryView: View {
                     Divider()
                     if let origin = account.origin {
                         Link("Open the patch sheet on the website", destination: origin.appendingPathComponent("inventory"))
+                        Link("Open workflow progress on the website", destination: origin.appendingPathComponent("workflows"))
                         Link("Manage team access", destination: origin.appendingPathComponent("hub/team"))
                     }
                     Divider()

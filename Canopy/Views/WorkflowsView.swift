@@ -115,6 +115,7 @@ struct WorkflowsView: View {
 
     private func headerButtons(iconOnly: Bool) -> some View {
         HStack(spacing: 8) {
+            WebProgressMenu()
             Button {
                 isDescribing = true
             } label: {
@@ -294,6 +295,34 @@ struct WorkflowsView: View {
 /// Lists workflows running on other Canopy computers on the network, so it's
 /// clear why a Run button is disabled and who to talk to. Hidden when
 /// nothing is running elsewhere.
+/// Whether this Mac's runs show on the church website's Workflows page, and
+/// a way there. Signing in is the same website sign-in the inventory uses.
+private struct WebProgressMenu: View {
+    @ObservedObject private var account = SiteAccount.shared
+    @ObservedObject private var publisher = WorkflowRunPublisher.shared
+
+    var body: some View {
+        Menu {
+            if account.isConnected {
+                if let email = account.email { Text("Signed in as \(email)") }
+                Toggle("Share progress on the website", isOn: $publisher.isEnabled)
+                if let origin = account.origin {
+                    Link("Open workflow progress on the website", destination: origin.appendingPathComponent("workflows"))
+                }
+            } else {
+                Text("Sign in with your church's website to watch runs from a phone or another computer.")
+                Button(account.isConnecting ? "Waiting for the browser…" : "Sign in with website…") { account.signIn() }
+                    .disabled(account.isConnecting)
+            }
+            if let error = account.lastError { Text(error) }
+        } label: {
+            Image(systemName: account.isConnected && publisher.isEnabled ? "globe" : "globe.badge.chevron.backward")
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+        .help(account.isConnected && publisher.isEnabled ? "Runs are shared on the website" : "Watch runs on the website")
+    }
+}
+
 private struct RemoteRunsBanner: View {
     @EnvironmentObject var appState: AppState
 

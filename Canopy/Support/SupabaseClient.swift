@@ -31,9 +31,11 @@ nonisolated struct Filter: Sendable {
     static func eq(_ c: String, _ v: String) -> Filter { .init(name: c, value: "eq.\(v)") }
     static func neq(_ c: String, _ v: String) -> Filter { .init(name: c, value: "neq.\(v)") }
     static func gt(_ c: String, _ v: Int) -> Filter { .init(name: c, value: "gt.\(v)") }
+    static func lt(_ c: String, _ v: String) -> Filter { .init(name: c, value: "lt.\(v)") }
     static func isNull(_ c: String) -> Filter { .init(name: c, value: "is.null") }
     static func notNull(_ c: String) -> Filter { .init(name: c, value: "not.is.null") }
     static func `in`(_ c: String, _ v: [String]) -> Filter { .init(name: c, value: "in.(\(v.joined(separator: ",")))") }
+    static func notIn(_ c: String, _ v: [String]) -> Filter { .init(name: c, value: "not.in.(\(v.joined(separator: ",")))") }
     static func order(_ v: String) -> Filter { .init(name: "order", value: v) }
 }
 
