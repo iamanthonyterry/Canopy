@@ -65,6 +65,31 @@ struct SystemMapView: View {
         var columns: [Int]
         var centers: [CGFloat]
         var busX: CGFloat?
+        var boxes: [Box]
+    }
+
+    /// A labeled box around one kind of device within a column, like "Wireless mics" or "Amps" in the signal-flow diagram.
+    struct Box: Identifiable {
+        var title: String
+        var x: CGFloat
+        var top: CGFloat
+        var bottom: CGFloat
+        var id: String { "\(title)@\(x)" }
+    }
+
+    static func section(_ role: DeviceRole?) -> (title: String, order: Int) {
+        let order = role.flatMap { DeviceRole.allCases.firstIndex(of: $0) } ?? DeviceRole.allCases.count
+        switch role {
+        case .source: return ("Mics & sources", order); case .camera: return ("Cameras", order); case .computer: return ("Computers", order)
+        case .stageBox: return ("Stage boxes", order); case .wirelessReceiver: return ("Wireless mics", order)
+        case .videoEncoder, .videoDecoder: return ("Video transport", order)
+        case .console, .surface: return ("Consoles", order); case .videoSwitcher: return ("Video switching", order)
+        case .lightingConsole, .lightingNode: return ("Lighting", order)
+        case .processor: return ("Processing", order); case .networkSwitch: return ("Network", order)
+        case .amp: return ("Amps", order); case .iemTransmitter: return ("IEMs", order); case .ledProcessor: return ("LED walls", order)
+        case .speaker: return ("Speakers", order)
+        default: return ("Other", order)
+        }
     }
 
     private func layout(_ edges: [Edge], hasBus: Bool) -> MapLayout {
@@ -87,22 +112,38 @@ struct SystemMapView: View {
             }
         }
         var positions: [String: CGPoint] = [:]
+        var boxes: [Box] = []
         var height: CGFloat = 0
         for (ci, stage) in used.enumerated() {
             let list = (columns[stage] ?? []).sorted { a, b in
+                let sa = Self.section(a.role), sb = Self.section(b.role)
+                if sa.title != sb.title { return sa.order != sb.order ? sa.order < sb.order : sa.title < sb.title }
                 if byRoom {
                     let ra = store.place(a), rb = store.place(b)
                     if ra != rb { return InventoryRules.ordered(ra, rb) }
                 }
                 return InventoryRules.ordered(a.name, b.name)
             }
-            for (ri, d) in list.enumerated() {
-                let y = 44 + CGFloat(ri) * (Self.nodeSize.height + Self.rowGap) + Self.nodeSize.height / 2
-                positions[d.id] = CGPoint(x: centers[ci], y: y)
-                height = max(height, y + Self.nodeSize.height)
+            var y: CGFloat = 40
+            var start = 0
+            while start < list.count {
+                let title = Self.section(list[start].role).title
+                var end = start
+                while end < list.count, Self.section(list[end].role).title == title { end += 1 }
+                let top = y
+                y += 28
+                for d in list[start..<end] {
+                    positions[d.id] = CGPoint(x: centers[ci], y: y + Self.nodeSize.height / 2)
+                    y += Self.nodeSize.height + Self.rowGap
+                }
+                let bottom = y - Self.rowGap + 10
+                boxes.append(Box(title: title, x: centers[ci], top: top, bottom: bottom))
+                y = bottom + 14
+                start = end
             }
+            height = max(height, y)
         }
-        return MapLayout(positions: positions, size: CGSize(width: max(x - Self.columnGap + 20, 400), height: max(height + 20, 200)), columns: used, centers: centers, busX: busX)
+        return MapLayout(positions: positions, size: CGSize(width: max(x - Self.columnGap + 20, 400), height: max(height + 10, 200)), columns: used, centers: centers, busX: busX, boxes: boxes)
     }
 
     var body: some View {
@@ -111,6 +152,7 @@ struct SystemMapView: View {
         let danteIDs = Set(allEdges.filter { $0.signal == .dante && !$0.link }.flatMap { [$0.from, $0.to] })
         let edges = allEdges.filter { !($0.signal == .dante && !$0.link) }
         let map = layout(allEdges, hasBus: !danteIDs.isEmpty)
+        let usedPorts = Set(store.cables.flatMap { [$0.fromPort, $0.toPort] })
         let positions = map.positions, size = map.size, columns = map.columns
         VStack(spacing: 0) {
             HStack(spacing: 12) {
@@ -142,6 +184,17 @@ struct SystemMapView: View {
                                 .overlay(Text("DANTE NETWORK").font(.canopySans(10, weight: .bold)).tracking(2).foregroundStyle(.white.opacity(0.85))
                                     .fixedSize().rotationEffect(.degrees(-90)))
                                 .position(x: busX, y: 30 + h / 2)
+                        }
+                        ForEach(map.boxes) { box in
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.canopyPaperElevated.opacity(0.55))
+                                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.canopyRule, lineWidth: 1))
+                                .overlay(alignment: .topLeading) {
+                                    Text(box.title.uppercased()).font(.canopySans(10, weight: .semibold)).tracking(1).foregroundStyle(.secondary)
+                                        .padding(.leading, 12).padding(.top, 8)
+                                }
+                                .frame(width: Self.nodeSize.width + 24, height: box.bottom - box.top)
+                                .position(x: box.x, y: (box.top + box.bottom) / 2)
                         }
                         Canvas { ctx, _ in
                             if let busX = map.busX {
@@ -176,7 +229,7 @@ struct SystemMapView: View {
                             }
                         }
                         ForEach(store.scoped.filter { positions[$0.id] != nil }) { d in
-                            node(d, connections: edges.filter { $0.from == d.id || $0.to == d.id }.reduce(0) { $0 + $1.count })
+                            node(d, usedPorts: usedPorts)
                                 .position(positions[d.id]!)
                         }
                     }
@@ -189,14 +242,16 @@ struct SystemMapView: View {
         }
     }
 
-    private func node(_ d: Equipment, connections: Int) -> some View {
+    private func node(_ d: Equipment, usedPorts: Set<String>) -> some View {
         let lit = hovered == d.id
+        let total = d.ports.count
+        let used = d.ports.filter { usedPorts.contains($0.id) }.count
         return Button { nav.open(d.id) } label: {
             HStack(spacing: 8) {
                 Image(systemName: d.role?.symbol ?? "shippingbox").foregroundStyle(Self.tint(d.role)).frame(width: 18)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(d.name).font(.canopySans(12, weight: .semibold)).lineLimit(1)
-                    Text([store.place(d), connections > 0 ? "\(connections)" : ""].filter { !$0.isEmpty }.joined(separator: " · "))
+                    Text([store.place(d), total > 0 ? "\(used) of \(total) in use" : ""].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.canopySans(10)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
@@ -206,6 +261,13 @@ struct SystemMapView: View {
             .background(Color.canopyPaperElevated, in: RoundedRectangle(cornerRadius: 10))
             .background(Self.tint(d.role).opacity(lit ? 0.35 : 0.18), in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(lit ? Self.tint(d.role) : Color.canopyRule, lineWidth: lit ? 2 : 1))
+            .overlay(alignment: .bottomLeading) {
+                if total > 0 {
+                    Capsule().fill(Self.tint(d.role).opacity(0.7))
+                        .frame(width: max(4, (Self.nodeSize.width - 20) * CGFloat(used) / CGFloat(total)), height: 3)
+                        .padding(.leading, 10).padding(.bottom, 4)
+                }
+            }
             .shadow(color: Self.tint(d.role).opacity(lit ? 0.4 : 0.15), radius: lit ? 8 : 4, y: 1)
         }
         .buttonStyle(.plain)
