@@ -51,7 +51,7 @@ struct InventoryListView: View {
         return store.scoped.filter { e in
             if let statusFilter, e.status != statusFilter { return false }
             guard !q.isEmpty else { return true }
-            return [e.name, e.makeModel, e.serial, e.category, e.role?.label ?? "", store.place(e), e.vendor, e.notes, e.ipAddress]
+            return [e.name, e.makeModel, e.serial, e.category, e.role?.label ?? "", store.place(e), e.vendor, e.notes, e.ipAddress, e.macAddress]
                 .contains { $0.lowercased().contains(q) }
         }
     }

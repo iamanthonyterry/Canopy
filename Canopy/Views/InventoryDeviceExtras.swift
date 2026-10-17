@@ -281,6 +281,7 @@ struct EquipmentEditorSheet: View {
                         OptionalDate(label: "Warranty ends", date: $draft.warrantyExpires)
                         TextField("Warranty terms", text: $draft.warrantyTerms)
                         TextField("IP address", text: $draft.ipAddress)
+                        TextField("MAC address", text: $draft.macAddress, prompt: Text("00:1A:2B:3C:4D:5E"))
                         TextField("Username", text: $draft.username)
                         SecureField("Password", text: $draft.password)
                         Text("Logins are visible only to people who can view everything.").font(.canopyCaption).foregroundStyle(.secondary)
@@ -322,6 +323,7 @@ struct EquipmentEditorSheet: View {
         d.ipAddress = BatchDeviceAdd.addresses(base: draft.ipAddress, count: count)[index]
         if index > 0 {
             d.serial = ""
+            d.macAddress = ""
             d.rackUnit = nil // two devices can't share a unit; the rack and room are kept
         }
         return d

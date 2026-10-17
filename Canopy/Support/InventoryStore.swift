@@ -54,6 +54,7 @@ struct EquipmentDraft: Equatable {
     var warrantyExpires: Date?
     var warrantyTerms = ""
     var ipAddress = ""
+    var macAddress = ""
     var username = ""
     var password = ""
     var notes = ""
@@ -75,7 +76,7 @@ struct EquipmentDraft: Equatable {
         location = e.location; value = e.value; yearPurchased = e.yearPurchased
         purchaseDate = e.purchaseDate.flatMap(InventoryRules.localDate); purchasePrice = e.purchasePrice; vendor = e.vendor
         warrantyExpires = e.warrantyExpires.flatMap(InventoryRules.localDate); warrantyTerms = e.warrantyTerms
-        ipAddress = e.ipAddress; username = e.username; password = e.password; notes = e.notes; cardSlots = e.cardSlots
+        ipAddress = e.ipAddress; macAddress = e.macAddress; username = e.username; password = e.password; notes = e.notes; cardSlots = e.cardSlots
         let own = e.ownPorts
         inputs = own.filter { $0.direction == .input }.compactMap(\.number).max() ?? 0
         outputs = own.filter { $0.direction == .output }.compactMap(\.number).max() ?? 0
@@ -150,13 +151,13 @@ final class InventoryStore: ObservableObject {
 
     private nonisolated struct EquipmentRow: Decodable {
         var id: String; var name: String; var category: String; var role: String; var makeModel: String; var serial: String
-        var location: String; var campus: String; var value: Double?; var yearPurchased: Int?; var ipAddress: String
+        var location: String; var campus: String; var value: Double?; var yearPurchased: Int?; var ipAddress: String; var macAddress: String
         var username: String; var password: String; var notes: String; var status: String; var condition: String
         var purchaseDate: String?; var purchasePrice: Double?; var vendor: String; var warrantyExpires: String?
         var warrantyTerms: String; var roomId: String?; var rackId: String?; var rackUnit: Int?; var rackHeight: Int; var cardSlots: Int
     }
 
-    private static let equipmentColumns = "id,name,category,role,make_model,serial,location,campus,value,year_purchased,ip_address,username,password,notes,status,condition,purchase_date,purchase_price,vendor,warranty_expires,warranty_terms,room_id,rack_id,rack_unit,rack_height,card_slots"
+    private static let equipmentColumns = "id,name,category,role,make_model,serial,location,campus,value,year_purchased,ip_address,mac_address,username,password,notes,status,condition,purchase_date,purchase_price,vendor,warranty_expires,warranty_terms,room_id,rack_id,rack_unit,rack_height,card_slots"
     private static let portColumns = "id,equipment_id,number,label,kind,direction,signal,card_id"
 
     func refresh() async {
@@ -223,7 +224,7 @@ final class InventoryStore: ObservableObject {
         let devices = e.map { row in
             Equipment(id: row.id, name: row.name, category: row.category, role: DeviceRole(rawValue: row.role), makeModel: row.makeModel,
                       serial: row.serial, location: row.location, campus: row.campus, value: row.value, yearPurchased: row.yearPurchased,
-                      ipAddress: row.ipAddress, username: row.username, password: row.password, notes: row.notes,
+                      ipAddress: row.ipAddress, macAddress: row.macAddress, username: row.username, password: row.password, notes: row.notes,
                       status: EquipmentStatus(rawValue: row.status) ?? .inService, condition: EquipmentCondition(rawValue: row.condition),
                       purchaseDate: row.purchaseDate, purchasePrice: row.purchasePrice, vendor: row.vendor,
                       warrantyExpires: row.warrantyExpires, warrantyTerms: row.warrantyTerms, roomId: row.roomId, rackId: row.rackId,
@@ -497,7 +498,7 @@ final class InventoryStore: ObservableObject {
             "status": d.status.rawValue, "condition": d.condition?.rawValue ?? "",
             "purchase_date": d.purchaseDate.map(InventoryRules.localDayString), "purchase_price": d.purchasePrice, "vendor": t(d.vendor),
             "warranty_expires": d.warrantyExpires.map(InventoryRules.localDayString), "warranty_terms": t(d.warrantyTerms, 1000),
-            "ip_address": t(d.ipAddress, 100), "username": t(d.username), "password": String(d.password.prefix(500)), "notes": String(d.notes.prefix(4000)),
+            "ip_address": t(d.ipAddress, 100), "mac_address": t(d.macAddress, 100), "username": t(d.username), "password": String(d.password.prefix(500)), "notes": String(d.notes.prefix(4000)),
         ]
     }
 
@@ -1199,7 +1200,7 @@ final class InventoryStore: ObservableObject {
                 let made = try await db.insertIDs("equipment", chunk.map { d in
                     ["church_id": churchId, "campus": campus, "name": t(d.name), "make_model": t(d.makeModel),
                      "category": InventoryCategories.all.contains(d.category) ? d.category : "", "role": d.role?.rawValue ?? "",
-                     "location": t(d.location), "ip_address": t(d.ipAddress, 100), "serial": t(d.serial), "username": t(d.username),
+                     "location": t(d.location), "ip_address": t(d.ipAddress, 100), "mac_address": t(d.macAddress, 100), "serial": t(d.serial), "username": t(d.username),
                      "password": String(d.password.prefix(500)), "notes": String(d.notes.prefix(4000)), "room_id": roomOf(d)]
                 })
                 for (d, id) in zip(chunk, made) { ids[d.key] = id }
@@ -1212,7 +1213,7 @@ final class InventoryStore: ObservableObject {
                 var change: [String: Any?] = [:]
                 let fields: [(String, String, String)] = [
                     ("category", now.category, InventoryCategories.all.contains(d.category) ? d.category : ""), ("make_model", now.makeModel, t(d.makeModel)),
-                    ("serial", now.serial, t(d.serial)), ("location", now.location, t(d.location)), ("ip_address", now.ipAddress, t(d.ipAddress, 100)),
+                    ("serial", now.serial, t(d.serial)), ("location", now.location, t(d.location)), ("ip_address", now.ipAddress, t(d.ipAddress, 100)), ("mac_address", now.macAddress, t(d.macAddress, 100)),
                     ("username", now.username, t(d.username)), ("password", now.password, String(d.password.prefix(500))),
                 ]
                 for (column, have, new) in fields where have.trimmingCharacters(in: .whitespaces).isEmpty && !new.isEmpty { change[column] = new }
@@ -1252,6 +1253,7 @@ struct DeviceDecision: Identifiable {
     var room: String
     var location: String
     var ipAddress: String
+    var macAddress: String
     var serial: String
     var username: String
     var password: String
@@ -1260,6 +1262,6 @@ struct DeviceDecision: Identifiable {
 
     init(_ d: FoundDevice, target: String?) {
         key = d.key; self.target = target; name = d.name; makeModel = d.makeModel; category = d.category; role = d.role
-        room = d.room; location = d.location; ipAddress = d.ipAddress; serial = d.serial; username = d.username; password = d.password; notes = d.notes
+        room = d.room; location = d.location; ipAddress = d.ipAddress; macAddress = d.macs.map(DocumentImport.prettyMac).joined(separator: ", "); serial = d.serial; username = d.username; password = d.password; notes = d.notes
     }
 }

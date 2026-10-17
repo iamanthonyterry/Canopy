@@ -179,6 +179,8 @@ nonisolated struct Equipment: Codable, Hashable, Identifiable, Sendable {
     var value: Double?
     var yearPurchased: Int?
     var ipAddress: String = ""
+    /// Hardware address(es); several are separated by ", ".
+    var macAddress: String = ""
     var username: String = ""
     var password: String = ""
     var notes: String = ""

@@ -315,6 +315,7 @@ private struct DecisionRow: View {
                         TextField("IP address", text: $decision.ipAddress).textFieldStyle(.roundedBorder)
                     }
                     GridRow {
+                        TextField("MAC address", text: $decision.macAddress).textFieldStyle(.roundedBorder)
                         TextField("Serial", text: $decision.serial).textFieldStyle(.roundedBorder)
                         TextField("Username", text: $decision.username).textFieldStyle(.roundedBorder)
                         SecureField("Password", text: $decision.password).textFieldStyle(.roundedBorder)

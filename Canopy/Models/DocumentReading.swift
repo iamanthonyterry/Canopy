@@ -36,7 +36,7 @@ nonisolated struct FoundDevice: Hashable, Identifiable, Sendable {
     var serial = ""
     var username = ""
     var password = ""
-    /// What has no field of its own: MAC addresses, hostname, other addresses. One fact per line.
+    /// What has no field of its own: hostname, other addresses. One fact per line.
     var notes = ""
     var macs: [String] = []
     var hostname = ""
@@ -272,7 +272,6 @@ nonisolated enum DocumentImport {
             for r in dhcpRows where !r.network.isEmpty && !dhcp.contains(r.network) { dhcp.append(r.network) }
             let hostnames = each(\.hostname)
             let notes = [
-                macs.isEmpty ? "" : "MAC: \(macs.map(prettyMac).joined(separator: ", "))",
                 hostnames.isEmpty ? "" : "Hostname: \(hostnames.joined(separator: ", "))",
                 main.map { $0.network.isEmpty ? "" : "Network: \($0.network)" } ?? "",
                 others.isEmpty ? "" : "Also at: \(others.joined(separator: ", "))",
@@ -419,7 +418,7 @@ nonisolated enum DocumentImport {
             var why: [String] = []
             let notes = k.notes.lowercased().replacingOccurrences(of: #"[^a-z0-9]+"#, with: "", options: .regularExpression)
             if !found.serial.isEmpty, !k.serial.isEmpty, norm(found.serial) == norm(k.serial) { score += 90; why.append("same serial number") }
-            if found.macs.contains(where: { notes.contains($0) }) { score += 90; why.append("same MAC address") }
+            if found.macs.contains(where: { notes.contains($0) || String(k.macAddress.lowercased().filter(\.isHexDigit)).contains($0) }) { score += 90; why.append("same MAC address") }
             let ip = k.ipAddress.trimmingCharacters(in: .whitespaces)
             if isAddress(ip), found.addresses.contains(ip) { score += 60; why.append("same IP address") }
             if found.hostname.count > 3, notes.contains(norm(found.hostname)) { score += 30; why.append("same hostname") }

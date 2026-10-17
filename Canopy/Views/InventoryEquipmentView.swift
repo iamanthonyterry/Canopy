@@ -34,7 +34,7 @@ struct EquipmentBrowser: View {
             case .unplaced: guard e.roomId == nil else { return false }
             }
             guard !q.isEmpty else { return true }
-            return [e.name, e.makeModel, e.serial, e.ipAddress, e.category, e.role?.label ?? "", store.place(e), e.notes]
+            return [e.name, e.makeModel, e.serial, e.ipAddress, e.macAddress, e.category, e.role?.label ?? "", store.place(e), e.notes]
                 .contains { $0.lowercased().contains(q) }
         }
     }
@@ -283,6 +283,7 @@ struct EquipmentDetailView: View {
         card("Identity") {
             field("Make & model", e.makeModel, \.makeModel)
             field("Serial", e.serial, \.serial)
+            field("MAC address", e.macAddress, \.macAddress)
             row("Category") {
                 if canEdit {
                     Picker("Category", selection: Binding(get: { e.category }, set: { v in save { $0.category = v } })) {
