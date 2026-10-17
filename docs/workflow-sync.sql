@@ -26,7 +26,9 @@ create policy "canopy workflows: own rows" on public.canopy_workflows
 
 -- The server stamps every change, so computers with different clocks still agree on what's newer.
 create or replace function public.canopy_touch_updated_at() returns trigger
-language plpgsql as $$
+language plpgsql
+set search_path = ''
+as $$
 begin
   new.updated_at = now();
   return new;
