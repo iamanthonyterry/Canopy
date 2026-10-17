@@ -7,6 +7,7 @@ enum DashboardSelection: Hashable {
     case deck(UUID)
     case cloudStore(UUID)
     case localFolder(UUID)
+    case wireless(String)
 }
 
 // MARK: - DashboardView
@@ -21,6 +22,9 @@ struct DashboardView: View {
     @StateObject private var workflowEngine = WorkflowEngine.shared
     @StateObject private var discovery = DeviceDiscovery()
     @ObservedObject private var monitor = ConnectionMonitor.shared
+    @ObservedObject private var account = SiteAccount.shared
+    @ObservedObject private var inventory = InventoryStore.shared
+    @AppStorage("wireless.monitor") private var wirelessLive = true
 
     @State private var showingAddDeck = false
     @State private var showingAddCloudStore = false
@@ -49,7 +53,13 @@ struct DashboardView: View {
     // HyperDecks are recording hardware, not something they manage — so the
     // deck count is excluded from their view entirely.
     var totalDevices: Int {
-        (appState.isAdmin ? appState.hyperDecks.count : 0) + appState.cloudStores.count + appState.localFolders.count
+        (appState.isAdmin ? appState.hyperDecks.count + wirelessTargets.count : 0) + appState.cloudStores.count + appState.localFolders.count
+    }
+
+    /// Wireless receivers from the inventory that Canopy can watch. Like the decks, they're for admins.
+    private var wirelessTargets: [WirelessMonitor.Target] {
+        guard account.isConnected, inventory.level.canViewDetails else { return [] }
+        return WirelessMonitor.Target.monitorable(inventory.equipment).targets
     }
 
     private var hasDiscovered: Bool {
@@ -79,8 +89,6 @@ struct DashboardView: View {
         VStack(spacing: 0) {
             headerBar
             rule
-
-            WirelessStrip()
 
             if !erroredMounts.isEmpty {
                 ForEach(erroredMounts) { session in
@@ -114,6 +122,7 @@ struct DashboardView: View {
         .sheet(isPresented: $showingAddCloudStore) { CloudStoreEditSheet(store: nil, defaultKind: addCloudStoreKind) }
         .sheet(isPresented: $showingAddLocalFolder) { LocalFolderEditSheet(folder: nil) }
         .onAppear { monitor.start() }
+        .modifier(WirelessDashboardSupport(enabled: appState.isAdmin))
     }
 
     // MARK: - Mount error banner
@@ -171,7 +180,7 @@ struct DashboardView: View {
                     .lineLimit(1)
                 if !compact {
                     Text(appState.isAdmin
-                        ? "\(appState.hyperDecks.count) decks · \(appState.cloudStores.count) network storage · \(appState.localFolders.count) local folders"
+                        ? "\(appState.hyperDecks.count) decks · \(appState.cloudStores.count) network storage · \(appState.localFolders.count) local folders" + (wirelessTargets.isEmpty ? "" : " · \(wirelessTargets.count) wireless")
                         : "\(appState.cloudStores.count) network storage · \(appState.localFolders.count) local folders")
                         .font(.canopySubheadline).foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -262,6 +271,22 @@ struct DashboardView: View {
                 }
             }
 
+            if appState.isAdmin && !wirelessTargets.isEmpty {
+                Section {
+                    ForEach(wirelessTargets, id: \.id) { t in
+                        WirelessListRow(target: t)
+                            .tag(DashboardSelection.wireless(t.id))
+                    }
+                } header: {
+                    HStack {
+                        Text("Wireless")
+                        Spacer()
+                        Toggle("Live", isOn: $wirelessLive).toggleStyle(.switch).controlSize(.mini)
+                            .help("Connect to the receivers. Audio-Technica receivers allow one control connection at a time.")
+                    }
+                }
+            }
+
             if !appState.cloudStores.isEmpty {
                 Section("Network Storage") {
                     ForEach(appState.cloudStores) { store in
@@ -308,6 +333,13 @@ struct DashboardView: View {
             if let folder = appState.localFolders.first(where: { $0.id == id }) {
                 LocalFolderContentPane(folder: folder)
                     .id(folder.id)
+            } else {
+                emptyDetailState
+            }
+        case .wireless(let id):
+            if let target = wirelessTargets.first(where: { $0.id == id }) {
+                WirelessContentPane(target: target)
+                    .id(target.id)
             } else {
                 emptyDetailState
             }

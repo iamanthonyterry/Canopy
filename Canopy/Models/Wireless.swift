@@ -74,6 +74,9 @@ nonisolated struct WirelessChannel: Hashable, Identifiable, Sendable {
     var warnings: [String] = []
     var id: Int { index }
 
+    /// A transmitter is on and the receiver hears it.
+    var onAir: Bool { transmitterPresent != false && (rfDbm != nil || (rfQuality ?? 0) > 0) }
+
     /// 0...1 for an RF bar, from dBm (-90 is weak, -30 is strong), or the receiver's own quality figure.
     var rfFraction: Double? {
         if let rfQuality { return rfQuality }

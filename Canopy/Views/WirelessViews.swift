@@ -75,7 +75,7 @@ struct WirelessChannelCard: View {
     let inventoryName: String
     let brand: WirelessBrand
 
-    private var live: Bool { channel.transmitterPresent != false && (channel.rfDbm != nil || (channel.rfQuality ?? 0) > 0) }
+    private var live: Bool { channel.onAir }
     private var title: String {
         if !channel.name.isEmpty { return channel.name }
         return inventoryName.isEmpty ? "Channel \(channel.index)" : inventoryName
@@ -145,10 +145,12 @@ struct WirelessChannelCard: View {
 }
 
 /// The state of one receiver and its channel cards.
-private struct ReceiverBlock: View {
+struct ReceiverBlock: View {
     @ObservedObject private var monitor = WirelessMonitor.shared
     @ObservedObject private var store = InventoryStore.shared
     let target: WirelessMonitor.Target
+    /// Show the receiver's name; the dashboard pane already has it as its title.
+    var titled = true
     @State private var syncing = false
 
     var body: some View {
@@ -156,7 +158,7 @@ private struct ReceiverBlock: View {
         let equipment = store.byID[target.id]
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(target.name).font(.canopySans(12, weight: .semibold)).foregroundStyle(Color.canopyInk)
+                if titled { Text(target.name).font(.canopySans(12, weight: .semibold)).foregroundStyle(Color.canopyInk) }
                 Text("\(target.brand.label)\(snap?.model.isEmpty == false ? " \(snap!.model)" : "") · \(target.host)")
                     .font(.canopyCaption).foregroundStyle(.secondary)
                 Spacer()
@@ -184,61 +186,90 @@ private struct ReceiverBlock: View {
     }
 }
 
-// MARK: - Dashboard strip
+// MARK: - Dashboard list row and pane
 
-struct WirelessStrip: View {
+/// A receiver in the dashboard's device list, beside the HyperDecks and storage.
+struct WirelessListRow: View {
+    @ObservedObject private var monitor = WirelessMonitor.shared
+    let target: WirelessMonitor.Target
+
+    private var snap: WirelessSnapshot? { monitor.snapshots[target.id] }
+    private var onAir: Int { snap?.channels.values.filter(\.onAir).count ?? 0 }
+    private var lowBattery: Bool { snap?.channels.values.contains { $0.onAir && ($0.batteryFraction ?? 1) <= 0.2 } ?? false }
+    private var color: Color {
+        switch snap?.state ?? .connecting {
+        case .live: return .canopySage
+        case .offline: return .canopyRust
+        case .connecting: return .gray
+        }
+    }
+    private var detail: String {
+        switch snap?.state ?? .connecting {
+        case .connecting: return "Connecting…"
+        case .offline: return "Offline"
+        case .live: return "\(snap?.channels.count ?? 0) ch · \(onAir) on air"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(target.name).font(.canopyBody)
+                Text("\(detail) · \(target.host)").font(.canopyCaption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if lowBattery { Image(systemName: "battery.25").foregroundStyle(.orange).help("A transmitter's battery is low") }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+/// What the dashboard shows when a receiver is selected: its channels, live.
+struct WirelessContentPane: View {
+    @ObservedObject private var monitor = WirelessMonitor.shared
+    let target: WirelessMonitor.Target
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    Image(systemName: "antenna.radiowaves.left.and.right").font(.title2).foregroundStyle(Color.canopySage)
+                        .frame(width: 44, height: 44).background(Color.canopySage.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(target.name).font(.canopyTitle).foregroundStyle(Color.canopyInk)
+                        Text("Wireless receiver").font(.canopyCallout).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                ReceiverBlock(target: target, titled: false)
+            }
+            .padding()
+        }
+    }
+}
+
+/// Keeps the dashboard's receivers connected while it is on screen.
+struct WirelessDashboardSupport: ViewModifier {
     @ObservedObject private var account = SiteAccount.shared
     @ObservedObject private var store = InventoryStore.shared
     @StateObject private var holder = WirelessHolder()
-    @AppStorage("wireless.open") private var open = true
     @AppStorage("wireless.monitor") private var monitoring = true
+    let enabled: Bool
 
-    private var found: (targets: [WirelessMonitor.Target], skipped: [Equipment]) { WirelessMonitor.Target.monitorable(store.equipment) }
+    private var targets: [WirelessMonitor.Target] { WirelessMonitor.Target.monitorable(store.equipment).targets }
+    private func update() { holder.set(targets, enabled: enabled && monitoring && account.isConnected && store.level.canViewDetails) }
 
-    var body: some View {
-        let found = self.found
-        Group {
-            if account.isConnected && store.level.canViewDetails && !(found.targets.isEmpty && found.skipped.isEmpty) {
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 8) {
-                        Button { open.toggle() } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: open ? "chevron.down" : "chevron.right").font(.caption2)
-                                Label("Wireless", systemImage: "antenna.radiowaves.left.and.right").font(.canopySans(12, weight: .semibold))
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        Text("\(found.targets.count) \(found.targets.count == 1 ? "receiver" : "receivers")").font(.canopyCaption).foregroundStyle(.secondary)
-                        Spacer()
-                        Toggle("Live", isOn: $monitoring).toggleStyle(.switch).controlSize(.mini).font(.canopyCaption)
-                            .help("Connect to the receivers. Audio-Technica receivers allow one control connection at a time.")
-                    }
-                    .padding(.horizontal).padding(.vertical, 8)
-                    if open {
-                        VStack(alignment: .leading, spacing: 12) {
-                            if !monitoring {
-                                Text("Live monitoring is off.").font(.canopyCaption).foregroundStyle(.secondary)
-                            } else {
-                                ForEach(found.targets, id: \.id) { ReceiverBlock(target: $0) }
-                            }
-                            if !found.skipped.isEmpty {
-                                Text("Not monitored: \(found.skipped.map(\.name).joined(separator: ", ")). Each needs a supported Shure, Sennheiser EW-DX or Audio-Technica model and an address on this network.")
-                                    .font(.canopyCaption).foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.horizontal).padding(.bottom, 12)
-                    }
-                    Rectangle().fill(Color.canopyRule).frame(height: 1)
-                }
+    func body(content: Content) -> some View {
+        content
+            .task(id: account.isConnected) {
+                if account.isConnected && !store.loadedOnce { await store.refresh() }
             }
-        }
-        .task(id: account.isConnected) {
-            if account.isConnected && !store.loadedOnce { await store.refresh() }
-        }
-        .onAppear { holder.set(found.targets, enabled: monitoring && account.isConnected && store.level.canViewDetails) }
-        .onChange(of: found.targets) { holder.set(found.targets, enabled: monitoring && account.isConnected && store.level.canViewDetails) }
-        .onChange(of: monitoring) { holder.set(found.targets, enabled: monitoring && account.isConnected && store.level.canViewDetails) }
-        .onDisappear { holder.clear() }
+            .onAppear(perform: update)
+            .onChange(of: targets) { update() }
+            .onChange(of: monitoring) { update() }
+            .onChange(of: enabled) { update() }
+            .onDisappear { holder.clear() }
     }
 }
 
