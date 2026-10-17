@@ -139,6 +139,14 @@ private struct EquipmentRow: View {
 
 // MARK: - Device page
 
+private enum DeviceTab: String, CaseIterable, Identifiable {
+    case overview = "Overview", connections = "Connections", history = "Service & files"
+    var id: String { rawValue }
+    var symbol: String {
+        switch self { case .overview: return "info.circle"; case .connections: return "cable.connector"; case .history: return "wrench.and.screwdriver" }
+    }
+}
+
 struct EquipmentDetailView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject private var nav: InventoryNavigator
@@ -149,27 +157,47 @@ struct EquipmentDetailView: View {
     @State private var confirmDelete = false
     @State private var result: (ok: Bool, message: String)?
     @State private var showLogin = false
+    @AppStorage("inventory.deviceTab") private var tab: DeviceTab = .overview
 
     private var e: Equipment { equipment }
     private var canEdit: Bool { store.level.canEdit }
+    private var tabs: [DeviceTab] { store.level.canViewDetails ? DeviceTab.allCases : [.connections] }
+    private var current: DeviceTab { tabs.contains(tab) ? tab : tabs[0] }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
                 header
-                ResultLine(result: result)
-                if store.level.canViewDetails { details }
-                CanopyLinkSection(equipment: e)
-                ChannelsSection(equipment: e)
-                if e.cardSlots > 0 || !e.cards.isEmpty { CardSlotsSection(equipment: e) }
-                StageLinkSection(equipment: e)
-                if e.role == .console || !store.channels(of: e, .input).isEmpty || !store.channels(of: e, .output).isEmpty {
-                    ConsoleChannelsSection(equipment: e)
+                summary
+                HStack(spacing: 4) {
+                    ForEach(tabs) { t in
+                        Button { tab = t } label: {
+                            Label(t.rawValue, systemImage: t.symbol)
+                                .font(.canopySans(12, weight: current == t ? .semibold : .regular))
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .background(current == t ? Color.canopySageTint : .clear, in: Capsule())
+                                .foregroundStyle(current == t ? Color.canopyInk : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer()
                 }
-                if store.level.canViewDetails { ServiceLogSection(equipment: e) }
-                if store.isAdmin { FilesSection(equipment: e) }
             }
-            .padding()
+            .padding([.horizontal, .top]).padding(.bottom, 8)
+            Rectangle().fill(Color.canopyRule).frame(height: 1)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    ResultLine(result: result)
+                    switch current {
+                    case .overview: overview
+                    case .connections: connections
+                    case .history:
+                        ServiceLogSection(equipment: e)
+                        if store.isAdmin { FilesSection(equipment: e) }
+                    }
+                }
+                .padding()
+            }
         }
         .sheet(item: $editing) { d in
             EquipmentEditorSheet(title: "Edit \(e.name)", draft: d.draft, existing: e) { draft in
@@ -189,16 +217,22 @@ struct EquipmentDetailView: View {
         }
     }
 
+    // MARK: Header and summary
+
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: e.role?.symbol ?? "shippingbox").font(.title).foregroundStyle(Color.canopySage).frame(width: 36)
+        HStack(alignment: .center, spacing: 12) {
+            let tint = SystemMapView.tint(e.role)
+            Image(systemName: e.role?.symbol ?? "shippingbox").font(.title2).foregroundStyle(tint)
+                .frame(width: 44, height: 44).background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 3) {
-                Text(e.name).font(.canopyTitle).foregroundStyle(Color.canopyInk).textSelection(.enabled)
+                if canEdit {
+                    CommitField(placeholder: "Name", value: e.name) { v in save { $0.name = v } }
+                        .font(.canopyTitle).foregroundStyle(Color.canopyInk)
+                } else {
+                    Text(e.name).font(.canopyTitle).foregroundStyle(Color.canopyInk).textSelection(.enabled)
+                }
                 Text([e.makeModel == e.name ? "" : e.makeModel, e.role?.label ?? "", store.place(e)].filter { !$0.isEmpty }.joined(separator: " · "))
-                    .font(.canopyCallout).foregroundStyle(.secondary)
-                let c = InventoryRules.counts(e.ports)
-                Text("\(c.inputs) inputs · \(c.outputs) outputs · \(store.cables(of: e).count) cables")
-                    .font(.canopyCaption).foregroundStyle(.secondary)
+                    .font(.canopyCallout).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
             if canEdit {
@@ -208,7 +242,7 @@ struct EquipmentDetailView: View {
                     }
                 } label: { CanopyPill(label: e.status.label, color: e.status.color) }
                     .menuStyle(.borderlessButton).fixedSize()
-                Button("Edit") { editing = IdentifiedDraft(draft: EquipmentDraft(e)) }.buttonStyle(.canopySecondary)
+                Button("All fields…") { editing = IdentifiedDraft(draft: EquipmentDraft(e)) }.buttonStyle(.canopySecondary)
                 Menu {
                     Button("Delete…", role: .destructive) { confirmDelete = true }
                 } label: { Image(systemName: "ellipsis.circle") }
@@ -219,54 +253,185 @@ struct EquipmentDetailView: View {
         }
     }
 
-    private var details: some View {
+    private var summary: some View {
+        let c = InventoryRules.counts(e.ports)
         let warranty = InventoryRules.warrantyState(e.warrantyExpires)
-        return VStack(alignment: .leading, spacing: 10) {
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
-                fact("Campus", store.campusName(e.campus), "Category", e.category)
-                fact("Serial", e.serial, "Condition", e.condition?.label ?? "")
-                fact("Value", e.value.map { InventoryRules.money($0) } ?? "", "Paid", e.purchasePrice.map { InventoryRules.money($0) } ?? "")
-                fact("Purchased", e.purchaseDate.map { InventoryRules.formatDate($0) } ?? e.yearPurchased.map(String.init) ?? "", "From", e.vendor)
-                GridRow {
-                    label("Warranty")
-                    Text(warranty == .none ? "—" : "\(warranty == .expired ? "Ended" : "Until") \(InventoryRules.formatDate(e.warrantyExpires))\(e.warrantyTerms.isEmpty ? "" : " · \(e.warrantyTerms)")")
-                        .foregroundStyle(warranty == .soon ? .orange : warranty == .expired ? .secondary : Color.canopyInk)
-                        .gridCellColumns(3)
-                }
-                GridRow {
-                    label("Address")
-                    HStack(spacing: 6) {
-                        Text(e.ipAddress.isEmpty ? "—" : e.ipAddress).textSelection(.enabled)
-                        if let host = e.host, let url = URL(string: "http://\(host)") {
-                            Link(destination: url) { Image(systemName: "arrow.up.right.square") }.help("Open its web page")
-                        }
-                    }
-                    label("Login")
-                    if e.username.isEmpty && e.password.isEmpty {
-                        Text("—")
-                    } else if showLogin {
-                        Text("\(e.username) / \(e.password)").textSelection(.enabled)
-                    } else {
-                        Button("Show") { showLogin = true }.buttonStyle(.link)
+        return HStack(spacing: 8) {
+            stat("\(c.inputs)", "inputs"); stat("\(c.outputs)", "outputs"); stat("\(store.cables(of: e).count)", "cables")
+            if e.cardSlots > 0 { stat("\(e.cards.count)/\(e.cardSlots)", "cards") }
+            if warranty == .soon { CanopyPill(label: "Warranty ends soon", color: .orange) }
+            if warranty == .expired { CanopyPill(label: "Warranty ended", color: .gray) }
+            Spacer()
+        }
+    }
+
+    private func stat(_ value: String, _ label: String) -> some View {
+        HStack(spacing: 4) {
+            Text(value).font(.canopySans(13, weight: .bold)).monospacedDigit().foregroundStyle(Color.canopyInk)
+            Text(label).font(.canopyCaption).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .background(Color.canopyPaperElevated, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.canopyRule, lineWidth: 1))
+    }
+
+    // MARK: Tabs
+
+    @ViewBuilder private var overview: some View {
+        CanopyLinkSection(equipment: e)
+        card("Identity") {
+            field("Make & model", e.makeModel, \.makeModel)
+            field("Serial", e.serial, \.serial)
+            row("Category") {
+                if canEdit {
+                    Picker("Category", selection: Binding(get: { e.category }, set: { v in save { $0.category = v } })) {
+                        if !InventoryCategories.all.contains(e.category) { Text(e.category.isEmpty ? "Not set" : e.category).tag(e.category) }
+                        ForEach(InventoryCategories.all, id: \.self) { Text($0).tag($0) }
+                    }.labelsHidden().fixedSize()
+                } else { Text(e.category.isEmpty ? "—" : e.category) }
+            }
+            row("Condition") {
+                if canEdit {
+                    Picker("Condition", selection: Binding(get: { e.condition }, set: { v in save { $0.condition = v } })) {
+                        Text("Not set").tag(EquipmentCondition?.none)
+                        ForEach(EquipmentCondition.allCases) { Text($0.label).tag(EquipmentCondition?.some($0)) }
+                    }.labelsHidden().fixedSize()
+                } else { Text(e.condition?.label ?? "—") }
+            }
+            field("Location note", e.location, \.location, placeholder: "Where exactly, e.g. left of the stage")
+            row("Campus") { Text(store.campusName(e.campus).isEmpty ? "—" : store.campusName(e.campus)) }
+        }
+        card("Network") {
+            row("Address") {
+                HStack(spacing: 8) {
+                    if canEdit { CommitField(placeholder: "192.168.1.20", value: e.ipAddress) { v in save { $0.ipAddress = v } }.fieldStyle() }
+                    else { Text(e.ipAddress.isEmpty ? "—" : e.ipAddress).textSelection(.enabled) }
+                    if let host = e.host, let url = URL(string: "http://\(host)") {
+                        Link(destination: url) { Image(systemName: "arrow.up.right.square") }.help("Open its web page")
                     }
                 }
             }
-            .font(.canopyCallout)
-            if !e.notes.isEmpty {
-                Text(e.notes).font(.canopyCallout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8).background(Color.canopyPaper, in: RoundedRectangle(cornerRadius: 8))
+            if store.isAdmin || !(e.username.isEmpty && e.password.isEmpty) {
+                row("Login") {
+                    if showLogin {
+                        HStack(spacing: 6) {
+                            if canEdit {
+                                CommitField(placeholder: "Username", value: e.username, width: 120) { v in save { $0.username = v } }.fieldStyle()
+                                CommitField(placeholder: "Password", value: e.password, width: 140) { v in save { $0.password = v } }.fieldStyle()
+                            } else { Text("\(e.username) / \(e.password)").textSelection(.enabled) }
+                            Button("Hide") { showLogin = false }.buttonStyle(.link)
+                        }
+                    } else if e.username.isEmpty && e.password.isEmpty && !canEdit {
+                        Text("—")
+                    } else {
+                        Button(e.username.isEmpty && e.password.isEmpty ? "Add" : "Show") { showLogin = true }.buttonStyle(.link)
+                    }
+                }
             }
         }
+        card("Purchase & warranty") {
+            let warranty = InventoryRules.warrantyState(e.warrantyExpires)
+            row("Purchased") { Text(e.purchaseDate.map { InventoryRules.formatDate($0) } ?? e.yearPurchased.map(String.init) ?? "—") }
+            field("Vendor", e.vendor, \.vendor)
+            row("Paid · worth") {
+                Text("\(e.purchasePrice.map { InventoryRules.money($0) } ?? "—") · \(e.value.map { InventoryRules.money($0) } ?? "—")")
+            }
+            row("Warranty") {
+                Text(warranty == .none ? "—" : "\(warranty == .expired ? "Ended" : "Until") \(InventoryRules.formatDate(e.warrantyExpires))")
+                    .foregroundStyle(warranty == .soon ? .orange : warranty == .expired ? .secondary : Color.canopyInk)
+            }
+            field("Warranty terms", e.warrantyTerms, \.warrantyTerms)
+            if canEdit {
+                Text("Dates and prices change under All fields…").font(.canopyCaption).foregroundStyle(.tertiary)
+            }
+        }
+        card("Notes") {
+            if canEdit {
+                NotesField(value: e.notes) { v in save { $0.notes = v } }
+            } else {
+                Text(e.notes.isEmpty ? "No notes." : e.notes).foregroundStyle(e.notes.isEmpty ? .secondary : Color.canopyInk)
+                    .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    @ViewBuilder private var connections: some View {
+        ChannelsSection(equipment: e)
+        if e.cardSlots > 0 || !e.cards.isEmpty { CardSlotsSection(equipment: e) }
+        StageLinkSection(equipment: e)
+        if e.role == .console || !store.channels(of: e, .input).isEmpty || !store.channels(of: e, .output).isEmpty {
+            ConsoleChannelsSection(equipment: e)
+        }
+    }
+
+    // MARK: Building blocks
+
+    /// Saves one change straight from the page, so a name or serial doesn't need the full form.
+    private func save(_ change: (inout EquipmentDraft) -> Void) {
+        var d = EquipmentDraft(e)
+        change(&d)
+        Task { result = await store.updateEquipment(e.id, d) }
+    }
+
+    private func card<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.canopyTitle2).foregroundStyle(Color.canopyInk)
+            content()
+        }
+        .font(.canopyCallout)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .canopyCard(padding: 14)
     }
 
-    private func label(_ s: String) -> some View { Text(s).foregroundStyle(.secondary) }
-
-    private func fact(_ a: String, _ av: String, _ b: String, _ bv: String) -> some View {
-        GridRow {
-            label(a); Text(av.isEmpty ? "—" : av).textSelection(.enabled)
-            label(b); Text(bv.isEmpty ? "—" : bv).textSelection(.enabled)
+    private func row<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(title).foregroundStyle(.secondary).frame(width: 110, alignment: .leading)
+            content()
+            Spacer(minLength: 0)
         }
+    }
+
+    /// A text row that edits in place when you can edit, and is plain selectable text when you can't.
+    private func field(_ title: String, _ value: String, _ key: WritableKeyPath<EquipmentDraft, String>, placeholder: String = "Add…") -> some View {
+        row(title) {
+            if canEdit {
+                CommitField(placeholder: placeholder, value: value) { v in save { $0[keyPath: key] = v } }.fieldStyle()
+            } else {
+                Text(value.isEmpty ? "—" : value).textSelection(.enabled)
+            }
+        }
+    }
+}
+
+private extension View {
+    /// A faint box so an editable value looks like something you can click.
+    func fieldStyle() -> some View {
+        self.padding(.vertical, 3).padding(.horizontal, 6)
+            .background(Color.canopyPaper, in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.canopyRule, lineWidth: 1))
+            .frame(maxWidth: 360, alignment: .leading)
+    }
+}
+
+/// A multi-line note that saves when you click away, only if it changed.
+private struct NotesField: View {
+    let value: String
+    let onCommit: (String) -> Void
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextEditor(text: $text)
+            .font(.canopyCallout)
+            .scrollContentBackground(.hidden)
+            .focused($focused)
+            .frame(minHeight: 70)
+            .padding(6)
+            .background(Color.canopyPaper, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.canopyRule, lineWidth: 1))
+            .onAppear { text = value }
+            .onChange(of: value) { if !focused { text = value } }
+            .onChange(of: focused) { if !focused, text != value { onCommit(text) } }
     }
 }
 

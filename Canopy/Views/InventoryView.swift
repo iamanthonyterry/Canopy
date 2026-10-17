@@ -10,7 +10,8 @@ import Combine
 // the same thing.
 
 enum InventoryTab: String, CaseIterable, Identifiable {
-    case equipment = "Equipment"
+    case equipment = "Devices"
+    case list = "Full list"
     case patch = "Patch Sheet"
     case console = "Console Patch"
     case flow = "Signal Flow"
@@ -22,11 +23,28 @@ enum InventoryTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var symbol: String {
         switch self {
-        case .equipment: return "shippingbox"; case .patch: return "cable.connector"; case .console: return "slider.vertical.3"; case .flow: return "arrow.triangle.branch"
-        case .map: return "point.3.connected.trianglepath.dotted"; case .rooms: return "square.stack.3d.up"; case .configs: return "doc.badge.gearshape"
-        case .review: return "checklist"; case .importing: return "square.and.arrow.down"
+        case .equipment: return "shippingbox"; case .list: return "tablecells"; case .patch: return "cable.connector"; case .console: return "slider.vertical.3"
+        case .flow: return "arrow.triangle.branch"; case .map: return "point.3.connected.trianglepath.dotted"; case .rooms: return "square.stack.3d.up"
+        case .configs: return "doc.badge.gearshape"; case .review: return "checklist"; case .importing: return "square.and.arrow.down"
         }
     }
+}
+
+/// The page's top level: nine screens grouped into five, so nothing is hidden but less is on show at once.
+enum InventoryGroup: String, CaseIterable, Identifiable {
+    case equipment = "Equipment", patching = "Patching", map = "System Map", places = "Rooms & Racks", tools = "Tools"
+    var id: String { rawValue }
+    var tabs: [InventoryTab] {
+        switch self {
+        case .equipment: return [.equipment, .list]
+        case .patching: return [.patch, .console, .flow]
+        case .map: return [.map]
+        case .places: return [.rooms]
+        case .tools: return [.review, .importing, .configs]
+        }
+    }
+    var symbol: String { tabs[0].symbol }
+    static func of(_ tab: InventoryTab) -> InventoryGroup { allCases.first { $0.tabs.contains(tab) } ?? .equipment }
 }
 
 /// Lets any inventory screen jump to a device's page.
@@ -81,6 +99,9 @@ struct InventoryView: View {
         }
     }
 
+    private var groups: [InventoryGroup] { InventoryGroup.allCases.filter { !visible($0).isEmpty } }
+    private func visible(_ g: InventoryGroup) -> [InventoryTab] { g.tabs.filter { tabs.contains($0) } }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
@@ -123,17 +144,25 @@ struct InventoryView: View {
                     .menuStyle(.borderlessButton).fixedSize()
             }
             HStack(spacing: 4) {
-                ForEach(tabs) { tab in
-                    Button { nav.tab = tab } label: {
-                        Label(tab.rawValue, systemImage: tab.symbol)
-                            .font(.canopySans(12, weight: nav.tab == tab ? .semibold : .regular))
+                ForEach(groups) { g in
+                    let on = InventoryGroup.of(nav.tab) == g
+                    Button { nav.tab = visible(g)[0] } label: {
+                        Label(g.rawValue, systemImage: g.symbol)
+                            .font(.canopySans(12, weight: on ? .semibold : .regular))
                             .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(nav.tab == tab ? Color.canopySageTint : .clear, in: Capsule())
-                            .foregroundStyle(nav.tab == tab ? Color.canopyInk : .secondary)
+                            .background(on ? Color.canopySageTint : .clear, in: Capsule())
+                            .foregroundStyle(on ? Color.canopyInk : .secondary)
                     }
                     .buttonStyle(.plain)
                 }
                 Spacer()
+            }
+            let siblings = visible(InventoryGroup.of(nav.tab))
+            if siblings.count > 1 {
+                Picker("", selection: $nav.tab) {
+                    ForEach(siblings) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
         }
         .padding(.horizontal).padding(.top).padding(.bottom, 10)
@@ -181,6 +210,7 @@ struct InventoryView: View {
                 }
                 switch nav.tab {
                 case .equipment: EquipmentBrowser()
+                case .list: InventoryListView()
                 case .patch: PatchSheetView()
                 case .console: ConsolePatchView()
                 case .flow: SignalFlowView()
