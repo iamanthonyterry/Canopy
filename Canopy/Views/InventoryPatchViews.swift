@@ -6,6 +6,18 @@ import UniformTypeIdentifiers
 // How all the equipment fits together: one row per cable, grouped by the device
 // being patched, channel by channel, the way a stage patch list reads.
 
+/// One line of the patch sheet: a cable, or a channel carried over a stage box link.
+private struct PatchRow: Identifiable {
+    var id: String
+    var from: PatchPort
+    var to: PatchPort
+    var note: String
+    var cable: Patch?
+
+    init(_ p: Patch) { id = "c-" + p.id; from = p.from; to = p.to; note = p.cable.note; cable = p }
+    init(_ h: Hop) { id = "h-\(h.from.id)>\(h.to.id)"; from = h.from; to = h.to; note = "stage box link"; cable = nil }
+}
+
 struct PatchSheetView: View {
     @EnvironmentObject private var nav: InventoryNavigator
     @ObservedObject private var store = InventoryStore.shared
@@ -21,14 +33,15 @@ struct PatchSheetView: View {
     var body: some View {
         let patches = store.scopedPatches
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let shown = patches.filter { q.isEmpty || matches($0.from, q) || matches($0.to, q) || $0.cable.note.lowercased().contains(q) }
+        let rows = patches.map(PatchRow.init) + store.scopedHops.map(PatchRow.init)
+        let shown = rows.filter { q.isEmpty || matches($0.from, q) || matches($0.to, q) || $0.note.lowercased().contains(q) }
         let groups = Dictionary(grouping: shown) { byInputs ? $0.to.device.id : $0.from.device.id }
             .map { id, rows in (device: store.byID[id], rows: rows.sorted { InventoryRules.byPort(byInputs ? $0.to.port : $0.from.port, byInputs ? $1.to.port : $1.from.port) }) }
             .sorted { InventoryRules.ordered($0.device?.name ?? "", $1.device?.name ?? "") }
         let own = store.scoped.flatMap(\.ownPorts)
         let used = Set(store.patches.flatMap { [$0.from.id, $0.to.id] } + store.hops.flatMap { [$0.from.id, $0.to.id] })
         let unpatched = own.filter { !used.contains($0.id) }
-        let devices = Set(patches.flatMap { [$0.from.device.id, $0.to.device.id] })
+        let devices = Set(rows.flatMap { [$0.from.device.id, $0.to.device.id] })
 
         VStack(spacing: 0) {
             HStack {
@@ -47,7 +60,7 @@ struct PatchSheetView: View {
                     Text("\(patches.count) \(patches.count == 1 ? "cable" : "cables") across \(devices.count) \(devices.count == 1 ? "device" : "devices"), plus \(store.scopedHops.count) channels over stage box links. \(own.count) ports in all, \(unpatched.count) not patched.")
                         .font(.canopyCallout).foregroundStyle(.secondary)
                     ResultLine(result: result)
-                    if patches.isEmpty {
+                    if rows.isEmpty {
                         Text(store.level.canEdit ? "Nothing is patched yet. Open a device to patch its channels, or import a spreadsheet." : "Nothing is patched yet.")
                             .foregroundStyle(.secondary)
                     } else if shown.isEmpty {
@@ -58,7 +71,7 @@ struct PatchSheetView: View {
                             HStack(alignment: .firstTextBaseline) {
                                 if let d = g.device {
                                     Button(d.name) { nav.open(d.id) }.buttonStyle(.plain).font(.canopyHeadline).foregroundStyle(Color.canopyInk)
-                                    Text([store.place(d), "\(g.rows.count) \(g.rows.count == 1 ? "cable" : "cables") \(byInputs ? "in" : "out")"].filter { !$0.isEmpty }.joined(separator: " · "))
+                                    Text([store.place(d), "\(g.rows.count) \(g.rows.count == 1 ? "connection" : "connections") \(byInputs ? "in" : "out")"].filter { !$0.isEmpty }.joined(separator: " · "))
                                         .font(.canopyCaption).foregroundStyle(.secondary)
                                 }
                             }
@@ -90,7 +103,7 @@ struct PatchSheetView: View {
         }
     }
 
-    private func row(_ p: Patch) -> some View {
+    private func row(_ p: PatchRow) -> some View {
         let mine = byInputs ? p.to : p.from
         let other = byInputs ? p.from : p.to
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -104,9 +117,9 @@ struct PatchSheetView: View {
                 Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange).help("\(p.from.port.signal.label) into \(p.to.port.signal.label)")
             }
             Spacer()
-            Text(p.cable.note).font(.canopyCaption).foregroundStyle(.secondary).lineLimit(1)
-            if store.level.canEdit {
-                Button { confirm = p } label: { Image(systemName: "xmark.circle") }.buttonStyle(.borderless).help("Disconnect")
+            Text(p.note).font(.canopyCaption).foregroundStyle(.secondary).lineLimit(1)
+            if store.level.canEdit, let cable = p.cable {
+                Button { confirm = cable } label: { Image(systemName: "xmark.circle") }.buttonStyle(.borderless).help("Disconnect")
             }
         }
         .font(.canopyCallout)
