@@ -35,7 +35,20 @@ final class WorkflowRunPublisher: ObservableObject {
     private var retryAfter = Date.distantPast
     private var tidiedFor: String?
 
-    private let computer = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+    static let computerName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+
+    /// Tells this Mac's runs apart from another computer's, even if both have the same name.
+    static let deviceID: String = {
+        let key = "workflowRuns.deviceID"
+        if let id = UserDefaults.standard.string(forKey: key) { return id }
+        let id = UUID().uuidString.lowercased()
+        UserDefaults.standard.set(id, forKey: key)
+        return id
+    }()
+
+    private var computer: String { Self.computerName }
+    /// Cleared if the database has no `device_id` column yet, so runs still show up on the website.
+    private var sendsDeviceID = true
 
     private init() {}
 
@@ -132,7 +145,7 @@ final class WorkflowRunPublisher: ObservableObject {
 
     private func row(_ s: Snapshot, id: UUID, churchID: String, userID: String) -> [String: Any?] {
         func finite(_ v: Double?) -> Any { v.flatMap { $0.isFinite ? $0 : nil } ?? NSNull() }
-        return [
+        var row: [String: Any?] = [
             "id": id.uuidString.lowercased(), "church_id": churchID, "user_id": userID, "computer": computer,
             "workflow": s.workflow, "devices": s.devices, "status": s.status,
             "steps": s.steps.map { ["title": $0.title, "status": $0.status, "progress": finite($0.progress), "detail": $0.detail, "errors": $0.errors] as [String: Any] },
@@ -140,6 +153,8 @@ final class WorkflowRunPublisher: ObservableObject {
             "remaining_seconds": finite(s.remaining), "remaining_is_minimum": s.remainingIsMinimum, "last_line": s.lastLine,
             "started_at": Self.iso.string(from: s.startedAt), "finished_at": s.finishedAt.map(Self.iso.string(from:)),
         ]
+        if sendsDeviceID { row["device_id"] = Self.deviceID }
+        return row
     }
 
     private func tick() async {
@@ -173,6 +188,7 @@ final class WorkflowRunPublisher: ObservableObject {
             lastSent = lastSent.filter { known.contains($0.key) }
         } catch {
             if let e = error as? SupabaseError, e.status == 401 { SiteAccount.shared.sessionExpired(); return }
+            if let e = error as? SupabaseError, e.code == "PGRST204", e.message.contains("device_id") { sendsDeviceID = false; return }
             retryAfter = Date().addingTimeInterval(Self.backoff)
         }
     }

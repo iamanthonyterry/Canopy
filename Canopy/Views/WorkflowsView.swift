@@ -75,6 +75,8 @@ struct WorkflowsView: View {
             }
         }
         .background(Color.canopyPaper)
+        .onAppear { RemoteRunsService.shared.beginWatching() }
+        .onDisappear { RemoteRunsService.shared.endWatching() }
         .sheet(isPresented: $isDescribing, onDismiss: {
             if let draft = pendingDraft { builder = .draft(draft) }
             pendingDraft = nil
@@ -292,20 +294,23 @@ struct WorkflowsView: View {
 /// session directly — that's what lets the confirmation prompt below
 /// appear the instant a step pauses, without waiting on some unrelated
 /// redraw elsewhere in the app.
-/// Lists workflows running on other Canopy computers on the network, so it's
-/// clear why a Run button is disabled and who to talk to. Hidden when
-/// nothing is running elsewhere.
 /// Whether this Mac's runs show on the church website's Workflows page, and
 /// a way there. Signing in is the same website sign-in the inventory uses.
 private struct WebProgressMenu: View {
     @ObservedObject private var account = SiteAccount.shared
     @ObservedObject private var publisher = WorkflowRunPublisher.shared
+    @ObservedObject private var sync = WorkflowSyncService.shared
 
     var body: some View {
         Menu {
             if account.isConnected {
                 if let email = account.email { Text("Signed in as \(email)") }
                 Toggle("Share progress on the website", isOn: $publisher.isEnabled)
+                Toggle("Sync workflows across my computers", isOn: $sync.isEnabled)
+                if sync.isEnabled {
+                    if let error = sync.lastError { Text(error) }
+                    else if let at = sync.lastSynced { Text("Workflows synced \(at.formatted(date: .omitted, time: .shortened))") }
+                }
                 if let origin = account.origin {
                     Link("Open workflow progress on the website", destination: origin.appendingPathComponent("workflows"))
                 }
@@ -320,34 +325,6 @@ private struct WebProgressMenu: View {
         }
         .menuStyle(.borderlessButton).fixedSize()
         .help(account.isConnected && publisher.isEnabled ? "Runs are shared on the website" : "Watch runs on the website")
-    }
-}
-
-private struct RemoteRunsBanner: View {
-    @EnvironmentObject var appState: AppState
-
-    var body: some View {
-        let runs = appState.remoteRuns
-        if !runs.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(runs, id: \.run.id) { item in
-                    HStack(spacing: 8) {
-                        Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("\"\(item.run.workflowName)\" \(item.run.isPaused ? "paused" : "running") on \(item.computer)")
-                                .font(.canopySubheadline).bold()
-                            Text("\(item.run.deviceNames.joined(separator: ", ")) · step \(min(item.run.completedSteps + 1, item.run.totalSteps)) of \(item.run.totalSteps)")
-                                .font(.canopyCaption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                }
-            }
-            .padding(.horizontal).padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.canopyRust.opacity(0.08))
-            Rectangle().fill(Color.canopyRule).frame(height: 1)
-        }
     }
 }
 
