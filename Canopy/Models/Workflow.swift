@@ -663,7 +663,7 @@ extension StepAction: Codable {
             let command = try nested.decode(DeckCommand.self, forKey: .command)
             self = .controlDeck(command: command)
         } else if container.contains(.record) {
-            let nested = try container.nestedContainer(keyedBy: RecordKeys.self, forKey: .record)
+            _ = try container.nestedContainer(keyedBy: RecordKeys.self, forKey: .record)
             self = .controlDeck(command: .start)
         } else if container.contains(.stopRecord) {
             self = .controlDeck(command: .stop)

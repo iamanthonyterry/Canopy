@@ -58,8 +58,7 @@ struct ChannelsSection: View {
                     }
                 } label: {
                     let patched = g.ports.filter { !store.cable(at: $0.id).isEmpty || feeds[$0.id] != nil || !store.channels(at: $0.id).isEmpty }.count
-                    Text("\(g.title) · \(g.ports.count)").fontWeight(.medium)
-                        + Text("  \(patched) patched").font(.canopyCaption).foregroundColor(.secondary)
+                    Text("\(Text("\(g.title) · \(g.ports.count)").fontWeight(.medium))\(Text("  \(patched) patched").font(.canopyCaption).foregroundColor(.secondary))")
                 }
             }
         }

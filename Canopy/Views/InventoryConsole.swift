@@ -88,8 +88,7 @@ struct ConsoleChannelsSection: View {
                         }
                     } label: {
                         let patched = total.filter { c in store.consolePatch.contains { $0.channelId == c.id } }.count
-                        Text("\(kind.plural) · \(total.count)").fontWeight(.medium)
-                            + Text("  \(patched) patched").font(.canopyCaption).foregroundColor(.secondary)
+                        Text("\(Text("\(kind.plural) · \(total.count)").fontWeight(.medium))\(Text("  \(patched) patched").font(.canopyCaption).foregroundColor(.secondary))")
                     }
                 }
             }
