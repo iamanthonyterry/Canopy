@@ -57,14 +57,12 @@ struct SystemMapView: View {
         }
     }
 
-    static let busWidth: CGFloat = 44
 
     struct MapLayout {
         var positions: [String: CGPoint]
         var size: CGSize
         var columns: [Int]
         var centers: [CGFloat]
-        var busX: CGFloat?
         var boxes: [Box]
     }
 
@@ -92,24 +90,16 @@ struct SystemMapView: View {
         }
     }
 
-    private func layout(_ edges: [Edge], hasBus: Bool) -> MapLayout {
+    private func layout(_ edges: [Edge]) -> MapLayout {
         let connected = Set(edges.flatMap { [$0.from, $0.to] })
         let devices = store.scoped.filter { showUnconnected || connected.contains($0.id) }
         let columns = Dictionary(grouping: devices) { $0.role?.stage ?? 3 }
         let used = columns.keys.sorted()
-        // The Dante network sits as a bar between the stage I/O column and the consoles, like the signal-flow diagram.
-        let busAt: Int? = hasBus ? used.filter { $0 <= 1 }.count : nil
         var x: CGFloat = 20
         var centers: [CGFloat] = []
-        var busX: CGFloat?
-        for slot in 0..<(used.count + (hasBus ? 1 : 0)) {
-            if slot == busAt {
-                busX = x + Self.busWidth / 2
-                x += Self.busWidth + Self.columnGap
-            } else {
-                centers.append(x + Self.nodeSize.width / 2)
-                x += Self.nodeSize.width + Self.columnGap
-            }
+        for _ in used {
+            centers.append(x + Self.nodeSize.width / 2)
+            x += Self.nodeSize.width + Self.columnGap
         }
         var positions: [String: CGPoint] = [:]
         var boxes: [Box] = []
@@ -143,15 +133,12 @@ struct SystemMapView: View {
             }
             height = max(height, y)
         }
-        return MapLayout(positions: positions, size: CGSize(width: max(x - Self.columnGap + 20, 400), height: max(height + 10, 200)), columns: used, centers: centers, busX: busX, boxes: boxes)
+        return MapLayout(positions: positions, size: CGSize(width: max(x - Self.columnGap + 20, 400), height: max(height + 10, 200)), columns: used, centers: centers, boxes: boxes)
     }
 
     var body: some View {
-        let allEdges = self.edges
-        // Dante is drawn as taps onto one shared network bar instead of a line per device pair.
-        let danteIDs = Set(allEdges.filter { $0.signal == .dante && !$0.link }.flatMap { [$0.from, $0.to] })
-        let edges = allEdges.filter { !($0.signal == .dante && !$0.link) }
-        let map = layout(allEdges, hasBus: !danteIDs.isEmpty)
+        let edges = self.edges
+        let map = layout(edges)
         let usedPorts = Set(store.cables.flatMap { [$0.fromPort, $0.toPort] })
         let positions = map.positions, size = map.size, columns = map.columns
         VStack(spacing: 0) {
@@ -176,15 +163,6 @@ struct SystemMapView: View {
                                 .frame(width: Self.nodeSize.width)
                                 .position(x: map.centers[ci], y: 16)
                         }
-                        if let busX = map.busX {
-                            let h = size.height - 40
-                            RoundedRectangle(cornerRadius: Self.busWidth / 2)
-                                .fill(LinearGradient(colors: [.purple, .indigo], startPoint: .top, endPoint: .bottom))
-                                .frame(width: Self.busWidth, height: h)
-                                .overlay(Text("DANTE NETWORK").font(.canopySans(10, weight: .bold)).tracking(2).foregroundStyle(.white.opacity(0.85))
-                                    .fixedSize().rotationEffect(.degrees(-90)))
-                                .position(x: busX, y: 30 + h / 2)
-                        }
                         ForEach(map.boxes) { box in
                             RoundedRectangle(cornerRadius: 12)
                                 .fill(Color.canopyPaperElevated.opacity(0.55))
@@ -197,17 +175,6 @@ struct SystemMapView: View {
                                 .position(x: box.x, y: (box.top + box.bottom) / 2)
                         }
                         Canvas { ctx, _ in
-                            if let busX = map.busX {
-                                for id in danteIDs {
-                                    guard let p = positions[id] else { continue }
-                                    let dim = hovered != nil && hovered != id
-                                    let edge = p.x < busX ? p.x + Self.nodeSize.width / 2 : p.x - Self.nodeSize.width / 2
-                                    var tap = Path()
-                                    tap.move(to: CGPoint(x: edge, y: p.y)); tap.addLine(to: CGPoint(x: busX, y: p.y))
-                                    ctx.stroke(tap, with: .color(Color.purple.opacity(dim ? 0.1 : 0.8)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                                    ctx.fill(Path(ellipseIn: CGRect(x: busX - 3, y: p.y - 3, width: 6, height: 6)), with: .color(.white.opacity(dim ? 0.2 : 0.95)))
-                                }
-                            }
                             for e in edges {
                                 guard let a = positions[e.from], let b = positions[e.to] else { continue }
                                 let dim = hovered != nil && hovered != e.from && hovered != e.to
