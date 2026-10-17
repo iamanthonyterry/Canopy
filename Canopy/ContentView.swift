@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
@@ -129,6 +130,10 @@ struct ContentView: View {
             guard let nav = palette.pendingNav else { return }
             if isReachable(nav) { selection = nav }
             palette.pendingNav = nil
+        }
+        .onReceive(Publishers.CombineLatest3(InventoryStore.shared.$equipment, appState.$hyperDecks, appState.$cloudStores)) { equipment, _, _ in
+            // Devices added in Canopy join the inventory record at the same address, once the inventory is loaded.
+            if appState.isAdmin { LocalDevice.autoLink(appState, equipment: equipment) }
         }
         .onChange(of: appState.userRole) {
             if !isReachable(selection ?? .dashboard) {

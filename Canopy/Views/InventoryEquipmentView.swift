@@ -279,6 +279,7 @@ struct EquipmentDetailView: View {
 
     @ViewBuilder private var overview: some View {
         CanopyLinkSection(equipment: e)
+        if e.role == .wirelessReceiver { WirelessSection(equipment: e) }
         card("Identity") {
             field("Make & model", e.makeModel, \.makeModel)
             field("Serial", e.serial, \.serial)

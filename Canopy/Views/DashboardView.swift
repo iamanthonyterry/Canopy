@@ -80,6 +80,8 @@ struct DashboardView: View {
             headerBar
             rule
 
+            WirelessStrip()
+
             if !erroredMounts.isEmpty {
                 ForEach(erroredMounts) { session in
                     mountErrorBanner(session)
