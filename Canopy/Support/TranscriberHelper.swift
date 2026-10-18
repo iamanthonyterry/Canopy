@@ -1,4 +1,5 @@
 import AppKit
+import ChurchKitAuth
 import ChurchKitCore
 import Combine
 import ServiceManagement
@@ -16,6 +17,17 @@ final class TranscriberHelper: ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var status: HelperStatus?
     @Published private(set) var lastError: String?
+    @Published private(set) var isChoosingCampus = false
+
+    private static let campusKey = "transcriberHelper.campusName"
+    private var flow: ConnectFlow?
+
+    /// The campus the helper was last known to send to, remembered because the helper's own status is only
+    /// readable while it runs. Empty means it has never been connected, so Canopy's sign-in asks for a key too.
+    var knownCampus: String { UserDefaults.standard.string(forKey: Self.campusKey) ?? "" }
+
+    /// True when signing in to Canopy should also ask the website for the helper's campus key.
+    var wantsKey: Bool { isBundled && knownCampus.isEmpty }
 
     private var service: SMAppService { .loginItem(identifier: Self.bundleID) }
 
@@ -39,6 +51,7 @@ final class TranscriberHelper: ObservableObject {
         isRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).isEmpty
         // A status file that has stopped being refreshed is from a helper that has quit.
         if let s = HelperStatus.read(), !s.isStale(), isRunning { status = s } else { status = nil }
+        if let name = status?.connectedTo, !name.isEmpty { UserDefaults.standard.set(name, forKey: Self.campusKey) }
     }
 
     /// Turns "start at login" on or off. Turning it on also starts the helper now.
@@ -72,6 +85,43 @@ final class TranscriberHelper: ObservableObject {
         // The helper removes its status file on a clean quit; give it a moment before reading again.
         Task { try? await Task.sleep(for: .seconds(1)); refresh() }
     }
+
+    /// Gives the helper the campus key the website returned. The helper picks it up when it next looks (at
+    /// once if running), and Canopy starts it if it isn't.
+    func offer(_ campus: ConnectResult.CampusKey) {
+        guard isBundled else { return }
+        do {
+            try HelperHandoff.offer(key: campus.key, campusID: campus.campusID, campusName: campus.campusName,
+                                    keychainService: Self.bundleID, helperApp: helperURL)
+            UserDefaults.standard.set(campus.campusName.isEmpty ? campus.campusID : campus.campusName, forKey: Self.campusKey)
+            lastError = nil
+            start()
+        } catch {
+            lastError = error.localizedDescription
+        }
+        refresh()
+    }
+
+    /// Signs in through the website just to pick the campus (the browser is usually still signed in, so it's one click).
+    func chooseCampus(site: URL) {
+        guard isBundled, !isChoosingCampus else { return }
+        isChoosingCampus = true
+        lastError = nil
+        let flow = ConnectFlow()
+        self.flow = flow
+        Task {
+            defer { isChoosingCampus = false; self.flow = nil }
+            do {
+                let result = try await flow.run(ConnectRequest(app: .transcriber, want: .key, site: site))
+                if let campus = result.campus { offer(campus) }
+            } catch is CancellationError {
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    func cancelChoosingCampus() { flow?.cancel() }
 
     func openLoginItemsSettings() { SMAppService.openSystemSettingsLoginItems() }
 }

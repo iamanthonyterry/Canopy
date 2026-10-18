@@ -4,6 +4,7 @@ import SwiftUI
 /// Starts and stops the Transcriber helper and shows what it reports. Hidden in builds that don't include it.
 struct TranscriberHelperSettingsView: View {
     @ObservedObject private var helper = TranscriberHelper.shared
+    @ObservedObject private var account = SiteAccount.shared
 
     var body: some View {
         if helper.isBundled {
@@ -21,9 +22,19 @@ struct TranscriberHelperSettingsView: View {
                         } else {
                             Button("Start") { helper.start() }.controlSize(.small)
                         }
-                        Text("Its settings are in the Transcriber menu-bar icon.")
-                            .font(.canopyCaption).foregroundStyle(.secondary)
+                        if helper.isChoosingCampus {
+                            Button("Cancel") { helper.cancelChoosingCampus() }.controlSize(.small)
+                            Text("Waiting for the browser…").font(.canopyCaption).foregroundStyle(.secondary)
+                        } else {
+                            Button(helper.knownCampus.isEmpty ? "Choose Campus…" : "Change Campus…") {
+                                if let origin = account.origin { helper.chooseCampus(site: origin) }
+                            }
+                            .controlSize(.small)
+                            .disabled(account.origin == nil)
+                        }
                     }
+                    Text("Other settings are in the Transcriber menu-bar icon.")
+                        .font(.canopyCaption2).foregroundStyle(.tertiary)
 
                     if helper.needsApproval {
                         HStack {

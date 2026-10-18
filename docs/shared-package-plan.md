@@ -250,3 +250,11 @@ Still open before release:
 - **Transcriber:** when it finds itself under `Contents/Library/LoginItems` it stops Sparkle, hides its own "Open at login" and "Check for Updates", and writes `~/Library/Application Support/Church Landing Page/helper-status.json` (on change, every 30 s, removed on quit). The same build works standalone.
 - **Not verified:** the helper has not been run nested, because starting it here would use this Mac's real migrated settings and could start sending to a live campus. The login item registration, the approval prompt in System Settings, and Canopy's status view still need a hands-on test on a spare Mac or with the helper signed out.
 - **Still open:** handing the campus key from Canopy's sign-in to the helper, and the Sparkle bridge releases for the old ids.
+
+### Update: campus key handoff (built, not run end to end)
+
+- **One trip to the website:** when Canopy signs in and the bundled Transcriber has no campus yet (`TranscriberHelper.wantsKey`), Canopy asks for `session` and `key` together. The person picks the campus once on the connect page. A church with no campuses still signs in; the key is left out (website and `ConnectFlow.parse` both handle that).
+- **Handoff (`HelperHandoff` in ChurchKitCore):** Canopy stores the key in the Keychain under the helper's service as `handoff-key`, in an item whose access list trusts both Canopy and the helper (so an unattended Mac mini never gets a password prompt), plus a small file with the campus name. A distributed notification with nothing secret in it pokes a running helper. The helper takes the offer at launch, on the poke, and on its 30-second heartbeat, but only while it is not transcribing: a live session is never interrupted. Taking it removes the item and file.
+- **Also in Canopy Settings → Transcriber:** a Choose Campus… / Change Campus… button that runs just the key request, for changing campus later or for a Mac signed in before the helper existed.
+- **Tested:** the package (store, take, consume, and the item's access list names the helper, 12 core tests, 8 auth tests). Canopy and Transcriber build.
+- **Not tested:** the real two-app handoff with signed builds, and whether the helper really reads the item without a prompt (the access list is correct on paper; only a signed, nested helper can prove it). Also the website change is not deployed.

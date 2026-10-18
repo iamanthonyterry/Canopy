@@ -96,13 +96,16 @@ final class SiteAccount: ObservableObject {
         Task {
             defer { isConnecting = false; self.flow = nil }
             do {
-                let result = try await flow.run(ConnectRequest(app: .canopy, want: .session, site: origin))
+                // One trip to the website covers both apps: when the bundled Transcriber has no campus yet, ask for its key too.
+                let want: ConnectWant = TranscriberHelper.shared.wantsKey ? [.session, .key] : .session
+                let result = try await flow.run(ConnectRequest(app: .canopy, want: want, site: origin))
                 guard let grant = result.grant else { throw SupabaseError(message: "The website didn't send a sign-in. Try again.") }
                 let session = try await SupabaseClient.verify(baseURL: grant.project, apiKey: grant.apiKey, tokenHash: grant.token)
                 UserDefaults.standard.set(grant.project.absoluteString, forKey: Self.projectKey)
                 UserDefaults.standard.set(grant.apiKey, forKey: Self.apiKeyKey)
                 Self.save(session)
                 connect(project: grant.project, apiKey: grant.apiKey, session: session)
+                if let campus = result.campus { TranscriberHelper.shared.offer(campus) }
                 lastError = nil
             } catch is CancellationError {
             } catch {
