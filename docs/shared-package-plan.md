@@ -264,3 +264,8 @@ Still open before release:
 - **Duplicate Transcriber:** the old standalone Transcriber updates in place (new id, same feed) and then has the same bundle id as the copy inside Canopy, so two would fight over the audio input and the login item. Canopy's Transcriber section now lists any other copy in `/Applications` or `~/Applications`, with a **Move to Trash** button (it quits the copy and uses the Trash, so it is recoverable). It never removes anything on its own.
 - **Menu bar icon:** the tree (`tree.circle`), drawn as a red non-template image while `appState.isRunning`, otherwise the normal template symbol. Checked as rendered images on light and dark backgrounds; not seen in a live menu bar.
 - **Website copy:** the Canopy card says it includes Transcriber; the Transcriber card says it is included in Canopy; the dashboard's key hints say to sign in instead of pasting; the README describes `/auth/connect`. Typechecks and lints; not deployed.
+
+### Update: published and deployed (2026-10-18)
+
+- **Package:** public repo `iamanthonyterry/church-landing-page-kit`, tag `0.1.0`. Canopy and Transcriber now depend on it by URL (`from: 0.1.0`) instead of the local path, and both build against the published tag. Change the package by committing and tagging it there, then bumping the version in each app.
+- **Website:** deployed to Cloudflare (version `7c377ab1`). `/auth/connect` is live and sends signed-out visitors to the login page with the right return address; `/auth/canopy` and `/auth/transcriber` still respond. A full sign-in through the live page, from an app, has not been run. The website's three commits (`cbc7d9a`, `0ecb735`, `4728edc`) were deployed from this Mac but are not yet pushed to its origin.

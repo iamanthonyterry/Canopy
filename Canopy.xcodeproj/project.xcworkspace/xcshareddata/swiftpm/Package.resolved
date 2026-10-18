@@ -1,6 +1,15 @@
 {
-  "originHash" : "d851ce994b890380994b473d62344b0d1c61d92995d2eaadd71aa1e987201ef0",
+  "originHash" : "c9a1dedaf41cbbef052c20b1af3351b7430f24e4f901465599ee078e84178466",
   "pins" : [
+    {
+      "identity" : "church-landing-page-kit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/iamanthonyterry/church-landing-page-kit.git",
+      "state" : {
+        "revision" : "32c7df98aa21a4a039cc751dcbd3f142567439ac",
+        "version" : "0.1.0"
+      }
+    },
     {
       "identity" : "eventsource",
       "kind" : "remoteSourceControl",

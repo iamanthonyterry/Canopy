@@ -241,7 +241,7 @@
 			mainGroup = 648E39B72FD6334E00EE3177;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				2C47262E0813044DAEAD3D3F /* XCLocalSwiftPackageReference "../church-landing-page-kit" */,
+				2C47262E0813044DAEAD3D3F /* XCRemoteSwiftPackageReference "church-landing-page-kit" */,
 				644D5A5E2FFC40D300204FD5 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				235E431FB2685D1C1B286092 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 				E81DE8DA31879E0E64265EC2 /* XCRemoteSwiftPackageReference "swift-huggingface" */,
@@ -650,14 +650,15 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		2C47262E0813044DAEAD3D3F /* XCLocalSwiftPackageReference "../church-landing-page-kit" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = "../church-landing-page-kit";
-		};
-/* End XCLocalSwiftPackageReference section */
-
 /* Begin XCRemoteSwiftPackageReference section */
+		2C47262E0813044DAEAD3D3F /* XCRemoteSwiftPackageReference "church-landing-page-kit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/iamanthonyterry/church-landing-page-kit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.1.0;
+			};
+		};
 		235E431FB2685D1C1B286092 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
@@ -743,12 +744,12 @@
 		};
 		CC2883D67FBDF5375B87AB69 /* ChurchKitCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 2C47262E0813044DAEAD3D3F /* XCLocalSwiftPackageReference "../church-landing-page-kit" */;
+			package = 2C47262E0813044DAEAD3D3F /* XCRemoteSwiftPackageReference "church-landing-page-kit" */;
 			productName = ChurchKitCore;
 		};
 		13B1DE8DD553DE200A1D8A25 /* ChurchKitAuth */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 2C47262E0813044DAEAD3D3F /* XCLocalSwiftPackageReference "../church-landing-page-kit" */;
+			package = 2C47262E0813044DAEAD3D3F /* XCRemoteSwiftPackageReference "church-landing-page-kit" */;
 			productName = ChurchKitAuth;
 		};
 /* End XCSwiftPackageProductDependency section */
