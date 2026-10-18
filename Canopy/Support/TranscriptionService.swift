@@ -2,8 +2,8 @@ import Foundation
 import AVFoundation
 import Speech
 
-/// A speech-to-text engine. `SpeechAnalyzerBackend` ships with macOS; a
-/// WhisperKit backend can be added later behind the same interface.
+/// A speech-to-text engine. `SpeechAnalyzerBackend` ships with macOS;
+/// `WhisperKitBackend` is the opt-in alternative chosen in Settings.
 protocol TranscriptionBackend: Sendable {
     func transcribe(audioFile: URL, locale: Locale) async throws -> [TranscriptSegment]
 }
@@ -12,12 +12,14 @@ enum TranscriptionError: LocalizedError {
     case noAudioTrack
     case unsupportedLocale(String)
     case exportFailed(String)
+    case modelMissing(String)
 
     var errorDescription: String? {
         switch self {
         case .noAudioTrack:               return "The file has no audio track"
         case .unsupportedLocale(let id):  return "Speech recognition isn't available for \(id) on this Mac"
         case .exportFailed(let reason):   return "Couldn't extract audio: \(reason)"
+        case .modelMissing(let name):     return "The \(name) speech model isn't downloaded. Download it in Settings."
         }
     }
 }
@@ -34,7 +36,9 @@ enum TranscriptionService {
         let duration = try await asset.load(.duration).seconds
 
         let locale = Locale(identifier: localeID)
-        let segments = try await backend.transcribe(audioFile: audioURL, locale: locale)
+        let models = WhisperModels.shared
+        let engine: TranscriptionBackend = models.isWhisperActive ? WhisperKitBackend(variant: models.variant.rawValue) : backend
+        let segments = try await engine.transcribe(audioFile: audioURL, locale: locale)
         return Transcript(
             sourceFileName: video.lastPathComponent,
             locale: localeID,

@@ -17,6 +17,7 @@ struct SettingsView: View {
                 AlertSettingsView()
                 PerformanceSettingsView()
                 AIModelSettingsView()
+                TranscriptionSettingsView()
                 RemoteControlSettingsView()
                 DataBackupView()
                 //systemSection
