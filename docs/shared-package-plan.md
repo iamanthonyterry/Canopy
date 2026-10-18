@@ -230,3 +230,15 @@ Queued for after the plan is complete (requested 2026-10-18):
 - **Website:** new `/auth/connect` page and `connectApp` action (`app/(platform)/auth/connect`). Takes `port`, `state`, `app` and `want` (`session`, `key`, or both) and redirects back with `token`/`supabase`/`apikey` and/or `key`/`campus`/`campus_name`. The old `/auth/canopy` and `/auth/transcriber` pages are untouched so already-installed apps keep working.
 - **Order matters for release:** deploy the website first. Both apps now open `/auth/connect`, which doesn't exist on the live site yet, so signing in from a new build fails until it is deployed.
 - Canopy asks for `session` only and Transcriber for `key` only. The two-credential request (`session,key`) is supported by the page and the package and is what Canopy will use to hand the campus key to the nested helper.
+
+### Update: new bundle ids (built, not released)
+
+- Canopy is `com.rosesashumans.churchlandingpage.canopy` (tests `.canopytests`, `.canopyuitests`). Transcriber is `com.rosesashumans.churchlandingpage.transcriber`.
+- `LegacyMigration` (ChurchKitCore) runs first thing at launch in both apps. It copies the old id's UserDefaults and the old Keychain service's items to the new ones, once, and never deletes anything. Tested on sample data, and checked read-only against this Mac's real old settings (46 Canopy keys, 6 Transcriber keys). It has not been run through a real launch of a signed build.
+- Canopy's other files (the `Canopy/RunCheckpoints` folder) are named by folder, not bundle id, so they carry over untouched.
+- **Keychain prompt:** the Keychain trusts the old app's code identity, which includes its bundle id, so the first launch of each new app may ask for the login password once to read the old items. Do the switch at the Mac mini in person.
+
+Still open before release:
+1. **Sparkle:** I believe Sparkle refuses an update whose bundle id differs from the running app (verify with a real test). If so, the old apps can't update into the new ones. Each old app needs one last release that shows "Canopy has moved, download the new version" and links the download. The new apps need their own appcast URL (`SUFeedURL`) so old installs never see their entries.
+2. **Login items:** the old Transcriber's `SMAppService` registration stays on the old id. The final old release should unregister it; otherwise both start at login.
+3. **Permissions:** microphone access is asked again for the new Transcriber.

@@ -1,3 +1,4 @@
+import ChurchKitCore
 import SwiftUI
 
 @main
@@ -6,6 +7,10 @@ struct CanopyApp: App {
     @StateObject private var scheduler = SchedulerService.shared
 
     init() {
+        // Canopy was com.ROSESASHUMANS.Canopy before it joined the Church Landing Page apps. Bring its settings and
+        // sign-ins along, before anything reads them.
+        LegacyMigration.run(fromBundleID: "com.ROSESASHUMANS.Canopy",
+                            keychainServices: [(KeychainStore.legacyService, KeychainStore.service)])
         CanopyFonts.register()
     }
 

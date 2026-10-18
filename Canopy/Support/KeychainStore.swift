@@ -1,9 +1,11 @@
 import Foundation
 import Security
 
-/// Minimal Keychain wrapper for storing the Gmail OAuth refresh token.
+/// Minimal Keychain wrapper. Holds the Gmail OAuth tokens and the church-site session.
 enum KeychainStore {
-    private static let service = "com.rosesashumans.Canopy.gmail"
+    static let service = "com.rosesashumans.churchlandingpage.canopy.gmail"
+    /// Where items lived before the bundle id changed (see LegacyMigration).
+    static let legacyService = "com.rosesashumans.Canopy.gmail"
 
     static func set(_ value: String, key: String) {
         let data = Data(value.utf8)
