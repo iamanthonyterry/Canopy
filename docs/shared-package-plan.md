@@ -223,3 +223,10 @@ Queued for after the plan is complete (requested 2026-10-18):
 
 1. **Church Landing Page website:** update its links and info to reflect the new package, the bundled download, and the new app names. The site is at `~/Developer/church-landing-page`. This includes the connect page that signs in both apps and any download or release links that still point at the separate Transcriber release.
 2. **Canopy menu bar icon:** use the SF Symbol `tree.circle` and turn it red while a workflow is running. Look at how `WorkflowRunSession` and `WorkflowEngine` report that a run is active, and drive the icon from that.
+
+### Update: shared package and combined sign-in (built, not released)
+
+- **`~/Developer/church-landing-page-kit`** (local git repo, not published): `ChurchKitCore` (shared model folder, migration, download lock) and `ChurchKitAuth` (`SupabaseSession`, `SupabaseAuth.verify/refresh`, `ConnectFlow`). Ten tests. Canopy links it as a local package (`../church-landing-page-kit`), Transcriber through `Package.swift` `path:`. Publish it to GitHub before building either app anywhere but this Mac.
+- **Website:** new `/auth/connect` page and `connectApp` action (`app/(platform)/auth/connect`). Takes `port`, `state`, `app` and `want` (`session`, `key`, or both) and redirects back with `token`/`supabase`/`apikey` and/or `key`/`campus`/`campus_name`. The old `/auth/canopy` and `/auth/transcriber` pages are untouched so already-installed apps keep working.
+- **Order matters for release:** deploy the website first. Both apps now open `/auth/connect`, which doesn't exist on the live site yet, so signing in from a new build fails until it is deployed.
+- Canopy asks for `session` only and Transcriber for `key` only. The two-credential request (`session,key`) is supported by the page and the package and is what Canopy will use to hand the campus key to the nested helper.

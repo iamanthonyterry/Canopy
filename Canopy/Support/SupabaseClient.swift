@@ -1,3 +1,4 @@
+import ChurchKitAuth
 import Foundation
 
 // MARK: - Supabase
@@ -6,14 +7,6 @@ import Foundation
 // carry the signed-in person's access token, so Row Level Security in the
 // database decides what they can read and change, exactly as it did on the
 // website. The project URL and publishable key are public by design.
-
-nonisolated struct SupabaseSession: Codable, Sendable {
-    var accessToken: String
-    var refreshToken: String
-    var expiresAt: Date
-    var userID: String
-    var email: String
-}
 
 nonisolated struct SupabaseError: LocalizedError, Sendable {
     var message: String
@@ -56,32 +49,10 @@ final class SupabaseClient {
 
     // MARK: Auth
 
-    private nonisolated struct TokenReply: Decodable {
-        nonisolated struct User: Decodable { var id: String; var email: String? }
-        var access_token: String
-        var refresh_token: String
-        var expires_in: Double
-        var user: User
-    }
-
-    private static func session(from data: Data) throws -> SupabaseSession {
-        let r = try JSONDecoder().decode(TokenReply.self, from: data)
-        return SupabaseSession(accessToken: r.access_token, refreshToken: r.refresh_token,
-                               expiresAt: Date().addingTimeInterval(r.expires_in), userID: r.user.id, email: r.user.email ?? "")
-    }
-
-    /// Trades a one-time sign-in token (from the church site's Connect Canopy page) for a session of Canopy's own.
+    /// Trades a one-time sign-in token (from the church site's connect page) for a session of Canopy's own.
     static func verify(baseURL: URL, apiKey: String, tokenHash: String) async throws -> SupabaseSession {
-        var req = URLRequest(url: baseURL.appendingPathComponent("auth/v1/verify"), timeoutInterval: 20)
-        req.httpMethod = "POST"
-        req.setValue(apiKey, forHTTPHeaderField: "apikey")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["type": "magiclink", "token_hash": tokenHash])
-        let (data, res) = try await URLSession.shared.data(for: req)
-        guard (res as? HTTPURLResponse)?.statusCode == 200 else {
-            throw SupabaseError(message: "The sign-in link was refused or has expired. Try signing in again.")
-        }
-        return try session(from: data)
+        do { return try await SupabaseAuth.verify(project: baseURL, apiKey: apiKey, tokenHash: tokenHash) }
+        catch let e as AuthError { throw SupabaseError(message: e.message, status: e.status) }
     }
 
     private func refreshIfNeeded() async throws {
@@ -89,20 +60,8 @@ final class SupabaseClient {
         if let refreshing { return try await refreshing.value }
         let task = Task { @MainActor in
             defer { self.refreshing = nil }
-            var c = URLComponents(url: baseURL.appendingPathComponent("auth/v1/token"), resolvingAgainstBaseURL: false)!
-            c.queryItems = [URLQueryItem(name: "grant_type", value: "refresh_token")]
-            var req = URLRequest(url: c.url!, timeoutInterval: 20)
-            req.httpMethod = "POST"
-            req.setValue(apiKey, forHTTPHeaderField: "apikey")
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try JSONSerialization.data(withJSONObject: ["refresh_token": session.refreshToken])
-            let data: Data, res: URLResponse
-            do { (data, res) = try await URLSession.shared.data(for: req) }
-            catch { throw SupabaseError(message: "Couldn't reach your church's database. \(error.localizedDescription)") }
-            guard (res as? HTTPURLResponse)?.statusCode == 200 else {
-                throw SupabaseError(message: "Your sign-in has expired. Sign in again.", status: 401)
-            }
-            session = try Self.session(from: data)
+            do { session = try await SupabaseAuth.refresh(project: baseURL, apiKey: apiKey, session: session) }
+            catch let e as AuthError { throw SupabaseError(message: e.message, status: e.status) }
             onSessionChange?(session)
         }
         refreshing = task

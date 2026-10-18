@@ -1,3 +1,4 @@
+import ChurchKitAuth
 import Foundation
 import Combine
 import UniformTypeIdentifiers

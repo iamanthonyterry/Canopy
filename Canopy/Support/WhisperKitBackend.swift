@@ -1,4 +1,5 @@
 import Foundation
+import ChurchKitCore
 import Combine
 import WhisperKit
 

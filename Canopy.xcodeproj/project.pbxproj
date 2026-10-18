@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9114FE7F7E7C271BEC5FCA62 /* ChurchKitCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC2883D67FBDF5375B87AB69 /* ChurchKitCore */; };
+		29B35F672E54D321C9281F63 /* ChurchKitAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 13B1DE8DD553DE200A1D8A25 /* ChurchKitAuth */; };
 		01419CC2AA40F1E6A9333B16 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = B686A94BB38FB0C0808A07E8 /* MLXLLM */; };
 		0BEF49CF23D7EDCED85E6811 /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = 4EA037117187CDC79B79E0DF /* HuggingFace */; };
 		63A8A1CEE92A259E8D42720D /* MLXFoundationModels in Frameworks */ = {isa = PBXBuildFile; productRef = 04AD71F31915CDA2C17136D6 /* MLXFoundationModels */; };
@@ -76,6 +78,8 @@
 				63A8A1CEE92A259E8D42720D /* MLXFoundationModels in Frameworks */,
 				0BEF49CF23D7EDCED85E6811 /* HuggingFace in Frameworks */,
 				89B7219AAEFA04D3B0DBB7E9 /* Tokenizers in Frameworks */,
+				9114FE7F7E7C271BEC5FCA62 /* ChurchKitCore in Frameworks */,
+				29B35F672E54D321C9281F63 /* ChurchKitAuth in Frameworks */,
 				A1B2C3D4E5F6071829304A5B /* WhisperKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -154,6 +158,8 @@
 				04AD71F31915CDA2C17136D6 /* MLXFoundationModels */,
 				4EA037117187CDC79B79E0DF /* HuggingFace */,
 				C490C74E38F4F9F589ECB953 /* Tokenizers */,
+				CC2883D67FBDF5375B87AB69 /* ChurchKitCore */,
+				13B1DE8DD553DE200A1D8A25 /* ChurchKitAuth */,
 				B2C3D4E5F6071829304A5B6C /* WhisperKit */,
 			);
 			productName = Canopy;
@@ -235,6 +241,7 @@
 			mainGroup = 648E39B72FD6334E00EE3177;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				2C47262E0813044DAEAD3D3F /* XCLocalSwiftPackageReference "../church-landing-page-kit" */,
 				644D5A5E2FFC40D300204FD5 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				235E431FB2685D1C1B286092 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 				E81DE8DA31879E0E64265EC2 /* XCRemoteSwiftPackageReference "swift-huggingface" */,
@@ -643,6 +650,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		2C47262E0813044DAEAD3D3F /* XCLocalSwiftPackageReference "../church-landing-page-kit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../church-landing-page-kit";
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		235E431FB2685D1C1B286092 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -726,6 +740,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C3D4E5F6071829304A5B6C7D /* XCRemoteSwiftPackageReference "WhisperKit" */;
 			productName = WhisperKit;
+		};
+		CC2883D67FBDF5375B87AB69 /* ChurchKitCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2C47262E0813044DAEAD3D3F /* XCLocalSwiftPackageReference "../church-landing-page-kit" */;
+			productName = ChurchKitCore;
+		};
+		13B1DE8DD553DE200A1D8A25 /* ChurchKitAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2C47262E0813044DAEAD3D3F /* XCLocalSwiftPackageReference "../church-landing-page-kit" */;
+			productName = ChurchKitAuth;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
