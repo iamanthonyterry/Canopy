@@ -18,6 +18,7 @@ struct SettingsView: View {
                 PerformanceSettingsView()
                 AIModelSettingsView()
                 TranscriptionSettingsView()
+                TranscriberHelperSettingsView()
                 RemoteControlSettingsView()
                 DataBackupView()
                 //systemSection

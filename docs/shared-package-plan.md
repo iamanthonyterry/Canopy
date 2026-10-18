@@ -242,3 +242,11 @@ Still open before release:
 1. **Sparkle:** I believe Sparkle refuses an update whose bundle id differs from the running app (verify with a real test). If so, the old apps can't update into the new ones. Each old app needs one last release that shows "Canopy has moved, download the new version" and links the download. The new apps need their own appcast URL (`SUFeedURL`) so old installs never see their entries.
 2. **Login items:** the old Transcriber's `SMAppService` registration stays on the old id. The final old release should unregister it; otherwise both start at login.
 3. **Permissions:** microphone access is asked again for the new Transcriber.
+
+### Update: Transcriber nested in Canopy (built, signed locally, not notarized or run)
+
+- **Release:** `release.sh` now builds `../transcriber` (`build_app.sh`), copies `Transcriber.app` into `Canopy.app/Contents/Library/LoginItems/`, and signs Canopy again with the entitlements the export gave it. The helper keeps its own signature. `STOP_BEFORE_NOTARIZE=1` stops before submitting. A dry run with that flag produced `build/export/Canopy.app` with both apps signed by Developer ID (team GAYT638PXY, hardened runtime) and `codesign --verify --deep --strict` passing. Notarization, stapling and Gatekeeper assessment were not run.
+- **Canopy:** `TranscriberHelper` (start, stop, "start at login" through `SMAppService.loginItem`) and a Transcriber section in Settings, shown only when the helper is bundled, so dev builds hide it. It reads `helper-status.json` and shows running, listening, campus and warnings.
+- **Transcriber:** when it finds itself under `Contents/Library/LoginItems` it stops Sparkle, hides its own "Open at login" and "Check for Updates", and writes `~/Library/Application Support/Church Landing Page/helper-status.json` (on change, every 30 s, removed on quit). The same build works standalone.
+- **Not verified:** the helper has not been run nested, because starting it here would use this Mac's real migrated settings and could start sending to a live campus. The login item registration, the approval prompt in System Settings, and Canopy's status view still need a hands-on test on a spare Mac or with the helper signed out.
+- **Still open:** handing the campus key from Canopy's sign-in to the helper, and the Sparkle bridge releases for the old ids.

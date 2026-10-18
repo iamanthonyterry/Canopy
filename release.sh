@@ -5,8 +5,13 @@ set -euo pipefail
 # Usage: ./release.sh 0.0.40-alpha
 # Github Release push:
 #  gh release create v0.0.40-alpha build/Canopy-0.0.40-alpha.zip build/appcast.xml --title "0.0.40-alpha" --notes "Fortieth alpha release"
-# Bumps MARKETING_VERSION, archives, exports, notarizes, staples, zips,
-# and generates the Sparkle appcast — ready to upload to a GitHub Release.
+# Bumps MARKETING_VERSION, archives, exports, embeds the Transcriber helper,
+# notarizes, staples, zips, and generates the Sparkle appcast — ready to upload
+# to a GitHub Release.
+#
+# The helper is built from ../transcriber (override with TRANSCRIBER_DIR) and
+# goes in Canopy.app/Contents/Library/LoginItems, so one download holds both apps.
+# STOP_BEFORE_NOTARIZE=1 builds and signs everything but doesn't submit it, for checking the bundle.
 
 # One-time setup before first use:
 #   xcrun notarytool store-credentials AC_PASSWORD \
@@ -60,6 +65,27 @@ xcodebuild -exportArchive \
   -exportPath "$EXPORT_PATH" \
   -exportOptionsPlist exportOptions.plist \
   -allowProvisioningUpdates
+
+echo "==> Building and embedding Transcriber"
+TRANSCRIBER_DIR="${TRANSCRIBER_DIR:-../transcriber}"
+SIGN_IDENTITY="${SIGN_IDENTITY:-CD882049F8DD5836221DBE167F30CAE12EBB5694}"  # Developer ID Application: Roses as Humans LLC (two certs share the name, so use the hash)
+HELPER_DIR="$APP_PATH/Contents/Library/LoginItems"
+(cd "$TRANSCRIBER_DIR" && SIGN_IDENTITY="$SIGN_IDENTITY" ./build_app.sh)
+rm -rf "$HELPER_DIR/Transcriber.app"
+mkdir -p "$HELPER_DIR"
+ditto "$TRANSCRIBER_DIR/build/Transcriber.app" "$HELPER_DIR/Transcriber.app"
+codesign --verify --deep --strict "$HELPER_DIR/Transcriber.app"
+
+# Adding the helper broke Canopy's seal, so sign Canopy again with the entitlements the export gave it.
+# The helper keeps its own signature (no --deep).
+codesign -d --entitlements :- "$APP_PATH" > "$BUILD_DIR/canopy.entitlements" 2>/dev/null
+codesign -f -s "$SIGN_IDENTITY" -o runtime --timestamp --entitlements "$BUILD_DIR/canopy.entitlements" "$APP_PATH"
+codesign --verify --deep --strict "$APP_PATH"
+
+if [ "${STOP_BEFORE_NOTARIZE:-}" = "1" ]; then
+  echo "Stopped before notarizing: $APP_PATH"
+  exit 0
+fi
 
 echo "==> Notarizing"
 ditto -c -k --keepParent "$APP_PATH" "$BUILD_DIR/Canopy-notarize.zip"
