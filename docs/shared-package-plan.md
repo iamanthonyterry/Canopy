@@ -212,3 +212,14 @@ Run in a scratch SwiftPM package that copies Canopy's dependency requirements (m
 - The first resolve after the change failed once with a "disabled default traits on swift-transformers" error. Running the resolve again succeeded. If it recurs on a fresh clone, resolve twice.
 - Option B (WhisperKit `main`) is no longer needed.
 - Mac mini confirmed on macOS 26 or later, so the nested-helper layout (section 2) stands.
+
+## Progress and queued follow-ups
+
+Done: WhisperKit in Canopy (option A), `SharedModelFolder` and `WhisperKitBackend` in Canopy, Transcriber moved to the shared model folder with a move-on-first-launch migration (`ModelFolder.swift` in the transcriber repo).
+
+Still to do from the plan: `ChurchLandingPageKit` package with `ChurchKitAuth`, the combined sign-in, the new bundle ids with their migration, and the nested helper.
+
+Queued for after the plan is complete (requested 2026-10-18):
+
+1. **Church Landing Page website:** update its links and info to reflect the new package, the bundled download, and the new app names. The site is at `~/Developer/church-landing-page`. This includes the connect page that signs in both apps and any download or release links that still point at the separate Transcriber release.
+2. **Canopy menu bar icon:** use the SF Symbol `tree.circle` and turn it red while a workflow is running. Look at how `WorkflowRunSession` and `WorkflowEngine` report that a run is active, and drive the icon from that.

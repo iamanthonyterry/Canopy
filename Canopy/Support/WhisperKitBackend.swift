@@ -137,11 +137,11 @@ private actor WhisperKitHolder {
 
     private func kit(for variant: String) async throws -> WhisperKit {
         if let loaded, loaded.variant == variant { return loaded.kit }
-        guard let folder = SharedModelFolder.whisperModel(variant: variant, repo: WhisperVariant.repo) else {
+        guard let found = SharedModelFolder.whisperModel(variant: variant, repo: WhisperVariant.repo) else {
             throw TranscriptionError.modelMissing("Whisper")
         }
         let kit = try await WhisperKit(WhisperKitConfig(
-            downloadBase: SharedModelFolder.whisper, modelFolder: folder.path,
+            downloadBase: found.base, modelFolder: found.folder.path,
             verbose: false, logLevel: .none, prewarm: true, load: true, download: false))
         loaded = (variant, kit)
         return kit

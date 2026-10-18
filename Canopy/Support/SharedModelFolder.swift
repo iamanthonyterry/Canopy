@@ -27,13 +27,17 @@ nonisolated enum SharedModelFolder {
     }
 
     /// Looks for an already-downloaded Whisper variant, shared folder first.
-    static func whisperModel(variant: String, repo: String) -> URL? {
+    /// `base` is the folder WhisperKit should use as its download base, because
+    /// it keeps the tokenizer beside the model and fetches it from the network
+    /// if it isn't there. Using the base the model was found under keeps an
+    /// offline Mac working.
+    static func whisperModel(variant: String, repo: String) -> (folder: URL, base: URL)? {
         for base in [whisper, legacyTranscriberWhisper] {
             let candidates = [
                 base.appendingPathComponent("models/\(repo)/\(variant)"),
                 base.appendingPathComponent(variant),
             ]
-            if let hit = candidates.first(where: isModelFolder) { return hit }
+            if let hit = candidates.first(where: isModelFolder) { return (hit, base) }
         }
         return nil
     }
