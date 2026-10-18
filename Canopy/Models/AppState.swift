@@ -35,6 +35,10 @@ class AppState: ObservableObject {
     @Published var localFolders: [LocalFolder] = [] {
         didSet { save(localFolders, key: "localFolders") }
     }
+    /// The views designed for Show Mode, each with its own devices and layout.
+    @Published var showScreens: [ShowScreen] = [] {
+        didSet { save(showScreens, key: "showScreens") }
+    }
     @Published var syncLocation: SyncLocation = SyncLocation() {
         didSet { save(syncLocation, key: "syncLocation") }
     }
@@ -212,7 +216,8 @@ class AppState: ObservableObject {
         hyperDecks         = load([HyperDeck].self,          key: "hyperDecks")         ?? []
         cloudStores        = load([CloudStore].self,         key: "cloudStores")        ?? []
         localFolders       = load([LocalFolder].self,        key: "localFolders")       ?? []
-        syncLocation       = load(SyncLocation.self,         key: "syncLocation")       ?? SyncLocation()
+        showScreens        = load([ShowScreen].self,         key: "showScreens")        ?? []
+        syncLocation       = load(SyncLocation.self,        key: "syncLocation")       ?? SyncLocation()
         workflows                  = (load([Workflow].self,                 key: "workflows")                  ?? []).map(fillingLegacyFolders)
         workflowRunHistory         = load([WorkflowRun].self,               key: "workflowRunHistory")         ?? []
         emailNotificationSettings  = load(EmailNotificationSettings.self,   key: "emailNotificationSettings")  ?? EmailNotificationSettings()
