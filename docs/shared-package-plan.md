@@ -239,7 +239,7 @@ Queued for after the plan is complete (requested 2026-10-18):
 - **Keychain prompt:** the Keychain trusts the old app's code identity, which includes its bundle id, so the first launch of each new app may ask for the login password once to read the old items. Do the switch at the Mac mini in person.
 
 Still open before release:
-1. **Sparkle:** I believe Sparkle refuses an update whose bundle id differs from the running app (verify with a real test). If so, the old apps can't update into the new ones. Each old app needs one last release that shows "Canopy has moved, download the new version" and links the download. The new apps need their own appcast URL (`SUFeedURL`) so old installs never see their entries.
+1. **Sparkle (corrected 2026-10-18):** an earlier version of this note said Sparkle probably refuses an update whose bundle id differs, so each old app would need a bridge release. Reading Sparkle's source says otherwise: the installer only checks that the app being replaced matches the one that started the update, and the validator accepts the new app if its EdDSA key or Developer ID team matches the old one. Both match here (same `SUPublicEDKey`, team GAYT638PXY). So **no bridge release and no new appcast are needed**: the next normal Canopy and Transcriber releases update installed copies in place, the new bundle id takes over, and `LegacyMigration` runs on that first launch. Not yet proven with a real update; test it with the first alpha (old-id build updating to the new-id build) before relying on it.
 2. **Login items:** the old Transcriber's `SMAppService` registration stays on the old id. The final old release should unregister it; otherwise both start at login.
 3. **Permissions:** microphone access is asked again for the new Transcriber.
 
@@ -258,3 +258,9 @@ Still open before release:
 - **Also in Canopy Settings → Transcriber:** a Choose Campus… / Change Campus… button that runs just the key request, for changing campus later or for a Mac signed in before the helper existed.
 - **Tested:** the package (store, take, consume, and the item's access list names the helper, 12 core tests, 8 auth tests). Canopy and Transcriber build.
 - **Not tested:** the real two-app handoff with signed builds, and whether the helper really reads the item without a prompt (the access list is correct on paper; only a signed, nested helper can prove it). Also the website change is not deployed.
+
+### Update: Sparkle, duplicate copies, menu bar icon, website copy (built, not committed or released)
+
+- **Duplicate Transcriber:** the old standalone Transcriber updates in place (new id, same feed) and then has the same bundle id as the copy inside Canopy, so two would fight over the audio input and the login item. Canopy's Transcriber section now lists any other copy in `/Applications` or `~/Applications`, with a **Move to Trash** button (it quits the copy and uses the Trash, so it is recoverable). It never removes anything on its own.
+- **Menu bar icon:** the tree (`tree.circle`), drawn as a red non-template image while `appState.isRunning`, otherwise the normal template symbol. Checked as rendered images on light and dark backgrounds; not seen in a live menu bar.
+- **Website copy:** the Canopy card says it includes Transcriber; the Transcriber card says it is included in Canopy; the dashboard's key hints say to sign in instead of pasting; the README describes `/auth/connect`. Typechecks and lints; not deployed.

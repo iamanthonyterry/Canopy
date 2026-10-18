@@ -36,6 +36,15 @@ struct TranscriberHelperSettingsView: View {
                     Text("Other settings are in the Transcriber menu-bar icon.")
                         .font(.canopyCaption2).foregroundStyle(.tertiary)
 
+                    ForEach(helper.duplicates, id: \.self) { url in
+                        HStack {
+                            Label("A separate copy of Transcriber is installed at \(url.path). Canopy's built-in copy replaces it.",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .font(.canopyCaption).foregroundStyle(Color.canopyRust)
+                            Spacer()
+                            Button("Move to Trash") { helper.removeStandalone(url) }.controlSize(.small)
+                        }
+                    }
                     if helper.needsApproval {
                         HStack {
                             Label("Allow Transcriber in System Settings → Login Items.", systemImage: "exclamationmark.triangle.fill")

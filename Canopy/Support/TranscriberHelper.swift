@@ -18,6 +18,7 @@ final class TranscriberHelper: ObservableObject {
     @Published private(set) var status: HelperStatus?
     @Published private(set) var lastError: String?
     @Published private(set) var isChoosingCampus = false
+    @Published private(set) var duplicates: [URL] = []
 
     private static let campusKey = "transcriberHelper.campusName"
     private var flow: ConnectFlow?
@@ -40,6 +41,30 @@ final class TranscriberHelper: ObservableObject {
 
     var startsAtLogin: Bool { registration == .enabled }
 
+    /// Other copies of the helper outside Canopy.app. The old standalone Transcriber, updated in place by its own
+    /// Sparkle feed, has the same bundle id as the built-in one, so two would fight over the audio input and
+    /// the login item. Only the usual Applications folders are checked, so a developer's build folder isn't flagged.
+    var standaloneCopies: [URL] {
+        let found = (LSCopyApplicationURLsForBundleIdentifier(Self.bundleID as CFString, nil)?.takeRetainedValue() as? [URL]) ?? []
+        let roots = ["/Applications/", NSHomeDirectory() + "/Applications/"]
+        return found.filter { url in
+            !url.path.hasPrefix(Bundle.main.bundleURL.path) && roots.contains { url.path.hasPrefix($0) }
+        }
+    }
+
+    /// Quits and trashes a standalone copy. The Trash keeps it recoverable.
+    func removeStandalone(_ url: URL) {
+        NSWorkspace.shared.runningApplications
+            .filter { $0.bundleURL == url }
+            .forEach { $0.terminate() }
+        NSWorkspace.shared.recycle([url]) { [weak self] _, error in
+            Task { @MainActor in
+                if let error { self?.lastError = "Couldn't move it to the Trash: \(error.localizedDescription)" }
+                self?.refresh()
+            }
+        }
+    }
+
     /// Set when macOS wants the person to approve the login item in System Settings.
     var needsApproval: Bool { registration == .requiresApproval }
 
@@ -48,6 +73,7 @@ final class TranscriberHelper: ObservableObject {
     func refresh() {
         guard isBundled else { return }
         registration = service.status
+        duplicates = standaloneCopies
         isRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).isEmpty
         // A status file that has stopped being refreshed is from a helper that has quit.
         if let s = HelperStatus.read(), !s.isStale(), isRunning { status = s } else { status = nil }

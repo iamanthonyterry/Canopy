@@ -71,16 +71,12 @@ struct CanopyApp: App {
             }
         }
 
-        MenuBarExtra("Canopy", systemImage: menuBarIcon) {
+        MenuBarExtra {
             MenuBarView()
                 .environmentObject(appState)
+        } label: {
+            MenuBarIcon(isRunning: appState.isRunning)
         }
         .menuBarExtraStyle(.menu)
-    }
-
-    private var menuBarIcon: String {
-        appState.isRunning
-            ? "arrow.triangle.2.circlepath"
-            : "externaldrive.connected.to.line.below"
     }
 }
