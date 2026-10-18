@@ -33,6 +33,12 @@ nonisolated enum WirelessBrand: String, Codable, CaseIterable, Sendable {
         return nil
     }
 
+    /// IEM transmitters that can be watched. Only the Shure PSM1000 (P10T) so far; it speaks the same TCP 2202 command family.
+    static func detectIEM(name: String, makeModel: String) -> WirelessBrand? {
+        let text = "\(makeModel) \(name)".lowercased()
+        return text.range(of: #"psm\s?-?1000|\bp10t\b"#, options: .regularExpression) != nil ? .shure : nil
+    }
+
     /// How many channels a Shure receiver has, from its model: ULXD4 is one, ULXD4D two, ULXD4Q four.
     static func shureChannels(model: String) -> Int {
         let m = model.lowercased()
@@ -64,6 +70,10 @@ nonisolated struct WirelessChannel: Hashable, Identifiable, Sendable {
     /// 0...1 for a meter bar, and dBFS where the receiver gives it.
     var audioFraction: Double?
     var audioDb: Double?
+    /// Right-hand audio level of an IEM mix (the left is audioFraction), nil on mono and on receivers.
+    var audioRightFraction: Double?
+    /// An IEM transmitter's RF output switch; nil on receivers.
+    var rfOutput: Bool?
     /// 0...1 and a readable form, nil while unknown.
     var batteryFraction: Double?
     var batteryText = ""
@@ -75,7 +85,7 @@ nonisolated struct WirelessChannel: Hashable, Identifiable, Sendable {
     var id: Int { index }
 
     /// A transmitter is on and the receiver hears it.
-    var onAir: Bool { transmitterPresent != false && (rfDbm != nil || (rfQuality ?? 0) > 0) }
+    var onAir: Bool { transmitterPresent != false && (rfDbm != nil || (rfQuality ?? 0) > 0 || rfOutput == true) }
 
     /// 0...1 for an RF bar, from dBm (-90 is weak, -30 is strong), or the receiver's own quality figure.
     var rfFraction: Double? {
@@ -198,6 +208,50 @@ nonisolated enum ShureProtocol {
                 if pct <= 100 { snap.update(ch) { $0.batteryFraction = Double(pct) / 100; $0.batteryText = "\(pct)%" } }
             case "FREQUENCY": snap.update(ch) { $0.frequencyKHz = Int(value) }
             case "AUDIO_MUTE": snap.update(ch) { $0.muted = value == "ON" }
+            default: return false
+            }
+            return true
+        default: return false
+        }
+    }
+}
+
+// MARK: - Shure PSM1000 (IEM)
+// UNVERIFIED: the PSM1000 (P10T) command strings below follow the ULX-D family and have not been checked
+// against Shure's PSM1000 document or a real unit. Specifically assumed: "SAMPLE n ALL <left> [<right>]" for
+// the input meter (dBFS + 50, like ULX-D), "REP n RF_OUTPUT ON|OFF", and the CHAN_NAME, FREQUENCY and
+// AUDIO_MUTE reports. Anything that doesn't match is ignored rather than guessed at.
+
+nonisolated enum ShurePSMProtocol {
+    /// The P10T is a dual-channel transmitter.
+    static let channelCount = 2
+
+    @discardableResult
+    static func apply(_ message: String, to snap: inout WirelessSnapshot) -> Bool {
+        let w = ShureProtocol.words(message)
+        guard w.count >= 2 else { return false }
+        if w[0] == "REP", w[1] == "MODEL", w.count >= 3 { snap.model = ShureProtocol.unbrace(w[2...].joined(separator: " ")); return true }
+        guard let ch = Int(w[1]), (1...channelCount).contains(ch) else { return false }
+        func fraction(_ v: Int) -> Double { min(1, max(0, Double(v) / 50)) }
+        switch w[0] {
+        case "SAMPLE":
+            guard w.count >= 4, w[2] == "ALL" else { return false }
+            let levels = w[3...].compactMap { Int($0) }
+            guard let left = levels.first else { return false }
+            snap.update(ch) { c in
+                c.audioDb = Double(left) - 50
+                c.audioFraction = fraction(left)
+                c.audioRightFraction = levels.count >= 2 ? fraction(levels[1]) : nil
+            }
+            return true
+        case "REP":
+            guard w.count >= 4 else { return false }
+            let value = w[3...].joined(separator: " ")
+            switch w[2] {
+            case "CHAN_NAME": snap.update(ch) { $0.name = ShureProtocol.unbrace(value) }
+            case "FREQUENCY": snap.update(ch) { $0.frequencyKHz = Int(value) }
+            case "AUDIO_MUTE": snap.update(ch) { $0.muted = value == "ON" }
+            case "RF_OUTPUT": snap.update(ch) { $0.rfOutput = value == "ON"; $0.transmitterPresent = value == "ON" }
             default: return false
             }
             return true

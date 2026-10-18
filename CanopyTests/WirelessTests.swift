@@ -184,3 +184,27 @@ struct WirelessTests {
         #expect(!AudioTechnicaProtocol.apply("garlv NAK 04", to: &snap))
     }
 }
+
+// UNVERIFIED: PSM1000 strings follow the ULX-D family; see ShurePSMProtocol.
+struct WirelessIEMTests {
+    @Test func detectsPSM1000() {
+        #expect(WirelessBrand.detectIEM(name: "IEM A", makeModel: "Shure PSM1000 P10T") == .shure)
+        #expect(WirelessBrand.detectIEM(name: "", makeModel: "Sennheiser SR 2050") == nil)
+    }
+
+    @Test func psmSampleGivesLeftAndRight() {
+        var snap = WirelessSnapshot()
+        #expect(ShurePSMProtocol.apply("SAMPLE 1 ALL 040 025", to: &snap))
+        #expect(snap.channels[1]?.audioDb == -10)
+        #expect(snap.channels[1]?.audioRightFraction == 0.5)
+        #expect(!ShurePSMProtocol.apply("SAMPLE 3 ALL 040", to: &snap))
+    }
+
+    @Test func psmRFOutputPutsItOnAir() {
+        var snap = WirelessSnapshot()
+        ShurePSMProtocol.apply("REP 2 RF_OUTPUT ON", to: &snap)
+        #expect(snap.channels[2]?.onAir == true)
+        ShurePSMProtocol.apply("REP 2 RF_OUTPUT OFF", to: &snap)
+        #expect(snap.channels[2]?.onAir == false)
+    }
+}

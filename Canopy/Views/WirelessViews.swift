@@ -12,14 +12,17 @@ extension WirelessMonitor.Target {
     static func monitorable(_ equipment: [Equipment]) -> (targets: [WirelessMonitor.Target], skipped: [Equipment]) {
         var targets: [WirelessMonitor.Target] = []
         var skipped: [Equipment] = []
-        for e in equipment where e.role == .wirelessReceiver {
-            if let brand = WirelessBrand.detect(name: e.name, makeModel: e.makeModel), let host = e.host, isLocalAddress(host) {
-                targets.append(.init(id: e.id, name: e.name, host: host, brand: brand, modelHint: "\(e.makeModel) \(e.name)"))
+        for e in equipment where e.role == .wirelessReceiver || e.role == .iemTransmitter {
+            let iem = e.role == .iemTransmitter
+            let brand = iem ? WirelessBrand.detectIEM(name: e.name, makeModel: e.makeModel) : WirelessBrand.detect(name: e.name, makeModel: e.makeModel)
+            if let brand, let host = e.host, isLocalAddress(host) {
+                targets.append(.init(id: e.id, name: e.name, host: host, brand: brand, modelHint: "\(e.makeModel) \(e.name)", iem: iem))
             } else {
                 skipped.append(e)
             }
         }
-        return (targets.sorted { InventoryRules.ordered($0.name, $1.name) }, skipped)
+        // Mics first, then the IEMs beneath them.
+        return (targets.sorted { $0.iem != $1.iem ? !$0.iem : InventoryRules.ordered($0.name, $1.name) }, skipped)
     }
 }
 
@@ -74,6 +77,7 @@ struct WirelessChannelCard: View {
     let channel: WirelessChannel
     let inventoryName: String
     let brand: WirelessBrand
+    var iem = false
 
     private var live: Bool { channel.onAir }
     private var title: String {
@@ -113,6 +117,13 @@ struct WirelessChannelCard: View {
                 Text("Inventory: \(inventoryName)").font(.canopyCaption).foregroundStyle(.orange).lineLimit(1)
             }
             VStack(alignment: .leading, spacing: 3) {
+                if iem {
+                    HStack {
+                        Text("RF output").font(.canopyCaption).foregroundStyle(.secondary)
+                        Spacer()
+                        Text(channel.rfOutput.map { $0 ? "On" : "Off" } ?? "").font(.canopyCaption).foregroundStyle(channel.rfOutput == true ? Color.canopySage : .secondary)
+                    }
+                } else {
                 HStack {
                     Text("RF").font(.canopyCaption).foregroundStyle(.secondary)
                     Spacer()
@@ -121,12 +132,14 @@ struct WirelessChannelCard: View {
                         .font(.canopyCaption).monospacedDigit().foregroundStyle(.secondary)
                 }
                 MeterBar(fraction: channel.rfFraction, color: rfColor)
+                }
                 HStack {
-                    Text("Audio").font(.canopyCaption).foregroundStyle(.secondary)
+                    Text(iem && channel.audioRightFraction != nil ? "Mix L / R" : iem ? "Mix" : "Audio").font(.canopyCaption).foregroundStyle(.secondary)
                     Spacer()
                     Text(channel.audioDb.map { String(format: "%.0f dB", $0) } ?? "").font(.canopyCaption).monospacedDigit().foregroundStyle(.secondary)
                 }
                 MeterBar(fraction: channel.audioFraction, color: audioColor)
+                if iem, let right = channel.audioRightFraction { MeterBar(fraction: right, color: right > 0.93 ? .red : right > 0.8 ? .orange : .green) }
             }
             HStack {
                 Text([channel.transmitterModel, channel.frequencyText].filter { !$0.isEmpty }.joined(separator: " · "))
@@ -174,7 +187,7 @@ struct ReceiverBlock: View {
             if let snap, !snap.channels.isEmpty {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 230, maximum: 320), spacing: 10)], alignment: .leading, spacing: 10) {
                     ForEach(snap.sorted) { c in
-                        WirelessChannelCard(channel: c, inventoryName: equipment.flatMap { store.wirelessPort($0, channel: c.index)?.label } ?? "", brand: target.brand)
+                        WirelessChannelCard(channel: c, inventoryName: equipment.flatMap { store.wirelessPort($0, channel: c.index)?.label } ?? "", brand: target.brand, iem: target.iem)
                             .opacity(snap.state == .live ? 1 : 0.5)
                     }
                 }
@@ -216,7 +229,7 @@ struct WirelessListRow: View {
             Circle().fill(color).frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 2) {
                 Text(target.name).font(.canopyBody)
-                Text("\(detail) · \(target.host)").font(.canopyCaption).foregroundStyle(.secondary)
+                Text("\(target.iem ? "IEM · " : "")\(detail) · \(target.host)").font(.canopyCaption).foregroundStyle(.secondary)
             }
             Spacer()
             if lowBattery { Image(systemName: "battery.25").foregroundStyle(.orange).help("A transmitter's battery is low") }
@@ -234,11 +247,11 @@ struct WirelessContentPane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 12) {
-                    Image(systemName: "antenna.radiowaves.left.and.right").font(.title2).foregroundStyle(Color.canopySage)
+                    Image(systemName: target.iem ? "earbuds" : "antenna.radiowaves.left.and.right").font(.title2).foregroundStyle(Color.canopySage)
                         .frame(width: 44, height: 44).background(Color.canopySage.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(target.name).font(.canopyTitle).foregroundStyle(Color.canopyInk)
-                        Text("Wireless receiver").font(.canopyCallout).foregroundStyle(.secondary)
+                        Text(target.iem ? "IEM transmitter" : "Wireless receiver").font(.canopyCallout).foregroundStyle(.secondary)
                     }
                     Spacer()
                 }
@@ -284,14 +297,17 @@ struct WirelessSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Live wireless").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
+            Text(equipment.role == .iemTransmitter ? "Live IEM" : "Live wireless").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
             if let target {
                 ReceiverBlock(target: target)
-            } else if WirelessBrand.detect(name: equipment.name, makeModel: equipment.makeModel) == nil {
+            } else if equipment.role == .iemTransmitter && WirelessBrand.detectIEM(name: equipment.name, makeModel: equipment.makeModel) == nil {
+                Text("Live IEM monitoring supports the Shure PSM1000 (P10T).")
+                    .font(.canopyCallout).foregroundStyle(.secondary)
+            } else if equipment.role != .iemTransmitter && WirelessBrand.detect(name: equipment.name, makeModel: equipment.makeModel) == nil {
                 Text("Live monitoring supports Shure ULX-D, QLX-D and Axient Digital, Sennheiser EW-DX, and Audio-Technica 3000 and 5000 series receivers.")
                     .font(.canopyCallout).foregroundStyle(.secondary)
             } else {
-                Text("Add this receiver's address on this network to watch it live.").font(.canopyCallout).foregroundStyle(.secondary)
+                Text("Add this device's address on this network to watch it live.").font(.canopyCallout).foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

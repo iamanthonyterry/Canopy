@@ -63,7 +63,7 @@ struct DashboardView: View {
     }
 
     private var hasDiscovered: Bool {
-        !discovery.discoveredDecks.isEmpty || !discovery.discoveredCloudStores.isEmpty
+        !discovery.discoveredDecks.isEmpty || !discovery.discoveredCloudStores.isEmpty || !discovery.discoveredWireless.isEmpty
     }
 
     var body: some View {
@@ -233,10 +233,17 @@ struct DashboardView: View {
     }
 
 
+    /// Wireless gear is added to the inventory, so it's only looked for when this person can add to it. Addresses
+    /// already there are skipped.
+    private func startScan() {
+        let canAdd = account.isConnected && inventory.level.canEdit
+        discovery.startScanning(wirelessSkipping: canAdd ? Set(inventory.equipment.compactMap(\.host)) : nil)
+    }
+
     @ViewBuilder private func scanButton(compact: Bool) -> some View {
         Button {
             if discovery.isScanning { discovery.stopScanning() }
-            else { discovery.startScanning() }
+            else { startScan() }
         } label: {
             if compact {
                 Image(systemName: "antenna.radiowaves.left.and.right")
@@ -373,7 +380,11 @@ struct DashboardView: View {
             !appState.cloudStores.contains(where: { $0.ipAddress == s.ipAddress })
         }
 
-        if !newDecks.isEmpty || !newStores.isEmpty {
+        let newWireless = discovery.discoveredWireless.filter { w in
+            !inventory.equipment.contains(where: { $0.host == w.ip })
+        }
+
+        if !newDecks.isEmpty || !newStores.isEmpty || !newWireless.isEmpty {
             Section("Discovered on Network") {
                 ForEach(newDecks) { deck in
                     DiscoveredDeviceRow(name: deck.name, ip: deck.ipAddress, icon: "server.rack") {
@@ -385,8 +396,26 @@ struct DashboardView: View {
                         appState.addCloudStore(s)
                     }
                 }
+                ForEach(newWireless) { w in
+                    DiscoveredDeviceRow(name: w.title, ip: w.ip, icon: w.iem ? "earbuds" : "antenna.radiowaves.left.and.right") {
+                        Task { await addWirelessToInventory(w) }
+                    }
+                }
             }
         }
+    }
+
+    /// Adds a found receiver or IEM transmitter to the inventory, where the wireless monitor picks it up.
+    private func addWirelessToInventory(_ w: DiscoveredWireless) async {
+        var d = EquipmentDraft()
+        d.name = w.title
+        d.category = "Audio"
+        d.role = w.iem ? .iemTransmitter : .wirelessReceiver
+        d.makeModel = w.makeModel
+        d.ipAddress = w.ip
+        let scope = inventory.scope == InventoryRules.unassigned ? "" : inventory.scope
+        d.campus = scope.isEmpty && inventory.campuses.count == 1 ? inventory.campuses[0].id : scope
+        _ = try? await inventory.createEquipment(d)
     }
 
     // MARK: - Empty state
@@ -399,7 +428,7 @@ struct DashboardView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             HStack(spacing: 10) {
-                Button("Scan Network") { discovery.startScanning() }
+                Button("Scan Network") { startScan() }
                     .buttonStyle(.canopyPrimary)
                 Button("Add Local Folder") { showingAddLocalFolder = true }
                     .buttonStyle(.canopySecondary)

@@ -79,6 +79,8 @@ final class WirelessMonitor: ObservableObject {
         var brand: WirelessBrand
         /// The inventory's make and model, used to guess a Shure receiver's channel count until it says.
         var modelHint: String
+        /// An IEM transmitter rather than a mic receiver.
+        var iem = false
     }
 
     @Published private(set) var snapshots: [String: WirelessSnapshot] = [:]
@@ -232,6 +234,10 @@ final class WirelessMonitor: ObservableObject {
             }
         }
 
+        private func shureChannelCount(model: String) -> Int {
+            target.iem ? ShurePSMProtocol.channelCount : WirelessBrand.shureChannels(model: model)
+        }
+
         private func startShure(channels: Int) {
             guard !shureStarted else { return }
             shureStarted = true
@@ -245,7 +251,7 @@ final class WirelessMonitor: ObservableObject {
             case .shure:
                 if tick == 0 { link.send(ShureProtocol.get(0, "MODEL")) }
                 // If the receiver hasn't named its model after a couple of seconds, go by the inventory's.
-                if tick == 8 { startShure(channels: WirelessBrand.shureChannels(model: target.modelHint)) }
+                if tick == 8 { startShure(channels: shureChannelCount(model: target.modelHint)) }
                 if tick > 0 && tick % 240 == 0 { for ch in snap.channels.keys { link.send(ShureProtocol.meterRate(ch, milliseconds: 500)) } }
             case .sennheiser:
                 if present.isEmpty {
@@ -279,8 +285,9 @@ final class WirelessMonitor: ObservableObject {
                 case .shure:
                     buffer += String(decoding: data, as: UTF8.self)
                     for message in ShureProtocol.extract(&buffer) {
-                        if ShureProtocol.apply(message, to: &snap) { understood = true }
-                        if message.hasPrefix("REP MODEL") { startShure(channels: WirelessBrand.shureChannels(model: snap.model)) }
+                        let known = target.iem ? ShurePSMProtocol.apply(message, to: &snap) : ShureProtocol.apply(message, to: &snap)
+                        if known { understood = true }
+                        if message.hasPrefix("REP MODEL") { startShure(channels: shureChannelCount(model: snap.model)) }
                     }
                 case .sennheiser:
                     let seen = SennheiserProtocol.apply(data, to: &snap)
