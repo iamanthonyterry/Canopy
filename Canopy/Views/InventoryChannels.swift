@@ -116,16 +116,55 @@ private struct ChannelRow: View {
             // An input has one source and most outputs one cable (change those from the cable's menu); audio over a
             // network can go to many inputs.
             if canEdit && (cables.isEmpty || port.direction == .both || (port.direction == .output && port.signal.fansOut)) {
-                Button { picking = true } label: { Image(systemName: cables.isEmpty ? "cable.connector" : "plus") }
-                    .buttonStyle(.borderless)
-                    .help(cables.isEmpty ? "Patch this channel" : "Patch another destination")
-                    .popover(isPresented: $picking, arrowEdge: .trailing) {
-                        PatchPicker(equipment: equipment, port: port, replacing: nil) { r in result = r; picking = false }
+                let boxes = boxLinks
+                Group {
+                    if boxes.isEmpty || feed != nil {
+                        Button { picking = true } label: { Image(systemName: cables.isEmpty ? "cable.connector" : "plus") }
+                            .buttonStyle(.borderless)
+                    } else {
+                        Menu {
+                            Button("Cable to a device…") { picking = true }
+                            Divider()
+                            ForEach(boxes, id: \.link.id) { entry in
+                                Menu("From \(entry.box.name)") { boxItems(entry.link, entry.box) }
+                            }
+                        } label: { Image(systemName: cables.isEmpty ? "cable.connector" : "plus") }
+                            .menuStyle(.borderlessButton).fixedSize()
                     }
+                }
+                .help(cables.isEmpty ? "Patch this channel" : "Patch another destination")
+                .popover(isPresented: $picking, arrowEdge: .trailing) {
+                    PatchPicker(equipment: equipment, port: port, replacing: nil) { r in result = r; picking = false }
+                }
             }
         }
         .font(.canopyCallout)
         .padding(.vertical, 3)
+    }
+
+    /// Stage boxes linked to this very port group whose own sockets of the same direction could land here.
+    private var boxLinks: [(link: StageLink, box: Equipment)] {
+        guard port.direction != .both, equipment.role != .stageBox else { return [] }
+        return store.links(asHost: equipment).compactMap { l in
+            guard l.hostCardId == port.cardId, let box = store.byID[l.equipmentId], box.ownPorts.contains(where: { $0.direction == port.direction }) else { return nil }
+            return (l, box)
+        }
+    }
+
+    /// The box's sockets (inputs for an input), in runs of 16 when there are many; picking one lands it on this channel.
+    @ViewBuilder private func boxItems(_ link: StageLink, _ box: Equipment) -> some View {
+        let ports = box.ownPorts.filter { $0.direction == port.direction }.sorted { InventoryRules.byPort($0, $1) }
+        let pick: (EquipmentPort) -> Void = { p in Task { result = await store.assignBoxChannel(link: link.id, hostPort: port.id, boxPort: p.id) } }
+        if ports.count > 24 {
+            ForEach(Array(stride(from: 0, to: ports.count, by: 16)), id: \.self) { start in
+                let run = Array(ports[start..<min(ports.count, start + 16)])
+                Menu("\(run.first?.number ?? start + 1)–\(run.last?.number ?? start + run.count)") {
+                    ForEach(run) { p in Button(box.portName(p)) { pick(p) } }
+                }
+            }
+        } else {
+            ForEach(ports) { p in Button(box.portName(p)) { pick(p) } }
+        }
     }
 
     @ViewBuilder private func cableLine(_ c: Cable) -> some View {
