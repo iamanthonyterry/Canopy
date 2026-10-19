@@ -105,6 +105,7 @@ struct WorkflowsView: View {
                 Text("Workflows").font(.canopyTitle).foregroundStyle(Color.canopyInk)
                 Text("\(appState.workflows.count) workflow\(appState.workflows.count == 1 ? "" : "s")")
                     .font(.canopySubheadline).foregroundStyle(.secondary)
+                WorkflowSyncLine()
             }
             Spacer(minLength: 8)
             ViewThatFits(in: .horizontal) {
@@ -294,6 +295,27 @@ struct WorkflowsView: View {
 /// session directly — that's what lets the confirmation prompt below
 /// appear the instant a step pauses, without waiting on some unrelated
 /// redraw elsewhere in the app.
+/// Under the page title: signed-in state and whether this list is synced with the account.
+private struct WorkflowSyncLine: View {
+    @ObservedObject private var account = SiteAccount.shared
+    @ObservedObject private var sync = WorkflowSyncService.shared
+
+    var body: some View {
+        if !account.isConnected {
+            Button { account.signIn() } label: {
+                Label("Sign in to sync these across your computers", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .buttonStyle(.plain).font(.canopyCaption).foregroundStyle(Color.canopySage)
+        } else if sync.isEnabled {
+            Label(SyncStatus.text(sync), systemImage: sync.lastError == nil ? "checkmark.icloud" : "exclamationmark.icloud")
+                .font(.canopyCaption)
+                .foregroundStyle(sync.lastError == nil ? Color.secondary : Color.canopyRust)
+        } else {
+            Label("Sync is off", systemImage: "icloud.slash").font(.canopyCaption).foregroundStyle(.secondary)
+        }
+    }
+}
+
 /// Whether this Mac's runs show on the church website's Workflows page, and
 /// a way there. Signing in is the same website sign-in the inventory uses.
 private struct WebProgressMenu: View {
@@ -307,10 +329,7 @@ private struct WebProgressMenu: View {
                 if let email = account.email { Text("Signed in as \(email)") }
                 Toggle("Share progress on the website", isOn: $publisher.isEnabled)
                 Toggle("Sync workflows across my computers", isOn: $sync.isEnabled)
-                if sync.isEnabled {
-                    if let error = sync.lastError { Text(error) }
-                    else if let at = sync.lastSynced { Text("Workflows synced \(at.formatted(date: .omitted, time: .shortened))") }
-                }
+                if sync.isEnabled { Text(SyncStatus.text(sync)) }
                 if let origin = account.origin {
                     Link("Open workflow progress on the website", destination: origin.appendingPathComponent("workflows"))
                 }

@@ -82,6 +82,8 @@ struct ContentView: View {
                 }
 
                 Rectangle().fill(Color.canopyRule).frame(height: 1)
+                AccountChip(openSettings: appState.isAdmin ? { selection = .settings } : nil)
+                Rectangle().fill(Color.canopyRule).frame(height: 1)
                 HStack(spacing: 0) {
                     roleSwitcher
                     Spacer(minLength: 0)

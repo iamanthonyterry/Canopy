@@ -231,19 +231,9 @@ struct InventoryView: View {
             Text("Your production inventory").font(.canopyTitle2).foregroundStyle(Color.canopyInk)
             Text("Sign in with your church's website to manage every device, channel and cable in your production system: the patch sheet, signal flow, a map of how it all connects, rooms and racks, service history and config files. Your HyperDecks and Cloud Stores link to it, and saved configs can be applied to gear on this network.")
                 .foregroundStyle(.secondary)
-            HStack {
-                Button { account.signIn() } label: {
-                    Label(account.isConnecting ? "Waiting for the browser…" : "Sign in with website…", systemImage: "person.badge.key")
-                }
-                .buttonStyle(.canopyPrimary)
-                .disabled(account.isConnecting)
-                if account.isConnecting {
-                    Button("Cancel") { account.cancelSignIn() }.buttonStyle(.canopySecondary)
-                }
-            }
-            if let error = account.lastError {
-                Text(error).font(.canopyCaption).foregroundStyle(Color.canopyRust)
-            }
+            AccountSignInButton()
+            Text("This is the same sign-in used for synced workflows, email and Transcriber, so you only do it once.")
+                .font(.canopyCaption).foregroundStyle(.secondary)
             DisclosureGroup("Site address", isExpanded: $showAdvanced) {
                 TextField("https://", text: $account.baseURL).textFieldStyle(.roundedBorder)
                 Text("Only change this if your church uses its own domain.").font(.canopyCaption).foregroundStyle(.secondary)

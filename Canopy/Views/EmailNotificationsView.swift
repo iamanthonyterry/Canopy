@@ -21,22 +21,9 @@ struct EmailNotificationsView: View {
                         .font(.canopyBody)
                         .foregroundStyle(Color.canopySage)
                 } else {
-                    HStack {
-                        Label("Sign in to the church site to send email", systemImage: "exclamationmark.triangle.fill")
-                            .font(.canopyBody)
-                            .foregroundStyle(.orange)
-                        Spacer()
-                        Button("Sign In") { account.signIn() }
-                            .buttonStyle(.canopyPrimary)
-                            .controlSize(.small)
-                            .disabled(account.isConnecting)
-                        if account.isConnecting { ProgressView().controlSize(.small) }
-                    }
-                    if let error = account.lastError {
-                        Text(error)
-                            .font(.canopyCaption2)
-                            .foregroundStyle(Color.canopyRust)
-                    }
+                    Label("Sign in under Church Account above to send email", systemImage: "exclamationmark.triangle.fill")
+                        .font(.canopyBody)
+                        .foregroundStyle(.orange)
                 }
 
                 Text("Add a Notification step to any workflow to send email with a custom header, message, and recipients. Replies go to whoever ran the workflow.")
