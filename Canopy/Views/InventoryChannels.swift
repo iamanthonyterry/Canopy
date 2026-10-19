@@ -117,8 +117,9 @@ private struct ChannelRow: View {
             // network can go to many inputs.
             if canEdit && (cables.isEmpty || port.direction == .both || (port.direction == .output && port.signal.fansOut)) {
                 let boxes = boxLinks
+                let cards = cardSources
                 Group {
-                    if boxes.isEmpty || feed != nil {
+                    if (boxes.isEmpty && cards.isEmpty) || feed != nil {
                         Button { picking = true } label: { Image(systemName: cables.isEmpty ? "cable.connector" : "plus") }
                             .buttonStyle(.borderless)
                     } else {
@@ -127,6 +128,9 @@ private struct ChannelRow: View {
                             Divider()
                             ForEach(boxes, id: \.link.id) { entry in
                                 Menu("From \(entry.box.name)") { boxItems(entry.link, entry.box) }
+                            }
+                            ForEach(cards, id: \.title) { entry in
+                                Menu(entry.title) { cardItems(entry.ports, entry.device) }
                             }
                         } label: { Image(systemName: cables.isEmpty ? "cable.connector" : "plus") }
                             .menuStyle(.borderlessButton).fixedSize()
@@ -148,6 +152,42 @@ private struct ChannelRow: View {
         return store.links(asHost: equipment).compactMap { l in
             guard l.hostCardId == port.cardId, let box = store.byID[l.equipmentId], box.ownPorts.contains(where: { $0.direction == port.direction }) else { return nil }
             return (l, box)
+        }
+    }
+
+    /// Option card inputs on this console and on surfaces linked to it, for patching this input channel from.
+    private var cardSources: [(title: String, device: Equipment, ports: [EquipmentPort])] {
+        guard port.direction == .input, equipment.role != .stageBox else { return [] }
+        var out: [(String, Equipment, [EquipmentPort])] = []
+        func add(_ d: Equipment, prefix: String) {
+            for card in d.cards {
+                let ports = d.ports.filter { $0.cardId == card.id && $0.feedsIn && $0.id != port.id }.sorted { InventoryRules.byPort($0, $1) }
+                if !ports.isEmpty { out.append(("\(prefix)Card \(card.slot) · \(card.name)", d, ports)) }
+            }
+        }
+        add(equipment, prefix: "")
+        for l in store.links(asHost: equipment) {
+            if let box = store.byID[l.equipmentId], box.role == .surface { add(box, prefix: "\(box.name) · ") }
+        }
+        return out
+    }
+
+    /// Card sockets patch the console channel with this input's number, since a card isn't linked like a box.
+    @ViewBuilder private func cardItems(_ ports: [EquipmentPort], _ device: Equipment) -> some View {
+        let channel = store.channels(of: equipment, .input).first { $0.number == port.number }
+        let pick: (EquipmentPort) -> Void = { p in
+            if let channel { Task { result = await store.patchChannels([(channel.id, p.id)]) } }
+        }
+        if channel == nil { Text("No input channel \(port.number ?? 0) on this console") }
+        else if ports.count > 24 {
+            ForEach(Array(stride(from: 0, to: ports.count, by: 16)), id: \.self) { start in
+                let run = Array(ports[start..<min(ports.count, start + 16)])
+                Menu("\(run.first?.number ?? start + 1)–\(run.last?.number ?? start + run.count)") {
+                    ForEach(run) { p in Button(device.portName(p)) { pick(p) } }
+                }
+            }
+        } else {
+            ForEach(ports) { p in Button(device.portName(p)) { pick(p) } }
         }
     }
 
