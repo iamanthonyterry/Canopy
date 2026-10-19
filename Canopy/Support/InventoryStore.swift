@@ -343,7 +343,7 @@ final class InventoryStore: ObservableObject {
     var totalValue: Double { scoped.compactMap(\.value).reduce(0, +) }
 
     /// Channels carried over stage box links, keyed by this device's own port: what's on the other end, and any clash.
-    struct Feed { var text: String; var conflict: Bool; var linkId: String; var custom: Bool; var hostPortId: String? }
+    struct Feed { var text: String; var conflict: Bool; var linkId: String; var custom: Bool; var hostPortId: String?; var boxPortId: String? }
     func feeds(for e: Equipment) -> [String: Feed] {
         let linkByID = Dictionary(uniqueKeysWithValues: links.map { ($0.id, $0) })
         var claimed: [String: Int] = [:] // console channel id → how many box channels land on it
@@ -359,12 +359,12 @@ final class InventoryStore: ObservableObject {
             let clash = (claimed[hostSide.id] ?? 0) > 1
             if boxSide.device.id == e.id {
                 out[boxSide.id] = Feed(text: "\(boxSide.port.direction == .input ? "→" : "←") \(hostSide.device.name) · \(hostSide.name)",
-                                       conflict: clash, linkId: l.id, custom: h.custom, hostPortId: hostSide.id)
+                                       conflict: clash, linkId: l.id, custom: h.custom, hostPortId: hostSide.id, boxPortId: nil)
             }
             if hostSide.device.id == e.id {
                 let text = "\(hostSide.port.direction == .input ? "←" : "→") \(boxSide.device.name) · \(boxSide.port.name())"
-                if let seen = out[hostSide.id] { out[hostSide.id] = Feed(text: "\(seen.text); \(text)", conflict: true, linkId: l.id, custom: false) }
-                else { out[hostSide.id] = Feed(text: text, conflict: clash, linkId: l.id, custom: false) }
+                if let seen = out[hostSide.id] { out[hostSide.id] = Feed(text: "\(seen.text); \(text)", conflict: true, linkId: l.id, custom: false, hostPortId: nil, boxPortId: nil) }
+                else { out[hostSide.id] = Feed(text: text, conflict: clash, linkId: l.id, custom: false, hostPortId: nil, boxPortId: boxSide.id) }
             }
         }
         return out
@@ -757,6 +757,29 @@ final class InventoryStore: ObservableObject {
             guard let h = port(hostPort), h.0.id == link.hostId, h.1.cardId == link.hostCardId else { throw InventoryError("That channel isn't on the connected console port.") }
             guard h.1.direction == b.1.direction else { throw InventoryError("An input has to go to an input, and an output to an output.") }
             _ = try await db.upsert("equipment_link_map", ["church_id": churchId, "link_id": linkID, "box_port": boxPort, "host_port": hostPort], onConflict: "box_port")
+            return "Reassigned."
+        }
+    }
+
+    /// From the console's side: land the given stage box channel on this console channel. The box channel that was
+    /// there takes the spot the chosen one leaves, so nothing ends up doubled up.
+    func assignBoxChannel(link linkID: String, hostPort: String, boxPort: String) async -> (ok: Bool, message: String) {
+        await run {
+            let db = try editor()
+            guard let link = links.first(where: { $0.id == linkID }) else { throw InventoryError("That connection no longer exists.") }
+            guard let b = port(boxPort), b.0.id == link.equipmentId, b.1.cardId == nil else { throw InventoryError("That isn't one of the stage box's channels.") }
+            guard let h = port(hostPort), h.0.id == link.hostId, h.1.cardId == link.hostCardId else { throw InventoryError("That channel isn't on the connected console port.") }
+            guard h.1.direction == b.1.direction else { throw InventoryError("An input has to go to an input, and an output to an output.") }
+            var landing: [String: String] = [:] // box port → console port, as resolved today
+            for hop in hops where hop.linkId == linkID {
+                if hop.from.device.id == link.equipmentId { landing[hop.from.id] = hop.to.id } else { landing[hop.to.id] = hop.from.id }
+            }
+            guard landing[boxPort] != hostPort else { return "Already there." }
+            var writes: [(String, String)] = [(boxPort, hostPort)]
+            if let displaced = landing.first(where: { $0.value == hostPort })?.key, let freed = landing[boxPort] { writes.append((displaced, freed)) }
+            for (box, host) in writes {
+                _ = try await db.upsert("equipment_link_map", ["church_id": churchId, "link_id": linkID, "box_port": box, "host_port": host], onConflict: "box_port")
+            }
             return "Reassigned."
         }
     }

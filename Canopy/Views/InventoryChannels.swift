@@ -154,6 +154,18 @@ private struct ChannelRow: View {
                 } label: { Image(systemName: "arrow.triangle.swap") }
                     .menuStyle(.borderlessButton).fixedSize().help("Land this channel on a different console channel")
             }
+            if canEdit, let link = store.links.first(where: { $0.id == f.linkId }), link.hostId == equipment.id, let boxPortId = f.boxPortId,
+               let box = store.byID[link.equipmentId] {
+                Menu {
+                    let choices = box.ownPorts.filter { $0.direction == port.direction }
+                    ForEach(choices) { c in
+                        Button { Task { result = await store.assignBoxChannel(link: link.id, hostPort: port.id, boxPort: c.id) } } label: {
+                            Text(c.id == boxPortId ? "✓ \(c.name())" : c.name())
+                        }
+                    }
+                } label: { Image(systemName: "arrow.triangle.swap") }
+                    .menuStyle(.borderlessButton).fixedSize().help("Take this channel from a different \(box.name) input")
+            }
         }
     }
 }
