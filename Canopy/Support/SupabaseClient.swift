@@ -167,6 +167,14 @@ final class SupabaseClient {
         row.mapValues { $0 ?? NSNull() }
     }
 
+    // MARK: Functions
+
+    /// Calls one of the project's edge functions with the signed-in person's session.
+    func invoke(_ function: String, _ payload: [String: Any]) async throws -> Data {
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        return try await send("POST", "functions/v1/\(function)", body: body).0
+    }
+
     // MARK: Storage
 
     private func objectPath(_ bucket: String, _ path: String) -> String { "storage/v1/object/\(bucket)/\(path)" }

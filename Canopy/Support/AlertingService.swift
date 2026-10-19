@@ -149,16 +149,16 @@ final class AlertingService {
     // MARK: - Delivery
 
     /// Always shows a local notification; also emails every configured
-    /// recipient, best-effort, if any are set and Gmail is connected.
+    /// recipient, best-effort, if any are set and the church site is connected.
     private func fire(title: String, body: String) {
         appState.log(title)
         NotificationService.sendDeviceAlert(title: title, body: body)
 
         let recipients = appState.alertSettings.emailRecipients
-        guard !recipients.isEmpty, GmailAuthService.shared.isConnected else { return }
+        guard !recipients.isEmpty, NotificationMailer.isAvailable else { return }
 
         Task {
-            _ = await GmailSendService.sendIndividually(
+            _ = await NotificationMailer.sendIndividually(
                 to: recipients.map(\.email), subject: title, body: body
             )
         }

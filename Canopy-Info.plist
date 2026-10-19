@@ -2,21 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>CFBundleURLName</key>
-			<string>Google Auth</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>com.googleusercontent.apps.182690981022-erotfhq87oe6ubun28aetpknok9b06b4</string>
-			</array>
-		</dict>
-	</array>
-	<key>GIDClientID</key>
-	<string>182690981022-erotfhq87oe6ubun28aetpknok9b06b4.apps.googleusercontent.com</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_ftp._tcp</string>

@@ -22,6 +22,7 @@ struct CanopyApp: App {
                 .environmentObject(appState)
                 .onAppear {
                     NotificationService.requestPermission()
+                    NotificationMailer.removeLegacyGmailCredentials()
                     // Load any runs a previous launch left unfinished before
                     // anything (e.g. the scheduler) can start a new one.
                     _ = WorkflowCheckpointStore.shared
@@ -33,9 +34,6 @@ struct CanopyApp: App {
                     WorkflowSyncService.shared.start()
                     RemoteControlEngine.shared.applySettings()
                     WorkflowConfirmationPanelController.shared.start(appState: appState)
-                }
-                .onOpenURL { url in
-                    GmailAuthService.shared.handleRedirect(url: url)
                 }
         }
         .windowStyle(.hiddenTitleBar)

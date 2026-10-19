@@ -902,8 +902,8 @@ struct WorkflowStepConfigSheet: View {
 
     private var notifyFields: some View {
         Group {
-            if GmailAuthService.shared.connectedEmail == nil {
-                Label("No Gmail account connected — this step won't be able to send email. Connect one in Settings.", systemImage: "exclamationmark.triangle.fill")
+            if !SiteAccount.shared.isConnected {
+                Label("Not signed in to the church site — this step won't be able to send email. Sign in from Settings.", systemImage: "exclamationmark.triangle.fill")
                     .font(.canopyCallout).foregroundStyle(.orange)
             }
 

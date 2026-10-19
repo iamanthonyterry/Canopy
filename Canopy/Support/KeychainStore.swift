@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// Minimal Keychain wrapper. Holds the Gmail OAuth tokens and the church-site session.
+/// Minimal Keychain wrapper. Holds the church-site session.
 enum KeychainStore {
     static let service = "com.rosesashumans.churchlandingpage.canopy.gmail"
     /// Where items lived before the bundle id changed (see LegacyMigration).

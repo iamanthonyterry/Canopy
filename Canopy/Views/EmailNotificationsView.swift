@@ -1,55 +1,45 @@
 import SwiftUI
 
-/// Settings-level email integration setup: connect (or disconnect) the
-/// Gmail account that Notification workflow steps send from. Recipients,
-/// headers, and messages are configured per-step in a workflow, not here.
+/// Settings-level email status. Notification steps send from Canopy's own
+/// address through the church site, so the only setup is being signed in to
+/// it. Recipients, headers, and messages are configured per-step in a workflow.
 struct EmailNotificationsView: View {
     @EnvironmentObject var appState: AppState
-    @State private var gmailAuth = GmailAuthService.shared
+    @ObservedObject private var account = SiteAccount.shared
 
     var body: some View {
-        GroupBox(label: Label("Email Integration", systemImage: "envelope")) {
+        GroupBox(label: Label("Email Notifications", systemImage: "envelope")) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Send From")
-                    .font(.canopyCaption)
-                    .foregroundStyle(.secondary)
+                LabeledContent("Sent from") {
+                    Text(NotificationMailer.fromAddress)
+                        .font(.canopyBody)
+                        .textSelection(.enabled)
+                }
 
-                if let email = gmailAuth.connectedEmail {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(Color.canopySage)
-                        Text(email)
-                            .font(.canopyBody)
-                        Spacer()
-                        Button("Disconnect") {
-                            gmailAuth.signOut()
-                        }
-                        .buttonStyle(.canopySecondary)
-                        .controlSize(.small)
-                    }
+                if account.isConnected {
+                    Label("Ready — signed in to the church site", systemImage: "checkmark.circle.fill")
+                        .font(.canopyBody)
+                        .foregroundStyle(Color.canopySage)
                 } else {
                     HStack {
-                        Button {
-                            gmailAuth.signIn()
-                        } label: {
-                            Label("Connect Gmail Account", systemImage: "envelope.badge")
-                        }
-                        .buttonStyle(.canopyPrimary)
-                        .controlSize(.small)
-                        .disabled(gmailAuth.isConnecting)
-
-                        if gmailAuth.isConnecting {
-                            ProgressView().controlSize(.small)
-                        }
+                        Label("Sign in to the church site to send email", systemImage: "exclamationmark.triangle.fill")
+                            .font(.canopyBody)
+                            .foregroundStyle(.orange)
+                        Spacer()
+                        Button("Sign In") { account.signIn() }
+                            .buttonStyle(.canopyPrimary)
+                            .controlSize(.small)
+                            .disabled(account.isConnecting)
+                        if account.isConnecting { ProgressView().controlSize(.small) }
                     }
-                    if let error = gmailAuth.lastError {
+                    if let error = account.lastError {
                         Text(error)
                             .font(.canopyCaption2)
                             .foregroundStyle(Color.canopyRust)
                     }
                 }
 
-                Text("Add a Notification step to any workflow to send email with a custom header, message, and recipients.")
+                Text("Add a Notification step to any workflow to send email with a custom header, message, and recipients. Replies go to whoever ran the workflow.")
                     .font(.canopyCaption2)
                     .foregroundStyle(.tertiary)
             }

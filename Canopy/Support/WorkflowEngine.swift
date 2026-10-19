@@ -1915,8 +1915,8 @@ final class WorkflowEngine: ObservableObject {
             session.log("  ⏭ Notification: no recipients configured")
             return
         }
-        guard GmailAuthService.shared.isConnected else {
-            session.log("  ⚠️ Notification: connect a Gmail account in Settings to send email")
+        guard NotificationMailer.isAvailable else {
+            session.log("  ⚠️ Notification: sign in to the church site in Settings to send email")
             return
         }
 
@@ -1964,17 +1964,9 @@ final class WorkflowEngine: ObservableObject {
                 .replacingOccurrences(of: "{name}", with: recipient.name)
 
             do {
-                try await GmailSendService.send(to: [recipient.email], subject: recipientHeader, body: recipientMessage, isHTML: isHTML)
+                try await NotificationMailer.send(to: [recipient.email], subject: recipientHeader, body: recipientMessage, isHTML: isHTML)
             } catch {
-                let reason: String
-                if case GmailSendService.SendError.requestFailed(let message) = error {
-                    reason = message
-                } else if case GmailSendService.SendError.notConnected = error {
-                    reason = "Gmail account not connected"
-                } else {
-                    reason = error.localizedDescription
-                }
-                failed.append((recipient.email, reason))
+                failed.append((recipient.email, NotificationMailer.describe(error)))
             }
         }
 

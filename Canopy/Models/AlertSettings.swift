@@ -9,7 +9,7 @@ struct AlertSettings: Codable {
     var isEnabled: Bool = true
 
     /// Always shown as a macOS notification. Also emailed to these
-    /// recipients if the list isn't empty and Gmail is connected.
+    /// recipients if the list isn't empty and the church site is connected.
     var emailRecipients: [NotificationRecipient] = []
 
     /// Warn once a recording deck's used capacity crosses this percentage

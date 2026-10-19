@@ -8,8 +8,8 @@ struct NotificationRecipient: Identifiable, Codable, Equatable, Hashable {
     var email: String
 }
 
-/// Settings scoped to just the email *integration* itself (which Gmail
-/// account sends the mail). Who gets notified, and with what message, is
+/// Settings scoped to just the email *integration* itself (mail is sent from
+/// Canopy's own address through the church site). Who gets notified, and with what message, is
 /// now configured per-workflow via a Notification step — see
 /// `StepAction.notify` in Workflow.swift.
 struct EmailNotificationSettings: Codable {
