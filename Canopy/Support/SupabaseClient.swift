@@ -156,6 +156,16 @@ final class SupabaseClient {
                            body: body, headers: ["Prefer": "return=minimal"])
     }
 
+    /// Updates matching rows and returns the ids of the ones that changed, so a caller racing others can tell if it won.
+    func updateReturningIDs(_ table: String, _ values: [String: Any?], _ filters: [Filter]) async throws -> [String] {
+        precondition(!filters.isEmpty, "an update needs a filter")
+        let body = try JSONSerialization.data(withJSONObject: Self.clean(values))
+        nonisolated struct Row: Decodable { var id: String }
+        let query = filters.map { URLQueryItem(name: $0.name, value: $0.value) } + [URLQueryItem(name: "select", value: "id")]
+        let data = try await send("PATCH", "rest/v1/\(table)", query: query, body: body, headers: ["Prefer": "return=representation"]).0
+        return try Self.decoder.decode([Row].self, from: data).map(\.id)
+    }
+
     func delete(_ table: String, _ filters: [Filter]) async throws {
         precondition(!filters.isEmpty, "a delete needs a filter")
         _ = try await send("DELETE", "rest/v1/\(table)", query: filters.map { URLQueryItem(name: $0.name, value: $0.value) },

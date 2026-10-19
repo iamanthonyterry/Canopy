@@ -32,6 +32,7 @@ struct CanopyApp: App {
                     PeerPresenceService.shared.start()
                     WorkflowRunPublisher.shared.start()
                     WorkflowSyncService.shared.start()
+                    RemoteComputersService.shared.start()
                     RemoteControlEngine.shared.applySettings()
                     WorkflowConfirmationPanelController.shared.start(appState: appState)
                 }

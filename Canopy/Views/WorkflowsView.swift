@@ -60,6 +60,7 @@ struct WorkflowsView: View {
             rule
 
             RemoteRunsBanner()
+            OtherComputersSection()
 
             if !inProgress.isEmpty {
                 ForEach(inProgress) { session in
@@ -75,8 +76,8 @@ struct WorkflowsView: View {
             }
         }
         .background(Color.canopyPaper)
-        .onAppear { RemoteRunsService.shared.beginWatching() }
-        .onDisappear { RemoteRunsService.shared.endWatching() }
+        .onAppear { RemoteRunsService.shared.beginWatching(); RemoteComputersService.shared.beginWatching() }
+        .onDisappear { RemoteRunsService.shared.endWatching(); RemoteComputersService.shared.endWatching() }
         .sheet(isPresented: $isDescribing, onDismiss: {
             if let draft = pendingDraft { builder = .draft(draft) }
             pendingDraft = nil

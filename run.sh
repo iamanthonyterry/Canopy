@@ -15,15 +15,21 @@ if [ "${1:-}" = "--clean" ]; then
   rm -rf "$DERIVED"
 fi
 
+# Sign with a stable Apple Development identity so Keychain access survives rebuilds (an ad-hoc
+# signature changes every build, so macOS re-asks each time). Override with SIGN_IDENTITY / SIGN_TEAM,
+# or SIGN_IDENTITY=- SIGN_TEAM= for ad-hoc.
+SIGN_IDENTITY="${SIGN_IDENTITY:-Apple Development: iamanthonyterry@gmail.com (YVWL5389N7)}"
+SIGN_TEAM="${SIGN_TEAM-SVP6G3ZZU4}"
+
 xcodebuild build \
   -scheme Canopy \
   -configuration Debug \
   -destination 'platform=macOS' \
   -derivedDataPath "$DERIVED" \
   -skipMacroValidation \
-  CODE_SIGN_IDENTITY=- \
+  CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
   CODE_SIGN_STYLE=Manual \
-  DEVELOPMENT_TEAM= \
+  DEVELOPMENT_TEAM="$SIGN_TEAM" \
   -quiet
 
 # Quit any running copy so the new build is the one you see.
