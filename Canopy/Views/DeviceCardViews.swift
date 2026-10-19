@@ -171,6 +171,9 @@ struct DiscoveredDeviceRow: View {
     let ip: String
     let icon: String
     let onAdd: () -> Void
+    /// Existing inventory items this could be, and what to do when one is picked. Omitted for things that can't be linked.
+    var linkChoices: [(id: String, name: String)] = []
+    var onLink: ((String) -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -181,6 +184,13 @@ struct DiscoveredDeviceRow: View {
                 Text(ip).font(.canopyCaption).foregroundStyle(.secondary)
             }
             Spacer()
+            if let onLink, !linkChoices.isEmpty {
+                Menu("Link to…") {
+                    ForEach(linkChoices, id: \.id) { c in Button(c.name) { onLink(c.id) } }
+                }
+                .menuStyle(.borderlessButton).fixedSize().controlSize(.small)
+                .help("Use an item already in the inventory instead of adding a new one")
+            }
             Button("Add") { onAdd() }.buttonStyle(.canopySecondary).controlSize(.small)
         }
         .padding(.vertical, 4)

@@ -34,6 +34,58 @@ extension InventoryStore {
     }
 }
 
+extension InventoryStore {
+    /// Makes sure a receiver has an output for each of its channels, so every channel has somewhere to keep its name.
+    func ensureWirelessOutputs(_ e: Equipment, count: Int) async -> (ok: Bool, message: String) {
+        var d = EquipmentDraft(e)
+        guard d.outputs < count else { return (true, "") }
+        d.outputs = count
+        return await updateEquipment(e.id, d)
+    }
+
+    /// Ties a receiver found on the network to an existing inventory item: its address, and its make and role when the
+    /// item doesn't say. Then brings the receiver's channel names in.
+    func link(_ found: DiscoveredWireless, to id: String) async -> String {
+        guard let e = byID[id] else { return "Couldn't find that inventory item." }
+        var d = EquipmentDraft(e)
+        d.ipAddress = found.ip
+        d.role = found.iem ? .iemTransmitter : .wirelessReceiver
+        if d.makeModel.trimmingCharacters(in: .whitespaces).isEmpty { d.makeModel = found.makeModel }
+        if d.category.isEmpty { d.category = "Audio" }
+        let saved = await updateEquipment(id, d)
+        guard saved.ok else { return saved.message }
+        return await WirelessMonitor.shared.pullNames(into: id)
+    }
+}
+
+extension WirelessMonitor {
+    /// Reads a linked receiver's channel names and puts them on the inventory item's outputs, adding outputs as needed.
+    /// Names already in the inventory are left alone (the Sync names sheet resolves those).
+    func pullNames(into id: String) async -> String {
+        let store = InventoryStore.shared
+        guard let e = store.byID[id], let target = WirelessMonitor.Target.monitorable([e]).targets.first else {
+            return "Linked. This device's make isn't one Canopy can read channel names from."
+        }
+        retain(target)
+        defer { release(target.id) }
+        var waited = 0
+        while waited < 40 {
+            try? await Task.sleep(for: .milliseconds(250)); waited += 1
+            if case .offline(let why)? = snapshots[target.id]?.state { return "Linked, but couldn't read channel names: \(why)" }
+            if snapshots[target.id]?.state == .live, let n = snapshots[target.id]?.channels.count, n > 0, waited >= 8 { break }
+        }
+        guard let channels = snapshots[target.id]?.sorted, !channels.isEmpty else { return "Linked, but the receiver didn't report any channels." }
+        let grown = await store.ensureWirelessOutputs(e, count: channels.map(\.index).max() ?? channels.count)
+        guard grown.ok, let fresh = store.byID[id] else { return "Linked, but couldn't add outputs: \(grown.message)" }
+        var filled = 0
+        for c in channels where !c.name.isEmpty {
+            guard let port = store.wirelessPort(fresh, channel: c.index), port.label.isEmpty else { continue }
+            if await store.updatePort(port.id, label: c.name).ok { filled += 1 }
+        }
+        return filled == 0 ? "Linked. Channel names were already filled in." : "Linked, and brought in \(filled) channel \(filled == 1 ? "name" : "names")."
+    }
+}
+
 /// Starts and stops the monitor for the receivers a view shows, so they're only watched while someone can see them.
 @MainActor
 final class WirelessHolder: ObservableObject {
@@ -372,7 +424,7 @@ struct WirelessSyncSheet: View {
                         }
                         Picker("", selection: Binding(get: { choices[c.index] ?? .keep }, set: { choices[c.index] = $0 })) {
                             Text("Keep both").tag(Choice.keep)
-                            if store.level.canEdit && !c.name.isEmpty && store.wirelessPort(equipment, channel: c.index) != nil { Text("Use device name").tag(Choice.useDevice) }
+                            if store.level.canEdit && !c.name.isEmpty { Text("Use device name").tag(Choice.useDevice) }
                             if store.isAdmin && !inventoryName(c).isEmpty { Text("Send inventory name").tag(Choice.sendToDevice) }
                         }
                         .labelsHidden().fixedSize()
@@ -409,7 +461,7 @@ struct WirelessSyncSheet: View {
     private func set(_ choice: Choice) {
         for c in channels where differs(c) {
             switch choice {
-            case .useDevice where !c.name.isEmpty && store.wirelessPort(equipment, channel: c.index) != nil: choices[c.index] = .useDevice
+            case .useDevice where !c.name.isEmpty: choices[c.index] = .useDevice
             case .sendToDevice where !inventoryName(c).isEmpty: choices[c.index] = .sendToDevice
             default: break
             }
@@ -423,7 +475,8 @@ struct WirelessSyncSheet: View {
             switch choices[c.index] ?? .keep {
             case .keep: continue
             case .useDevice:
-                guard let port = store.wirelessPort(equipment, channel: c.index) else { continue }
+                _ = await store.ensureWirelessOutputs(equipment, count: c.index)
+                guard let port = store.wirelessPort(store.byID[equipment.id] ?? equipment, channel: c.index) else { results.append("Channel \(c.index): couldn't add an output for it."); continue }
                 let r = await store.updatePort(port.id, label: c.name)
                 results.append("Channel \(c.index): \(r.ok ? "inventory now says “\(c.name)”." : r.message)")
             case .sendToDevice:

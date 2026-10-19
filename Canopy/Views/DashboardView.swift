@@ -27,6 +27,7 @@ struct DashboardView: View {
     @AppStorage("wireless.monitor") private var wirelessLive = true
 
     @State private var showingAddDeck = false
+    @State private var linkMessage: String?
     @State private var showingAddCloudStore = false
     @State private var addCloudStoreKind: CloudStore.Kind = .blackmagicCloudStore
     @State private var showingAddLocalFolder = false
@@ -123,6 +124,9 @@ struct DashboardView: View {
         .sheet(isPresented: $showingAddLocalFolder) { LocalFolderEditSheet(folder: nil) }
         .onAppear { monitor.start() }
         .modifier(WirelessDashboardSupport(enabled: appState.isAdmin))
+        .alert("Wireless", isPresented: Binding(get: { linkMessage != nil }, set: { if !$0 { linkMessage = nil } })) {
+            Button("OK") { linkMessage = nil }
+        } message: { Text(linkMessage ?? "") }
     }
 
     // MARK: - Mount error banner
@@ -397,12 +401,22 @@ struct DashboardView: View {
                     }
                 }
                 ForEach(newWireless) { w in
-                    DiscoveredDeviceRow(name: w.title, ip: w.ip, icon: w.iem ? "earbuds" : "antenna.radiowaves.left.and.right") {
-                        Task { await addWirelessToInventory(w) }
-                    }
+                    DiscoveredDeviceRow(name: w.title, ip: w.ip, icon: w.iem ? "earbuds" : "antenna.radiowaves.left.and.right",
+                                        onAdd: { Task { await addWirelessToInventory(w) } },
+                                        linkChoices: wirelessLinkChoices(for: w),
+                                        onLink: { id in Task { linkMessage = await inventory.link(w, to: id) } })
                 }
             }
         }
+    }
+
+    /// Inventory items without an address that a found receiver could be: wireless gear first, then anything else.
+    private func wirelessLinkChoices(for w: DiscoveredWireless) -> [(id: String, name: String)] {
+        guard inventory.level.canEdit else { return [] }
+        let open = inventory.equipment.filter { $0.host == nil }
+        let wireless = open.filter { $0.role == (w.iem ? .iemTransmitter : .wirelessReceiver) }
+        let rest = open.filter { e in e.role != .wirelessReceiver && e.role != .iemTransmitter && e.category.lowercased().contains("audio") }
+        return (wireless + rest).sorted { InventoryRules.ordered($0.name, $1.name) }.map { ($0.id, $0.name) }
     }
 
     /// Adds a found receiver or IEM transmitter to the inventory, where the wireless monitor picks it up.
