@@ -145,7 +145,12 @@ private struct ConsoleChannelRow: View {
                 if sockets.isEmpty { Text("Not patched").foregroundStyle(.tertiary) }
             }
             Spacer(minLength: 0)
-            if canEdit && (channel.kind == .output || sockets.isEmpty) {
+            if canEdit && channel.kind == .input {
+                if sockets.isEmpty {
+                    Menu { sourceItems(current: nil) } label: { Image(systemName: "cable.connector") }
+                        .menuStyle(.borderlessButton).fixedSize().help("Choose where this channel's signal comes from")
+                }
+            } else if canEdit && (channel.kind == .output || sockets.isEmpty) {
                 Button { picking = true } label: { Image(systemName: sockets.isEmpty ? "cable.connector" : "plus") }
                     .buttonStyle(.borderless)
                     .help(channel.kind == .input ? "Choose where this channel's signal comes from" : sockets.isEmpty ? "Send this mix to a socket" : "Send it to another socket too")
@@ -156,6 +161,41 @@ private struct ConsoleChannelRow: View {
         }
         .font(.canopyCallout)
         .padding(.vertical, 3)
+    }
+
+    /// The inputs this channel can take, by where they are: the console's own, then Card 1, 2, 3…, then stage boxes and
+    /// surfaces. Each group opens to its input numbers (in runs of 16 when there are many). Outputs never appear.
+    @ViewBuilder private func sourceItems(current: String?) -> some View {
+        let groups = store.socketGroups(for: console, .input).compactMap { g -> (group: InventoryStore.SocketGroup, ports: [EquipmentPort])? in
+            let strict = g.ports.filter { $0.direction == .input }
+            let ports = (strict.isEmpty ? g.ports : strict).sorted { InventoryRules.byPort($0, $1) }
+            return ports.isEmpty ? nil : (g, ports)
+        }
+        ForEach(groups, id: \.group.id) { entry in
+            let title = entry.group.device.id == console.id ? (console.card(entry.group.id).map { "Card \($0.slot) · \($0.name)" } ?? "Local inputs") : entry.group.title
+            Menu(title) {
+                if entry.ports.count > 24 {
+                    ForEach(Array(stride(from: 0, to: entry.ports.count, by: 16)), id: \.self) { start in
+                        let run = Array(entry.ports[start..<min(entry.ports.count, start + 16)])
+                        Menu("\(run.first?.number ?? start + 1)–\(run.last?.number ?? start + run.count)") {
+                            ForEach(run) { p in sourceButton(p, entry.group, current: current) }
+                        }
+                    }
+                } else {
+                    ForEach(entry.ports) { p in sourceButton(p, entry.group, current: current) }
+                }
+            }
+        }
+        if groups.isEmpty { Text("No input sockets yet") }
+    }
+
+    private func sourceButton(_ p: EquipmentPort, _ g: InventoryStore.SocketGroup, current: String?) -> some View {
+        let using = store.channels(at: p.id).filter { $0.console.id == console.id && $0.channel.kind == .input && $0.channel.id != channel.id }
+        var text = g.device.portName(p)
+        if !using.isEmpty { text += "  (also Ch \(using.map { String($0.channel.number) }.joined(separator: ", ")))" }
+        return Button(p.id == current ? "✓ \(text)" : text) {
+            Task { result = await store.patchChannels([(channel.id, p.id)]) }
+        }
     }
 
     private func socketLine(_ patch: ConsolePatch, _ device: Equipment, _ port: EquipmentPort) -> some View {
@@ -175,13 +215,10 @@ private struct ConsoleChannelRow: View {
             }
             if canEdit {
                 Menu {
-                    if input { Button("Change…") { picking = true } }
+                    if input { Menu("Change source") { sourceItems(current: port.id) } }
                     Button("Unpatch", role: .destructive) { Task { result = await store.unpatchChannel(patch.id) } }
                 } label: { Image(systemName: "ellipsis") }
                     .menuStyle(.borderlessButton).fixedSize()
-                    .popover(isPresented: Binding(get: { picking && input }, set: { if !$0 { picking = false } }), arrowEdge: .trailing) {
-                        SocketPicker(console: console, channel: channel) { r in result = r; if r.ok { picking = false } }
-                    }
             }
         }
     }
