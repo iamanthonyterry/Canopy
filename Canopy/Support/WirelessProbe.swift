@@ -36,7 +36,7 @@ nonisolated enum WirelessProbe {
                   Int32(ifa.pointee.ifa_flags) & IFF_UP != 0, Int32(ifa.pointee.ifa_flags) & IFF_LOOPBACK == 0 else { continue }
             var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
             guard getnameinfo(addr, socklen_t(addr.pointee.sa_len), &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST) == 0 else { continue }
-            let mine = String(cString: buf)
+            let mine = String(decoding: buf.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
             let parts = mine.split(separator: ".")
             guard parts.count == 4, isLocalAddress(mine), !mine.hasPrefix("169.254.") else { continue }
             let prefix = parts[0..<3].joined(separator: ".")
