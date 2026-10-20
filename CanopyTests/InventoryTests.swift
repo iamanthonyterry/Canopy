@@ -148,6 +148,16 @@ struct InventoryTests {
         #expect(InventoryRules.runs([1, 2, 3, 7, 9, 10]) == "1–3, 7, 9–10")
     }
 
+    @Test func channelFamiliesComeFromTheName() {
+        #expect(InventoryRules.channelFamily("Kick In") == 0)
+        #expect(InventoryRules.channelFamily("Bass DI") == 1)
+        #expect(InventoryRules.channelFamily("Piano L") == 2)
+        #expect(InventoryRules.channelFamily("Lead Guitar") == 3)
+        #expect(InventoryRules.channelFamily("Vox 1") == 4)
+        #expect(InventoryRules.channelFamily("Click") == 5)
+        #expect(InventoryRules.channelFamily("") == nil)
+    }
+
     @Test func channelIssuesFlagSharedLooseUnnamedAndBrokenPairs() {
         let chs = [channel("c1", .input, 1, label: "Kick"), channel("c2", .input, 2, label: "Snare"), channel("c3", .input, 3),
                    channel("c4", .input, 4, label: "Keys L"), channel("c6", .input, 6, label: "Keys R"),

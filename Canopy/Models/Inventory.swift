@@ -462,6 +462,21 @@ nonisolated enum InventoryRules {
         return base.isEmpty ? nil : (base.lowercased(), last == "R" || last == "r")
     }
 
+    /// A rough instrument family for a channel name, for its colour dot: 0 drums, 1 bass, 2 keys, 3 guitars, 4 vocals,
+    /// 5 tracks. Nil when the name says nothing ("Ch 7", "Mix 3").
+    static func channelFamily(_ label: String) -> Int? {
+        let t = label.lowercased()
+        let families: [[String]] = [
+            ["kick", "snare", "tom", "hat", "hh", "ovh", "overhead", "cymbal", "drum", "perc", "cajon", "spd"],
+            ["bass"],
+            ["key", "piano", "synth", "organ", "pad", "rhodes", "wurli"],
+            ["guitar", "gtr", "acoustic", "electric", "eg1", "eg2", "eg3","banjo", "mandolin"],
+            ["vox", "vocal", "bgv", "lead", "choir", "mic", "talkback", "speaker", "pastor"],
+            ["track", "click", "playback", "loop", "cue", "orch", "strings"],
+        ]
+        return families.firstIndex { words in words.contains { t.contains($0) } }
+    }
+
     /// "1–4, 7, 9–10" for [1, 2, 3, 4, 7, 9, 10].
     static func runs(_ numbers: [Int]) -> String {
         var out: [String] = [], i = 0
