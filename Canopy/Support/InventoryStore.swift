@@ -647,6 +647,29 @@ final class InventoryStore: ObservableObject {
         }
     }
 
+    /// Adds one channel on the next free number of its direction, on the device itself or one of its option cards.
+    /// A card's channel carries the card's signal.
+    func addPort(_ equipmentID: String, direction: PortDirection, cardID: String? = nil) async -> (ok: Bool, message: String) {
+        await run {
+            let db = try editor()
+            guard let e = byID[equipmentID] else { throw InventoryError("That device no longer exists.") }
+            let mine = e.ports.filter { $0.direction == direction && $0.cardId == cardID }
+            guard mine.count < 256 else { throw InventoryError("A device can have up to 256 of each.") }
+            let taken = Set(mine.compactMap(\.number))
+            var n = 1
+            while taken.contains(n) { n += 1 }
+            let signal = cardID.flatMap { id in e.cards.first { $0.id == id }?.signal } ?? mine.last?.signal ?? Signal.default(for: e.category)
+            _ = try await db.insert("equipment_ports", [["church_id": churchId, "equipment_id": equipmentID, "card_id": cardID, "number": n,
+                                                          "label": "", "direction": direction.rawValue, "signal": signal.rawValue]])
+            return "Added \(direction == .input ? "input" : direction == .output ? "output" : "port") \(n)."
+        }
+    }
+
+    /// Removes one channel, with its cables and any console patch that uses it.
+    func removePort(_ id: String) async -> (ok: Bool, message: String) {
+        await run { try await editor().delete("equipment_ports", [.eq("id", id)]); return "Channel removed." }
+    }
+
     /// Changes what all of a device's own channels carry (an option card's channels follow the card).
     func setDeviceSignal(_ equipmentID: String, _ signal: Signal) async -> (ok: Bool, message: String) {
         await run {
@@ -711,6 +734,15 @@ final class InventoryStore: ObservableObject {
 
     func disconnect(_ cableID: String) async -> (ok: Bool, message: String) {
         await run { try await editor().delete("equipment_connections", [.eq("id", cableID)]); return "Disconnected." }
+    }
+
+    /// Disconnects several cables with one reload.
+    func disconnect(all cableIDs: [String]) async -> (ok: Bool, message: String) {
+        await run {
+            let db = try editor()
+            for id in cableIDs { try await db.delete("equipment_connections", [.eq("id", id)]) }
+            return "Disconnected \(cableIDs.count) \(cableIDs.count == 1 ? "cable" : "cables")."
+        }
     }
 
     func setCableNote(_ cableID: String, _ note: String) async -> (ok: Bool, message: String) {

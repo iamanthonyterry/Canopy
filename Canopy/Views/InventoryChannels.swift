@@ -42,10 +42,23 @@ struct ChannelsSection: View {
                     }
                     .menuStyle(.button).fixedSize().font(.canopyCaption)
                 }
+                if store.level.canEdit {
+                    Menu("Add channel…") {
+                        Button("Input") { Task { result = await store.addPort(e.id, direction: .input) } }
+                        Button("Output") { Task { result = await store.addPort(e.id, direction: .output) } }
+                        Button("In / out") { Task { result = await store.addPort(e.id, direction: .both) } }
+                        ForEach(e.cards) { card in
+                            Divider()
+                            Button("\(card.label) · input") { Task { result = await store.addPort(e.id, direction: .input, cardID: card.id) } }
+                            Button("\(card.label) · output") { Task { result = await store.addPort(e.id, direction: .output, cardID: card.id) } }
+                        }
+                    }
+                    .menuStyle(.button).fixedSize().font(.canopyCaption)
+                }
             }
             ResultLine(result: result)
             if e.ports.isEmpty {
-                Text(store.level.canEdit ? "Set how many inputs and outputs this has (Edit), then patch them here." : "No channels yet.")
+                Text(store.level.canEdit ? "Add inputs and outputs with Add channel, then patch them here." : "No channels yet.")
                     .foregroundStyle(.secondary)
             }
             ForEach(groups, id: \.title) { g in
@@ -74,6 +87,7 @@ private struct ChannelRow: View {
     let feed: InventoryStore.Feed?
     @Binding var result: (ok: Bool, message: String)?
     @State private var picking = false
+    @State private var removing = false
 
     private var canEdit: Bool { store.level.canEdit }
     private var cables: [Cable] { store.cable(at: port.id) }
@@ -127,6 +141,10 @@ private struct ChannelRow: View {
                 if cables.isEmpty && feed == nil && store.channels(at: port.id).isEmpty && channelSockets.isEmpty && !canEdit { Text("—").foregroundStyle(.tertiary) }
             }
             Spacer(minLength: 0)
+            if canEdit {
+                Button { removing = true } label: { Image(systemName: "trash") }
+                    .buttonStyle(.borderless).help("Remove this channel")
+            }
             // An input has one source and most outputs one cable (change those from the cable's menu); audio over a
             // network can go to many inputs.
             if canEdit && (cables.isEmpty || port.direction == .both || (port.direction == .output && port.signal.fansOut)) {
@@ -158,6 +176,9 @@ private struct ChannelRow: View {
         }
         .font(.canopyCallout)
         .padding(.vertical, 3)
+        .confirmationDialog("Remove \(port.name())?", isPresented: $removing) {
+            Button("Remove channel", role: .destructive) { Task { result = await store.removePort(port.id) } }
+        } message: { Text("Its cables and any console patch using it go too.") }
     }
 
     /// Sockets patched to the console channel that shares this jack's number, when this is one of the console's own jacks.
