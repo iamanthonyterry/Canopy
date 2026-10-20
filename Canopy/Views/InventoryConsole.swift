@@ -68,6 +68,7 @@ struct ConsoleChannelsSection: View {
                     .font(.canopyCaption).foregroundStyle(.secondary)
             }
             reaches
+            ChannelIssuesBanner(console: e)
             ResultLine(result: result)
             if inputs.isEmpty && outputs.isEmpty && store.consoleReady {
                 Text(store.level.canEdit
@@ -119,6 +120,37 @@ struct ConsoleChannelsSection: View {
     }
 }
 
+/// What's worth checking in a console's input patch, folded away until opened.
+private struct ChannelIssuesBanner: View {
+    @ObservedObject private var store = InventoryStore.shared
+    let console: Equipment
+    @State private var open = false
+
+    var body: some View {
+        let issues = InventoryRules.channelIssues(
+            channels: store.channels(of: console, .input), patches: store.consolePatch,
+            port: { store.port($0)?.1 },
+            portName: { id in store.port(id).map { "\($0.0.name) · \($0.0.portName($0.1))" } ?? "A socket" })
+        if !issues.isEmpty {
+            DisclosureGroup(isExpanded: $open) {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(issues) { i in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Image(systemName: i.kind == .stereo ? "waveform.path" : i.kind == .sharedSocket ? "arrow.triangle.merge" : "circle.dashed")
+                                .foregroundStyle(i.kind == .stereo || i.kind == .sharedSocket ? Color.canopyRust : .secondary)
+                            Text(i.message).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .font(.canopyCallout).padding(.top, 4)
+            } label: {
+                Label("\(issues.count) \(issues.count == 1 ? "thing" : "things") to check in the input patch", systemImage: "exclamationmark.triangle")
+                    .font(.canopyCallout).foregroundStyle(Color.canopyRust)
+            }
+        }
+    }
+}
+
 private struct ConsoleChannelRow: View {
     @EnvironmentObject private var nav: InventoryNavigator
     @ObservedObject private var store = InventoryStore.shared
@@ -147,7 +179,7 @@ private struct ConsoleChannelRow: View {
             Spacer(minLength: 0)
             if canEdit && channel.kind == .input {
                 if sockets.isEmpty {
-                    Menu { sourceItems(current: nil) } label: { Image(systemName: "cable.connector") }
+                    Menu { sourceMenu(current: nil) } label: { Image(systemName: "cable.connector") }
                         .menuStyle(.borderlessButton).fixedSize().help("Choose where this channel's signal comes from")
                 }
             } else if canEdit && (channel.kind == .output || sockets.isEmpty) {
@@ -163,9 +195,26 @@ private struct ConsoleChannelRow: View {
         .padding(.vertical, 3)
     }
 
+    /// The next channel up when this one is the left of a stereo pair ("Keys L" then "Keys R", or no name yet).
+    private var stereoMate: ConsoleChannel? {
+        guard channel.kind == .input, let side = InventoryRules.stereoSide(channel.label), !side.right,
+              let next = store.channels(of: console, .input).first(where: { $0.number == channel.number + 1 }) else { return nil }
+        if next.label.isEmpty { return next }
+        return InventoryRules.stereoSide(next.label).map { $0.right && $0.base == side.base } == true ? next : nil
+    }
+
+    @ViewBuilder private func sourceMenu(current: String?) -> some View {
+        sourceItems(current: current)
+        if let mate = stereoMate {
+            Divider()
+            Menu("As a stereo pair with \(mate.title)") { sourceItems(current: nil, pair: mate) }
+        }
+    }
+
     /// The inputs this channel can take, by where they are: the console's own, then Card 1, 2, 3…, then stage boxes and
     /// surfaces. Each group opens to its input numbers (in runs of 16 when there are many). Outputs never appear.
-    @ViewBuilder private func sourceItems(current: String?) -> some View {
+    /// With `pair`, picking a socket patches this channel there and `pair` on the socket after it.
+    @ViewBuilder private func sourceItems(current: String?, pair: ConsoleChannel? = nil) -> some View {
         let groups = store.socketGroups(for: console, .input).compactMap { g -> (group: InventoryStore.SocketGroup, ports: [EquipmentPort])? in
             let strict = g.ports.filter { $0.direction == .input }
             let ports = (strict.isEmpty ? g.ports : strict).sorted { InventoryRules.byPort($0, $1) }
@@ -178,18 +227,29 @@ private struct ConsoleChannelRow: View {
                     ForEach(Array(stride(from: 0, to: entry.ports.count, by: 16)), id: \.self) { start in
                         let run = Array(entry.ports[start..<min(entry.ports.count, start + 16)])
                         Menu("\(run.first?.number ?? start + 1)–\(run.last?.number ?? start + run.count)") {
-                            ForEach(run) { p in sourceButton(p, entry.group, current: current) }
+                            ForEach(run) { p in sourceButton(p, entry.group, ports: entry.ports, current: current, pair: pair) }
                         }
                     }
                 } else {
-                    ForEach(entry.ports) { p in sourceButton(p, entry.group, current: current) }
+                    ForEach(entry.ports) { p in sourceButton(p, entry.group, ports: entry.ports, current: current, pair: pair) }
                 }
             }
         }
         if groups.isEmpty { Text("No input sockets yet") }
     }
 
-    private func sourceButton(_ p: EquipmentPort, _ g: InventoryStore.SocketGroup, current: String?) -> some View {
+    @ViewBuilder private func sourceButton(_ p: EquipmentPort, _ g: InventoryStore.SocketGroup, ports: [EquipmentPort], current: String?, pair: ConsoleChannel?) -> some View {
+        if let pair {
+            let both = InventoryRules.block(channels: [channel, pair], first: channel.number, count: 2, sockets: ports, start: p.id)
+            let text = both.count == 2 ? "\(g.device.portName(both[0].socket)) + \(g.device.portName(both[1].socket))" : g.device.portName(p)
+            Button(text) { Task { result = await store.patchChannels(both.map { ($0.channel.id, $0.socket.id) }) } }
+                .disabled(both.count < 2)
+        } else {
+            plainSourceButton(p, g, current: current)
+        }
+    }
+
+    private func plainSourceButton(_ p: EquipmentPort, _ g: InventoryStore.SocketGroup, current: String?) -> some View {
         let using = store.channels(at: p.id).filter { $0.console.id == console.id && $0.channel.kind == .input && $0.channel.id != channel.id }
         var text = g.device.portName(p)
         if !using.isEmpty { text += "  (also Ch \(using.map { String($0.channel.number) }.joined(separator: ", ")))" }
@@ -215,7 +275,7 @@ private struct ConsoleChannelRow: View {
             }
             if canEdit {
                 Menu {
-                    if input { Menu("Change source") { sourceItems(current: port.id) } }
+                    if input { Menu("Change source") { sourceMenu(current: port.id) } }
                     Button("Unpatch", role: .destructive) { Task { result = await store.unpatchChannel(patch.id) } }
                 } label: { Image(systemName: "ellipsis") }
                     .menuStyle(.borderlessButton).fixedSize()

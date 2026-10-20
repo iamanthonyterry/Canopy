@@ -312,6 +312,14 @@ nonisolated struct EquipmentPreset: Codable, Hashable, Identifiable, Sendable {
     var name: String { "\(brand) \(model)" }
 }
 
+/// Something in a console's input patch worth checking.
+nonisolated struct ChannelIssue: Hashable, Identifiable, Sendable {
+    enum Kind: String, Sendable { case sharedSocket, unpatched, unnamed, stereo }
+    var kind: Kind
+    var message: String
+    var id: String { kind.rawValue + message }
+}
+
 // MARK: - Derived views
 
 /// A port with the device it's on, as the patch sheet shows it.
@@ -442,6 +450,74 @@ nonisolated enum InventoryRules {
         let chs = channels.filter { $0.number >= first }.sorted { $0.number < $1.number }.prefix(max(0, count))
         guard let at = sockets.firstIndex(where: { $0.id == start }) else { return [] }
         return Array(zip(chs, sockets[at...]).map { ($0, $1) })
+    }
+
+    /// A channel name's stereo side: "Keys L" is the left of "Keys", "Keys-R" the right.
+    static func stereoSide(_ label: String) -> (base: String, right: Bool)? {
+        let t = label.trimmingCharacters(in: .whitespaces)
+        guard t.count > 2, let last = t.last, "lLrR".contains(last) else { return nil }
+        let head = t.dropLast()
+        guard let sep = head.last, sep == " " || sep == "-" || sep == "_" else { return nil }
+        let base = head.dropLast().trimmingCharacters(in: CharacterSet(charactersIn: " -_"))
+        return base.isEmpty ? nil : (base.lowercased(), last == "R" || last == "r")
+    }
+
+    /// "1–4, 7, 9–10" for [1, 2, 3, 4, 7, 9, 10].
+    static func runs(_ numbers: [Int]) -> String {
+        var out: [String] = [], i = 0
+        let n = Array(Set(numbers)).sorted()
+        while i < n.count {
+            var j = i
+            while j + 1 < n.count, n[j + 1] == n[j] + 1 { j += 1 }
+            out.append(j > i ? "\(n[i])–\(n[j])" : "\(n[i])")
+            i = j + 1
+        }
+        return out.joined(separator: ", ")
+    }
+
+    /// Things worth a second look in a console's input patch: a socket feeding several channels, named channels with no
+    /// source, patched channels with no name, and stereo pairs ("Keys L" / "Keys R") that aren't patched side by side.
+    static func channelIssues(channels: [ConsoleChannel], patches: [ConsolePatch], port: (String) -> EquipmentPort?, portName: (String) -> String) -> [ChannelIssue] {
+        let inputs = channels.filter { $0.kind == .input }.sorted { $0.number < $1.number }
+        var sources: [String: [String]] = [:]
+        for p in patches { sources[p.channelId, default: []].append(p.portId) }
+        var out: [ChannelIssue] = []
+
+        var shared: [String: [ConsoleChannel]] = [:]
+        for c in inputs { for p in sources[c.id] ?? [] { shared[p, default: []].append(c) } }
+        for (portID, list) in shared.sorted(by: { ($0.value.first?.number ?? 0) < ($1.value.first?.number ?? 0) }) where list.count > 1 {
+            out.append(ChannelIssue(kind: .sharedSocket, message: "\(portName(portID)) feeds channels \(runs(list.map(\.number)))."))
+        }
+
+        let namedLoose = inputs.filter { !$0.label.isEmpty && sources[$0.id] == nil }
+        if !namedLoose.isEmpty {
+            out.append(ChannelIssue(kind: .unpatched, message: "\(namedLoose.count == 1 ? "Channel" : "Channels") \(runs(namedLoose.map(\.number))) \(namedLoose.count == 1 ? "has" : "have") a name but no source."))
+        }
+        let unnamed = inputs.filter { $0.label.isEmpty && sources[$0.id] != nil }
+        if !unnamed.isEmpty {
+            out.append(ChannelIssue(kind: .unnamed, message: "\(unnamed.count == 1 ? "Channel" : "Channels") \(runs(unnamed.map(\.number))) \(unnamed.count == 1 ? "is" : "are") patched but unnamed."))
+        }
+
+        let sided = inputs.compactMap { c in stereoSide(c.label).map { (channel: c, base: $0.base, right: $0.right) } }
+        for l in sided where !l.right {
+            guard let r = sided.first(where: { $0.right && $0.base == l.base }) else {
+                out.append(ChannelIssue(kind: .stereo, message: "\(l.channel.label) has no matching right channel."))
+                continue
+            }
+            if r.channel.number != l.channel.number + 1 {
+                out.append(ChannelIssue(kind: .stereo, message: "\(l.channel.label) (channel \(l.channel.number)) and \(r.channel.label) (channel \(r.channel.number)) aren't on neighbouring channels."))
+            } else if l.channel.number % 2 == 0 {
+                out.append(ChannelIssue(kind: .stereo, message: "\(l.channel.label) starts a stereo pair on even channel \(l.channel.number); pairs usually start on an odd one."))
+            }
+            if let a = (sources[l.channel.id] ?? []).first.flatMap(port), let b = (sources[r.channel.id] ?? []).first.flatMap(port),
+               !(a.equipmentId == b.equipmentId && a.cardId == b.cardId && a.number != nil && b.number == a.number.map { $0 + 1 }) {
+                out.append(ChannelIssue(kind: .stereo, message: "\(l.channel.label) and \(r.channel.label) aren't on neighbouring sockets (\(portName(a.id)) and \(portName(b.id)))."))
+            }
+        }
+        for r in sided where r.right && !sided.contains(where: { !$0.right && $0.base == r.base }) {
+            out.append(ChannelIssue(kind: .stereo, message: "\(r.channel.label) has no matching left channel."))
+        }
+        return out
     }
 
     /// Follows the signal from every channel nothing feeds, cable by cable and link by link, to where it ends.

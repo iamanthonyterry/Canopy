@@ -139,6 +139,35 @@ struct InventoryTests {
         #expect(InventoryRules.block(channels: chs, first: 1, count: 2, sockets: sockets, start: "nope").isEmpty)
     }
 
+    @Test func stereoSidesReadTheTrailingLOrR() {
+        #expect(InventoryRules.stereoSide("Keys L")?.right == false)
+        #expect(InventoryRules.stereoSide("keys-r")?.right == true)
+        #expect(InventoryRules.stereoSide("Keys L")?.base == InventoryRules.stereoSide("KEYS R")?.base)
+        #expect(InventoryRules.stereoSide("Overhead") == nil)
+        #expect(InventoryRules.stereoSide("L") == nil)
+        #expect(InventoryRules.runs([1, 2, 3, 7, 9, 10]) == "1–3, 7, 9–10")
+    }
+
+    @Test func channelIssuesFlagSharedLooseUnnamedAndBrokenPairs() {
+        let chs = [channel("c1", .input, 1, label: "Kick"), channel("c2", .input, 2, label: "Snare"), channel("c3", .input, 3),
+                   channel("c4", .input, 4, label: "Keys L"), channel("c6", .input, 6, label: "Keys R"),
+                   channel("c7", .input, 7, label: "Pad L")]
+        let ports = ["s1": port("s1", "box", 1, .input), "s2": port("s2", "box", 2, .input), "s3": port("s3", "box", 3, .input), "s9": port("s9", "box", 9, .input)]
+        let patches = [ConsolePatch(id: "p1", channelId: "c1", portId: "s1"), ConsolePatch(id: "p2", channelId: "c3", portId: "s1"),
+                       ConsolePatch(id: "p3", channelId: "c4", portId: "s2"), ConsolePatch(id: "p4", channelId: "c6", portId: "s9")]
+        let issues = InventoryRules.channelIssues(channels: chs, patches: patches, port: { ports[$0] }, portName: { $0 })
+        let text = issues.map(\.message)
+        #expect(text.contains { $0.contains("s1 feeds channels 1, 3") })
+        #expect(text.contains { $0.contains("Channels 2, 7") || $0.contains("Channel 2") })
+        #expect(text.contains { $0.contains("Channel 3 is patched but unnamed") })
+        #expect(text.contains { $0.contains("Keys L") && $0.contains("neighbouring channels") })
+        #expect(text.contains { $0.contains("Pad L has no matching right") })
+        let good = [channel("a", .input, 1, label: "Keys L"), channel("b", .input, 2, label: "Keys R")]
+        let ok = InventoryRules.channelIssues(channels: good, patches: [ConsolePatch(id: "x", channelId: "a", portId: "s1"), ConsolePatch(id: "y", channelId: "b", portId: "s2")],
+                                              port: { ports[$0] }, portName: { $0 })
+        #expect(ok.isEmpty)
+    }
+
     @Test func surfacesAndBoxesOnThemDontLandOnChannels() {
         #expect(InventoryRules.landsChannels(box: .stageBox, host: .console))
         #expect(!InventoryRules.landsChannels(box: .surface, host: .console))
