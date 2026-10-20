@@ -11,6 +11,7 @@ struct CanopyApp: App {
         // sign-ins along, before anything reads them.
         LegacyMigration.run(fromBundleID: "com.ROSESASHUMANS.Canopy",
                             keychainServices: [(KeychainStore.legacyService, KeychainStore.service)])
+        KeychainStore.migrateRenamedService()
         CanopyFonts.register()
     }
 
@@ -22,7 +23,6 @@ struct CanopyApp: App {
                 .environmentObject(appState)
                 .onAppear {
                     NotificationService.requestPermission()
-                    NotificationMailer.removeLegacyGmailCredentials()
                     // Load any runs a previous launch left unfinished before
                     // anything (e.g. the scheduler) can start a new one.
                     _ = WorkflowCheckpointStore.shared

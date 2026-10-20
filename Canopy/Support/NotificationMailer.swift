@@ -48,12 +48,3 @@ enum NotificationMailer {
         }
     }
 }
-
-extension NotificationMailer {
-    /// Clears the Gmail sign-in this Mac stored before notifications moved to the church site.
-    static func removeLegacyGmailCredentials() {
-        for key in ["connectedEmail", "refreshToken", "accessToken", "accessTokenExpiry"] {
-            KeychainStore.delete(key: key)
-        }
-    }
-}
