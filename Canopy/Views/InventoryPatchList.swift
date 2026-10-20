@@ -362,11 +362,12 @@ private struct DevicePatchCard: View {
 // MARK: - Pickers
 
 /// The dropdown look shared by the device and channel pickers.
-private struct PickerLabel: View {
+struct PickerLabel: View {
     let text: String
     var placeholder = false
     var badge = 0
     var icon: String?
+    var maxWidth: CGFloat = 140
     var body: some View {
         HStack(spacing: 4) {
             if let icon { Image(systemName: icon).font(.canopyCaption).foregroundStyle(Color.canopySage) }
@@ -378,7 +379,7 @@ private struct PickerLabel: View {
             Image(systemName: "chevron.up.chevron.down").font(.canopyCaption2).foregroundStyle(.secondary)
         }
         .padding(.horizontal, 7).padding(.vertical, 4)
-        .frame(minWidth: 80, maxWidth: 140)
+        .frame(minWidth: 80, maxWidth: maxWidth)
         .background(Color.canopyPaperElevated, in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.canopyRule))
         .contentShape(Rectangle())
@@ -387,7 +388,7 @@ private struct PickerLabel: View {
 
 /// Who's on the other end of a channel. Pick a device to patch it to its first free matching channel; the channel
 /// beside it then moves it to another. Each list is built when it opens, so a long page stays quick.
-private struct PeerDeviceButton: View {
+struct PeerDeviceButton: View {
     @ObservedObject private var store = InventoryStore.shared
     let equipment: Equipment
     let port: EquipmentPort
@@ -500,7 +501,7 @@ private struct DevicePickerList: View {
 }
 
 /// The channel on the other device this one is patched to; opens a searchable list of that device's channels.
-private struct PeerPortButton: View {
+struct PeerPortButton: View {
     @ObservedObject private var store = InventoryStore.shared
     let equipment: Equipment
     let port: EquipmentPort

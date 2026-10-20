@@ -82,8 +82,10 @@ struct ConsoleChannelsSection: View {
                     if list.isEmpty {
                         Text("No channels match.").font(.canopyCallout).foregroundStyle(.secondary)
                     } else {
+                        let peers = store.patchPeers()
+                        ChainHeader(kind: kind)
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(list) { c in ConsoleChannelRow(console: e, channel: c, result: $result) }
+                            ForEach(list) { c in ConsoleChannelRow(console: e, channel: c, peers: peers, result: $result) }
                         }
                     }
                 case .grid:
@@ -178,53 +180,152 @@ private struct ChannelIssuesBanner: View {
     }
 }
 
+/// One channel as the signal really travels. An input reads left to right, the way it arrives: what's plugged in
+/// (a mic, a wireless receiver), the stage box or card socket it's plugged into, then the channel it feeds. A mix reads
+/// the way it leaves: the mix, the socket it goes out of, then what that socket is plugged into (an amp, an IEM pack).
+/// Every hop is changed right in the row: the cable at the socket, and which socket the channel uses.
 private struct ConsoleChannelRow: View {
-    @EnvironmentObject private var nav: InventoryNavigator
     @ObservedObject private var store = InventoryStore.shared
     let console: Equipment
     let channel: ConsoleChannel
+    let peers: [String: [PatchPeer]]
     @Binding var result: (ok: Bool, message: String)?
     @State private var picking = false
     @State private var hovering = false
 
     private var canEdit: Bool { store.level.canEdit && store.consoleReady }
+    private var input: Bool { channel.kind == .input }
 
     var body: some View {
         let sockets = store.sockets(of: channel)
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Circle().fill(familyColor(channel.label)).frame(width: 7, height: 7).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
-            Text("\(channel.number)").monospacedDigit().foregroundStyle(.tertiary).frame(width: 26, alignment: .trailing)
-            if canEdit {
-                CommitField(placeholder: "\(channel.kind.prefix) \(channel.number)", value: channel.label, width: 150) { v in
-                    Task { result = await store.renameChannel(channel.id, v) }
+        HStack(alignment: .top, spacing: 6) {
+            if input {
+                if let s = sockets.first {
+                    far(s.device, s.port)
+                    arrow
+                    socketCell(s.patch, s.device, s.port)
+                } else {
+                    Color.clear.frame(width: ChainLayout.far * 2 + 6)
+                    arrow
+                    emptySocket
                 }
+                arrow
+                channelCell
             } else {
-                Text(channel.label.isEmpty ? "\(channel.kind.prefix) \(channel.number)" : channel.label).frame(width: 150, alignment: .leading)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(sockets, id: \.patch.id) { s in socketLine(s.patch, s.device, s.port) }
-                if sockets.isEmpty { Text("Not patched").foregroundStyle(.tertiary) }
+                channelCell
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(sockets, id: \.patch.id) { s in
+                        HStack(spacing: 6) {
+                            arrow
+                            socketCell(s.patch, s.device, s.port)
+                            arrow
+                            far(s.device, s.port)
+                        }
+                    }
+                    if sockets.isEmpty { HStack(spacing: 6) { arrow; emptySocket } }
+                    else if canEdit { addSocket }
+                }
             }
             Spacer(minLength: 0)
-            if canEdit && channel.kind == .input {
-                if sockets.isEmpty {
-                    Menu { sourceMenu(current: nil) } label: { Image(systemName: "cable.connector") }
-                        .menuStyle(.borderlessButton).fixedSize().help("Choose where this channel's signal comes from")
+        }
+        .font(.canopyCallout)
+        .padding(.vertical, 3).padding(.horizontal, 6)
+        .background(hovering ? Color.canopyPaperElevated.opacity(0.6) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .onHover { hovering = $0 }
+    }
+
+    private var arrow: some View {
+        Image(systemName: "arrow.right").font(.canopyCaption2).foregroundStyle(.tertiary).frame(width: 14, height: 24)
+    }
+
+    // MARK: Channel
+
+    private var channelCell: some View {
+        HStack(spacing: 6) {
+            Circle().fill(familyColor(channel.label)).frame(width: 7, height: 7)
+            Text("\(channel.number)").monospacedDigit().foregroundStyle(.tertiary).frame(width: 26, alignment: .trailing)
+            if canEdit {
+                CommitField(placeholder: "\(channel.kind.prefix) \(channel.number)", value: channel.label, width: 120) { v in
+                    Task { result = await store.renameChannel(channel.id, v) }
                 }
-            } else if canEdit && (channel.kind == .output || sockets.isEmpty) {
-                Button { picking = true } label: { Image(systemName: sockets.isEmpty ? "cable.connector" : "plus") }
-                    .buttonStyle(.borderless)
-                    .help(channel.kind == .input ? "Choose where this channel's signal comes from" : sockets.isEmpty ? "Send this mix to a socket" : "Send it to another socket too")
+                .padding(.horizontal, 7).padding(.vertical, 4)
+                .background(Color.canopyPaperElevated, in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.canopyRule))
+            } else {
+                Text(channel.label.isEmpty ? "\(channel.kind.prefix) \(channel.number)" : channel.label).frame(width: 134, alignment: .leading)
+            }
+        }
+        .frame(height: 24)
+    }
+
+    // MARK: The socket's far end
+
+    /// What's plugged into the socket: its device, then which of that device's channels. Only cables show here; the
+    /// console's own patch and stage box links are the hops beside it.
+    @ViewBuilder private func far(_ device: Equipment, _ port: EquipmentPort) -> some View {
+        let cabled = (peers[port.id] ?? []).filter { $0.cable != nil }
+        if input {
+            HStack(spacing: 6) {
+                PeerDeviceButton(equipment: device, port: port, peers: cabled, result: $result).frame(width: ChainLayout.far)
+                PeerPortButton(equipment: device, port: port, peers: cabled, result: $result).frame(width: ChainLayout.far)
+            }
+        } else {
+            HStack(spacing: 6) {
+                PeerPortButton(equipment: device, port: port, peers: cabled, result: $result).frame(width: ChainLayout.far)
+                PeerDeviceButton(equipment: device, port: port, peers: cabled, result: $result).frame(width: ChainLayout.far)
+            }
+        }
+    }
+
+    // MARK: The socket
+
+    private func socketText(_ device: Equipment, _ port: EquipmentPort) -> String {
+        device.id == console.id ? device.portName(port) : "\(device.name) · \(device.portName(port))"
+    }
+
+    @ViewBuilder private func socketCell(_ patch: ConsolePatch, _ device: Equipment, _ port: EquipmentPort) -> some View {
+        let label = PickerLabel(text: socketText(device, port), icon: device.id == console.id ? nil : device.role?.symbol, maxWidth: ChainLayout.socket)
+            .frame(width: ChainLayout.socket)
+        if canEdit {
+            Menu {
+                if input { Menu("Change source") { sourceMenu(current: port.id) } }
+                else { Button("Move to another socket…") { picking = true } }
+                Button("Unpatch", role: .destructive) { Task { result = await store.unpatchChannel(patch.id) } }
+            } label: { label }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .popover(isPresented: $picking, arrowEdge: .trailing) {
+                    SocketPicker(console: console, channel: channel, replacing: patch.id) { r in result = r; if r.ok { picking = false } }
+                }
+        } else {
+            label
+        }
+    }
+
+    @ViewBuilder private var emptySocket: some View {
+        let label = PickerLabel(text: canEdit ? "Choose socket…" : "Not patched", placeholder: true, maxWidth: ChainLayout.socket).frame(width: ChainLayout.socket)
+        if canEdit {
+            if input {
+                Menu { sourceMenu(current: nil) } label: { label }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            } else {
+                Button { picking = true } label: { label }.buttonStyle(.plain)
                     .popover(isPresented: $picking, arrowEdge: .trailing) {
                         SocketPicker(console: console, channel: channel) { r in result = r; if r.ok { picking = false } }
                     }
             }
+        } else {
+            label
         }
-        .font(.canopyCallout)
-        .padding(.vertical, 3).padding(.horizontal, 6)
-        .background(hovering ? Color.canopyPaperElevated : .clear, in: RoundedRectangle(cornerRadius: 6))
-        .onHover { hovering = $0 }
     }
+
+    private var addSocket: some View {
+        Button { picking = true } label: { Label("Also send to…", systemImage: "plus").font(.canopyCaption) }
+            .buttonStyle(.borderless).padding(.leading, 20)
+            .popover(isPresented: $picking, arrowEdge: .trailing) {
+                SocketPicker(console: console, channel: channel) { r in result = r; if r.ok { picking = false } }
+            }
+    }
+
+    // MARK: Choosing an input socket
 
     /// The next channel up when this one is the left of a stereo pair ("Keys L" then "Keys R", or no name yet).
     private var stereoMate: ConsoleChannel? {
@@ -288,32 +389,26 @@ private struct ConsoleChannelRow: View {
             Task { result = await store.patchChannels([(channel.id, p.id)]) }
         }
     }
+}
 
-    private func socketLine(_ patch: ConsolePatch, _ device: Equipment, _ port: EquipmentPort) -> some View {
-        let input = channel.kind == .input
-        let beyond = input ? store.upstream(of: port.id) : store.downstream(of: port.id)
-        return HStack(spacing: 4) {
-            Text(input ? "←" : "→").foregroundStyle(.secondary)
-            if device.id == console.id {
-                Text(device.portName(port))
-            } else {
-                Button(device.name) { nav.open(device.id) }.buttonStyle(.link)
-                Text("· \(device.portName(port))")
-            }
-            if hovering {
-                SignalTag(signal: port.signal)
-                if let beyond {
-                    Text("\(input ? "fed by" : "to") \(beyond)").font(.canopyCaption).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            if canEdit {
-                Menu {
-                    if input { Menu("Change source") { sourceMenu(current: port.id) } }
-                    Button("Unpatch", role: .destructive) { Task { result = await store.unpatchChannel(patch.id) } }
-                } label: { Image(systemName: "ellipsis") }
-                    .menuStyle(.borderlessButton).fixedSize().opacity(hovering ? 1 : 0)
-            }
+private enum ChainLayout {
+    static let far: CGFloat = 130
+    static let socket: CGFloat = 210
+}
+
+/// Names the columns above a console's channel rows, in the order signal travels.
+private struct ChainHeader: View {
+    let kind: ChannelKind
+    var body: some View {
+        let cols: [(String, CGFloat)] = kind == .input
+            ? [("Plugged in", ChainLayout.far), ("Its output", ChainLayout.far), ("Socket on the stage box or card", ChainLayout.socket), ("Input channel", 160)]
+            : [("Mix", 160), ("Socket on the stage box or card", ChainLayout.socket), ("Its input", ChainLayout.far), ("Goes to", ChainLayout.far)]
+        HStack(spacing: 20) {
+            ForEach(Array(cols.enumerated()), id: \.offset) { _, c in Text(c.0).frame(width: c.1, alignment: .leading) }
+            Spacer(minLength: 0)
         }
+        .font(.canopyCaption2).foregroundStyle(.secondary)
+        .padding(.horizontal, 6).padding(.bottom, 2)
     }
 }
 
@@ -328,6 +423,8 @@ private struct SocketPicker: View {
     @ObservedObject private var store = InventoryStore.shared
     let console: Equipment
     let channel: ConsoleChannel
+    /// The patch line being moved, which goes once the new socket is in.
+    var replacing: String?
     let done: ((ok: Bool, message: String)) -> Void
     @State private var query = ""
     @State private var group: String?
@@ -393,7 +490,10 @@ private struct SocketPicker: View {
         let using = store.channels(at: p.id).filter { $0.console.id == console.id && $0.channel.kind == channel.kind && $0.channel.id != channel.id }
         let beyond = channel.kind == .input ? store.upstream(of: p.id) : store.downstream(of: p.id)
         return Button {
-            Task { done(await store.patchChannels([(channel.id, p.id)])) }
+            Task {
+                if let replacing { _ = await store.unpatchChannel(replacing) }
+                done(await store.patchChannels([(channel.id, p.id)]))
+            }
         } label: {
             HStack(spacing: 4) {
                 VStack(alignment: .leading, spacing: 1) {
