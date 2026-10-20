@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import PDFKit
 @testable import Canopy
 
 @MainActor
@@ -156,6 +157,16 @@ struct InventoryTests {
         #expect(InventoryRules.channelFamily("Vox 1") == 4)
         #expect(InventoryRules.channelFamily("Click") == 5)
         #expect(InventoryRules.channelFamily("") == nil)
+    }
+
+    @Test func consoleSheetRendersEveryRowOverSeveralPages() throws {
+        let rows = (1...120).map { ["\($0)", "Channel \($0)", "Stage box · \($0)", "Mic \($0)"] }
+        let sheet = ConsoleSheet(title: "FOH", subtitle: "Main room", sections: [.init(title: "Input channels · 120", columns: ["Ch", "Name", "Source", "Fed by"], rows: rows)])
+        let data = ConsoleSheetPDF.render([sheet, sheet], date: "Oct 20, 2026")
+        let pdf = try #require(PDFDocument(data: data))
+        #expect(pdf.pageCount >= 6)
+        let text = pdf.string ?? ""
+        #expect(text.contains("Channel 120") && text.contains("FOH") && text.contains("Page 1"))
     }
 
     @Test func channelIssuesFlagSharedLooseUnnamedAndBrokenPairs() {

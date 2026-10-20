@@ -55,6 +55,10 @@ struct ConsoleChannelsSection: View {
                 }
                 Spacer()
                 ChannelIssuesBanner(console: e)
+                if !inputs.isEmpty || !outputs.isEmpty {
+                    Button { ConsoleSheetPDF.save([store.consoleSheet(for: e)], suggestedName: "\(e.name) patch sheet") } label: { Image(systemName: "printer") }
+                        .buttonStyle(.borderless).help("Save this console's patch as a PDF to print")
+                }
                 if canEdit { actions(inputs: inputs.count, outputs: outputs.count) }
             }
             if !store.consoleReady {
@@ -648,6 +652,12 @@ struct ConsolePatchView: View {
             HStack {
                 TextField("Channel, socket, device…", text: $query).textFieldStyle(.roundedBorder).frame(maxWidth: 320)
                 Spacer()
+                let withChannels = consoles.filter { !store.channels(of: $0, .input).isEmpty || !store.channels(of: $0, .output).isEmpty }
+                Button("Export PDF…") {
+                    ConsoleSheetPDF.save(withChannels.map { store.consoleSheet(for: $0) }, suggestedName: withChannels.count == 1 ? "\(withChannels[0].name) patch sheet" : "Console patch sheets")
+                }
+                .buttonStyle(.canopySecondary).disabled(withChannels.isEmpty)
+                .help("Every console's patch as a printable PDF, one console per page")
             }
             .padding(.horizontal).padding(.vertical, 8)
             ScrollView {
