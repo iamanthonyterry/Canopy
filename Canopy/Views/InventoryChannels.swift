@@ -150,7 +150,7 @@ private struct ChannelRow: View {
     private var boxLinks: [(link: StageLink, box: Equipment)] {
         guard port.direction != .both, equipment.role != .stageBox else { return [] }
         return store.links(asHost: equipment).compactMap { l in
-            guard l.hostCardId == port.cardId, let box = store.byID[l.equipmentId], box.ownPorts.contains(where: { $0.direction == port.direction }) else { return nil }
+            guard let box = store.byID[l.equipmentId], box.ownPorts.contains(where: { $0.direction == port.direction }) else { return nil }
             return (l, box)
         }
     }
@@ -194,7 +194,15 @@ private struct ChannelRow: View {
     /// The box's sockets (inputs for an input), in runs of 16 when there are many; picking one lands it on this channel.
     @ViewBuilder private func boxItems(_ link: StageLink, _ box: Equipment) -> some View {
         let ports = box.ownPorts.filter { $0.direction == port.direction }.sorted { InventoryRules.byPort($0, $1) }
-        let pick: (EquipmentPort) -> Void = { p in Task { result = await store.assignBoxChannel(link: link.id, hostPort: port.id, boxPort: p.id) } }
+        // A box lands on its own link's ports; to reach an input elsewhere (a dLive can route any socket to any input), patch the channel.
+        let channel = store.channels(of: equipment, .input).first { $0.number == port.number }
+        let pick: (EquipmentPort) -> Void = { p in
+            Task {
+                if link.hostCardId == port.cardId { result = await store.assignBoxChannel(link: link.id, hostPort: port.id, boxPort: p.id) }
+                else if let channel { result = await store.patchChannels([(channel.id, p.id)]) }
+                else { result = (false, "No input channel \(port.number ?? 0) on this console.") }
+            }
+        }
         if ports.count > 24 {
             ForEach(Array(stride(from: 0, to: ports.count, by: 16)), id: \.self) { start in
                 let run = Array(ports[start..<min(ports.count, start + 16)])
