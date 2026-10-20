@@ -107,10 +107,24 @@ private struct ChannelRow: View {
                         Text(port.feedsIn && hit.channel.kind == .input ? "→" : "←").foregroundStyle(.secondary)
                         if hit.console.id == equipment.id { Text(hit.channel.title) }
                         else { Button(hit.console.name) { nav.open(hit.console.id) }.buttonStyle(.link); Text("· \(hit.channel.title)") }
+                        if canEdit, let patch = store.consolePatch.first(where: { $0.channelId == hit.channel.id && $0.portId == port.id }) {
+                            unpatchButton(patch.id)
+                        }
                     }
                     .help(hit.channel.kind == .input ? "Patched inside the console to this input channel" : "This mix is sent out of this socket")
                 }
-                if cables.isEmpty && feed == nil && store.channels(at: port.id).isEmpty && !canEdit { Text("—").foregroundStyle(.tertiary) }
+                // The console's own jack shows the socket (a surface's, a stage box's, a card's) its channel is patched from.
+                ForEach(channelSockets, id: \.patch.id) { s in
+                    HStack(spacing: 4) {
+                        Image(systemName: "slider.vertical.3").font(.canopyCaption).foregroundStyle(Color.canopySage)
+                        Text(port.direction == .input ? "←" : "→").foregroundStyle(.secondary)
+                        Button(s.device.name) { nav.open(s.device.id) }.buttonStyle(.link)
+                        Text("· \(s.device.portName(s.port))")
+                        if canEdit { unpatchButton(s.patch.id) }
+                    }
+                    .help("Patched inside the console")
+                }
+                if cables.isEmpty && feed == nil && store.channels(at: port.id).isEmpty && channelSockets.isEmpty && !canEdit { Text("—").foregroundStyle(.tertiary) }
             }
             Spacer(minLength: 0)
             // An input has one source and most outputs one cable (change those from the cable's menu); audio over a
@@ -144,6 +158,18 @@ private struct ChannelRow: View {
         }
         .font(.canopyCallout)
         .padding(.vertical, 3)
+    }
+
+    /// Sockets patched to the console channel that shares this jack's number, when this is one of the console's own jacks.
+    private var channelSockets: [(patch: ConsolePatch, device: Equipment, port: EquipmentPort)] {
+        guard port.cardId == nil, port.direction != .both, equipment.role != .stageBox, equipment.role != .surface else { return [] }
+        guard let ch = store.channels(of: equipment, port.direction == .input ? .input : .output).first(where: { $0.number == port.number }) else { return [] }
+        return store.sockets(of: ch)
+    }
+
+    private func unpatchButton(_ patchID: String) -> some View {
+        Button { Task { result = await store.unpatchChannel(patchID) } } label: { Image(systemName: "xmark.circle") }
+            .buttonStyle(.borderless).help("Remove this patch")
     }
 
     /// Stage boxes linked to this very port group whose own sockets of the same direction could land here.
