@@ -43,7 +43,6 @@ struct WorkflowStepConfigSheet: View {
     @State private var findClipsMax = 5
     @State private var findClipsMinSeconds = 20
     @State private var findClipsMaxSeconds = 60
-    @State private var queueClipsMinScore = 0
     @State private var copyPlatform = CopyPlatform.general
     @State private var copyHashtagCount = 5
     @State private var webhookURL = ""
@@ -137,9 +136,6 @@ struct WorkflowStepConfigSheet: View {
 
                 case .exportPosts:
                     exportPostsFields
-
-                case .queueClips:
-                    queueClipsFields
 
                 case .upload:
                     Label("Uploading is coming soon. Until it's ready this step does nothing when the workflow runs, so you can plan around it now — YouTube, Dropbox and Google Drive are first.", systemImage: "clock.badge")
@@ -748,17 +744,6 @@ struct WorkflowStepConfigSheet: View {
         }
     }
 
-    private var queueClipsFields: some View {
-        Group {
-            Stepper(
-                queueClipsMinScore == 0 ? "Queue every suggested clip" : "Only clips scoring \(queueClipsMinScore)+",
-                value: $queueClipsMinScore, in: 0...100, step: 5
-            )
-            Text("Adds each video's clips from a Find Clips step to the Export Queue as trimmed items. Put this after Find Clips. Nothing exports until you choose a destination in the Export Queue and start it.")
-                .font(.canopyCaption).foregroundStyle(.secondary)
-        }
-    }
-
     private var findClipsFields: some View {
         Group {
             LabeledContent("Look for") { ClipFocusFields(focus: $findClipsFocus) }
@@ -1092,8 +1077,6 @@ struct WorkflowStepConfigSheet: View {
             findClipsMax = maxClips; findClipsMinSeconds = minSeconds; findClipsMaxSeconds = maxSeconds
         case .exportPosts(let format, let captions):
             exportPostsFormat = format; exportPostsCaptions = captions
-        case .queueClips(let minScore):
-            queueClipsMinScore = minScore
         case .upload:
             break
         case .writeCopy(let platform, let hashtagCount):
@@ -1161,7 +1144,6 @@ struct WorkflowStepConfigSheet: View {
         case .findClips: step.action = .findClips(maxClips: findClipsMax, minSeconds: findClipsMinSeconds, maxSeconds: max(findClipsMaxSeconds, findClipsMinSeconds),
                                                    focus: findClipsFocus)
         case .exportPosts: step.action = .exportPosts(format: exportPostsFormat, captions: exportPostsCaptions)
-        case .queueClips: step.action = .queueClips(minScore: queueClipsMinScore)
         case .upload: step.action = .upload
         case .writeCopy: step.action = .writeCopy(platform: copyPlatform, hashtagCount: copyHashtagCount)
         case .webhook: step.action = .webhook(url: webhookURL.trimmingCharacters(in: .whitespacesAndNewlines), format: webhookFormat)

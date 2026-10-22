@@ -6,52 +6,27 @@ import Combine
 class DeviceDiscovery: ObservableObject {
     @Published var discoveredDecks: [HyperDeck] = []
     @Published var discoveredCloudStores: [CloudStore] = []
-    @Published var discoveredWireless: [DiscoveredWireless] = []
     @Published var isScanning = false
 
     private var browsers: [NWBrowser] = []
-    private var sweepTask: Task<Void, Never>?
     private let browserQueue = DispatchQueue(label: "com.churchsync.discovery", qos: .background)
 
     // MARK: - Public API
 
-    /// - Parameter wirelessSkipping: addresses to leave alone while looking for wireless gear (the ones already
-    ///   in the inventory). Pass nil to skip the wireless sweep, e.g. when the person can't add to the inventory.
-    func startScanning(wirelessSkipping known: Set<String>? = nil) {
+    func startScanning() {
         stopScanning()
         discoveredDecks.removeAll()
         discoveredCloudStores.removeAll()
-        discoveredWireless.removeAll()
         isScanning = true
 
         startBrowser(type: "_ftp._tcp", handler: handleFTPResult)
         startBrowser(type: "_smb._tcp", handler: handleSMBResult)
-        if let known { startWirelessSweep(skipping: known) }
     }
 
     func stopScanning() {
         browsers.forEach { $0.cancel() }
         browsers.removeAll()
-        sweepTask?.cancel()
-        sweepTask = nil
         isScanning = false
-    }
-
-    /// Mics, receivers and IEMs answer a question rather than announce themselves, so this asks every address on
-    /// the local subnets. The Bonjour browsers keep running until stopped; the scan is done when both are.
-    private func startWirelessSweep(skipping known: Set<String>) {
-        sweepTask = Task { [weak self] in
-            let hosts = WirelessProbe.candidateHosts()
-            await WirelessProbe.sweep(hosts, skipping: known) { [weak self] hit in
-                await self?.addWireless(hit)
-            }
-        }
-    }
-
-    private func addWireless(_ hit: DiscoveredWireless) {
-        guard !discoveredWireless.contains(where: { $0.ip == hit.ip }) else { return }
-        discoveredWireless.append(hit)
-        discoveredWireless.sort { InventoryRules.ordered($0.ip, $1.ip) }
     }
 
     // MARK: - Browser Setup

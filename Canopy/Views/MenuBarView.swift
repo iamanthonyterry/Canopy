@@ -3,7 +3,6 @@ import SwiftUI
 struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var workflowEngine = WorkflowEngine.shared
-    @ObservedObject private var exportQueue = ExportQueueManager.shared
 
     private var inProgress: [WorkflowRunSession] {
         appState.activeRuns.filter { !$0.isFinished }
@@ -39,13 +38,6 @@ struct MenuBarView: View {
                 ElapsedTimeView(startTime: earliest, compact: true, estimate: estimate)
                     .padding(.horizontal, 8)
             }
-        }
-
-        if exportQueue.isRunning {
-            let items = exportQueue.items
-            let finished = items.filter { $0.phase == .done }.count
-            Text("Exporting clips — \(finished) of \(items.count) done")
-                .foregroundStyle(.secondary)
         }
 
         if appState.isAdmin {

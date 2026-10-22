@@ -105,14 +105,6 @@ struct WorkflowAssistantTests {
         #expect(pattern("rename the files") == "{device}_{date}_{index}")
     }
 
-    @Test func builderUnderstandsQueueingClips() {
-        let r = WorkflowDraftBuilder.build(
-            from: WorkflowDraft(name: "Shorts", steps: [.queueClips, .findClips, .offload]),
-            request: "offload, find the best moments and add them to the export queue"
-        )
-        #expect(r.workflow.steps.map(\.kind) == [.sync, .findClips, .queueClips])
-    }
-
     @Test func integrationStepsAreRecognisedAndOrderedSensibly() {
         let r = build([.notify, .webhook, .copyTo, .writeCopy, .findClips, .offload],
                       "offload, find the best moments, write captions for each, make a second copy to the nas and ping my slack")

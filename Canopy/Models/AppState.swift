@@ -35,10 +35,6 @@ class AppState: ObservableObject {
     @Published var localFolders: [LocalFolder] = [] {
         didSet { save(localFolders, key: "localFolders") }
     }
-    /// The views designed for Show Mode, each with its own devices and layout.
-    @Published var showScreens: [ShowScreen] = [] {
-        didSet { save(showScreens, key: "showScreens") }
-    }
     @Published var syncLocation: SyncLocation = SyncLocation() {
         didSet { save(syncLocation, key: "syncLocation") }
     }
@@ -62,9 +58,6 @@ class AppState: ObservableObject {
     }
     @Published var shoot: ShootProject = ShootProject() {
         didSet { save(shoot, key: "shoot") }
-    }
-    @Published var exportPresets: [ExportPreset] = [] {
-        didSet { save(exportPresets, key: "exportPresets") }
     }
     /// How many hardware video encodes may run at once across the whole
     /// app — see ConversionSlotLimiter. Kept here (not per-workflow) since
@@ -216,7 +209,6 @@ class AppState: ObservableObject {
         hyperDecks         = load([HyperDeck].self,          key: "hyperDecks")         ?? []
         cloudStores        = load([CloudStore].self,         key: "cloudStores")        ?? []
         localFolders       = load([LocalFolder].self,        key: "localFolders")       ?? []
-        showScreens        = load([ShowScreen].self,         key: "showScreens")        ?? []
         syncLocation       = load(SyncLocation.self,        key: "syncLocation")       ?? SyncLocation()
         workflows                  = (load([Workflow].self,                 key: "workflows")                  ?? []).map(fillingLegacyFolders)
         workflowRunHistory         = load([WorkflowRun].self,               key: "workflowRunHistory")         ?? []
@@ -225,7 +217,6 @@ class AppState: ObservableObject {
         remoteMappings            = load([RemoteMapping].self,      key: "remoteMappings")         ?? []
         alertSettings             = load(AlertSettings.self,        key: "alertSettings")          ?? AlertSettings()
         shoot                     = load(ShootProject.self,         key: "shoot")                   ?? ShootProject()
-        exportPresets             = load([ExportPreset].self,       key: "exportPresets")           ?? []
         maxConcurrentConversions  = load(Int.self,                  key: "maxConcurrentConversions") ?? 2
     }
 
@@ -311,16 +302,6 @@ class AppState: ObservableObject {
         remoteMappings.move(fromOffsets: from, toOffset: to)
         for i in remoteMappings.indices { remoteMappings[i].sortOrder = i }
     }
-
-    // MARK: - Export Preset CRUD
-    func addExportPreset(_ preset: ExportPreset) {
-        exportPresets.append(preset)
-    }
-    func updateExportPreset(_ preset: ExportPreset) {
-        guard let i = exportPresets.firstIndex(where: { $0.id == preset.id }) else { return }
-        exportPresets[i] = preset
-    }
-    func deleteExportPreset(id: UUID) { exportPresets.removeAll { $0.id == id } }
 
     // MARK: - Run lifecycle
     /// Starts tracking a new run, clearing out any old finished session for

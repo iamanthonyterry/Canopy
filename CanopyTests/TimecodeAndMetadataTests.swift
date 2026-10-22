@@ -38,15 +38,3 @@ struct TimecodeAndMetadataTests {
         #expect(!m.isEmpty)
     }
 }
-
-@MainActor
-struct CommandPaletteSearchTests {
-    @Test func rankingPrefixThenSubstringThenSubsequence() {
-        #expect(CommandPaletteSearch.score(query: "str", title: "Starred") == 2)
-        #expect(CommandPaletteSearch.score(query: "sta", title: "Starred") == 0)
-        #expect(CommandPaletteSearch.score(query: "red", title: "Starred") == 1)
-        #expect(CommandPaletteSearch.score(query: "srd", title: "Starred") == 2)
-        #expect(CommandPaletteSearch.score(query: "", title: "Anything") == 0)
-        #expect(CommandPaletteSearch.score(query: "zzz", title: "Starred") == nil)
-    }
-}

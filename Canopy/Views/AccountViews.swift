@@ -51,7 +51,6 @@ struct AccountCard: View {
     @ObservedObject private var account = SiteAccount.shared
     @ObservedObject private var sync = WorkflowSyncService.shared
     @ObservedObject private var publisher = WorkflowRunPublisher.shared
-    @ObservedObject private var inventory = InventoryStore.shared
     @ObservedObject private var remote = RemoteComputersService.shared
     @ObservedObject private var helper = TranscriberHelper.shared
     @State private var showAddress = false
@@ -100,10 +99,6 @@ struct AccountCard: View {
             }
 
             Divider()
-
-            row("Inventory", icon: "shippingbox",
-                detail: inventory.level == .none ? "No access yet" : "Access: \(inventory.level.label)",
-                ok: inventory.level != .none)
 
             row("Workflows", icon: "arrow.triangle.2.circlepath",
                 detail: sync.isEnabled ? SyncStatus.text(sync) : "Sync is off",
@@ -214,7 +209,7 @@ struct AccountChip: View {
             .buttonStyle(.plain)
             .disabled(account.isConnecting)
             .padding(.horizontal, 12).padding(.vertical, 8)
-            .help("Sign in once for inventory, synced workflows, email and Transcriber")
+            .help("Sign in once for synced workflows, email and Transcriber")
         }
     }
 }

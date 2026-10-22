@@ -149,14 +149,7 @@ struct WorkflowSettingsTests {
         #expect(export([.findClips, .resizeForSocial], "find highlights, resize them vertical and export finished posts") == nil)
     }
 
-    @Test func queueScoreAndCopyDetails() {
-        guard case .queueClips(let score) = actions([.findClips, .queueClips], "find highlights and queue the clips, only the best ones").last
-        else { Issue.record("no queue"); return }
-        #expect(score == 70)
-        guard case .queueClips(let exact) = actions([.findClips, .queueClips], "find highlights and add them to the queue, scoring above 80").last
-        else { Issue.record("no queue"); return }
-        #expect(exact == 80)
-
+    @Test func copyDetails() {
         guard case .writeCopy(let platform, let tags) = actions([.findClips, .writeCopy], "find highlights and write post copy for linkedin with 3 hashtags").last
         else { Issue.record("no copy"); return }
         #expect(platform == .linkedin && tags == 3)

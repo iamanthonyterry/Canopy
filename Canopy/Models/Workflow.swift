@@ -19,7 +19,7 @@ enum DeckCommand: String, Codable, CaseIterable, Identifiable {
 // MARK: - Step Kind
 // The catalog of step types users can drag into a workflow.
 enum StepKind: String, Codable, CaseIterable, Identifiable {
-    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, findClips, exportPosts, queueClips, writeCopy, webhook, copyTo, upload, reframe, format, cleanup, notify, triggerWorkflow
+    case controlDeck, wait, createFolder, sync, convert, rename, transcribe, findClips, exportPosts, writeCopy, webhook, copyTo, upload, reframe, format, cleanup, notify, triggerWorkflow
 
     var id: String { rawValue }
 
@@ -34,7 +34,6 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .transcribe:      return "Transcribe"
         case .findClips:       return "Find Clips"
         case .exportPosts:     return "Export Posts"
-        case .queueClips:      return "Queue Clips"
         case .writeCopy:       return "Write Post Copy"
         case .webhook:         return "Send Webhook"
         case .copyTo:          return "Copy To"
@@ -58,7 +57,6 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .transcribe:      return "Generate a timed transcript for each clip, on this Mac"
         case .findClips:       return "Find moments in long videos that work as short social posts"
         case .exportPosts:     return "Render each suggested clip as a finished, cropped and captioned post"
-        case .queueClips:      return "Add the suggested clips to the Export Queue as trimmed items"
         case .writeCopy:       return "Draft a title, caption and hashtags for each suggested clip"
         case .webhook:         return "Send the run's details to a URL — Slack, Discord, Zapier, Make and more"
         case .copyTo:          return "Copy the finished files to a second location, optionally verified"
@@ -82,7 +80,6 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .transcribe:      return "text.bubble"
         case .findClips:       return "sparkles.rectangle.stack"
         case .exportPosts:     return "square.and.arrow.up.on.square"
-        case .queueClips:      return "tray.and.arrow.up"
         case .writeCopy:       return "text.quote"
         case .webhook:         return "paperplane"
         case .copyTo:          return "doc.on.doc"
@@ -102,7 +99,7 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .sync:       return [.convert, .transcribe]
         case .transcribe: return [.findClips]
-        case .findClips:  return [.writeCopy, .exportPosts, .queueClips]
+        case .findClips:  return [.writeCopy, .exportPosts]
         case .exportPosts: return [.copyTo]
         default:          return []
         }
@@ -134,7 +131,6 @@ enum StepKind: String, Codable, CaseIterable, Identifiable {
         case .transcribe:      return .pink
         case .findClips:       return .yellow
         case .exportPosts:     return .orange
-        case .queueClips:      return .brown
         case .writeCopy:       return .mint
         case .webhook:         return .gray
         case .copyTo:          return .blue
@@ -381,9 +377,6 @@ enum StepAction: Hashable {
     /// finished posts — cropped to `format`, optionally captioned — into a
     /// `Social Posts` folder next to the video.
     case exportPosts(format: SocialFormat, captions: Bool)
-    /// Adds each video's suggested clips (from a Find Clips step) to the
-    /// Export Queue as trimmed items. `minScore` skips weaker suggestions.
-    case queueClips(minScore: Int)
     /// Drafts a title, caption and hashtags for each suggested clip, saved
     /// with the clip suggestions.
     case writeCopy(platform: CopyPlatform, hashtagCount: Int)
@@ -418,7 +411,6 @@ enum StepAction: Hashable {
         case .transcribe:      return .transcribe
         case .findClips:       return .findClips
         case .exportPosts:     return .exportPosts
-        case .queueClips:      return .queueClips
         case .writeCopy:       return .writeCopy
         case .webhook:         return .webhook
         case .copyTo:          return .copyTo
@@ -442,7 +434,6 @@ enum StepAction: Hashable {
         case .transcribe:      return .transcribe(locale: Locale.current.identifier, writeSRT: true, skipExisting: true)
         case .findClips:       return .findClips(maxClips: 5, minSeconds: 20, maxSeconds: 60)
         case .exportPosts:     return .exportPosts(format: .vertical, captions: true)
-        case .queueClips:      return .queueClips(minScore: 0)
         case .writeCopy:       return .writeCopy(platform: .general, hashtagCount: 5)
         case .webhook:         return .webhook(url: "", format: .json)
         case .copyTo:          return .copyTo(destination: .global, verify: true, includeSidecars: true)
@@ -519,10 +510,6 @@ enum StepAction: Hashable {
             return text
         case .exportPosts(let format, let captions):
             return "Renders each suggested clip as a \(format.title) post" + (captions ? " with captions" : "")
-        case .queueClips(let minScore):
-            return minScore > 0
-                ? "Adds suggested clips scoring \(minScore)+ to the Export Queue"
-                : "Adds every suggested clip to the Export Queue"
         case .writeCopy(let platform, let hashtagCount):
             return "\(platform.title) style · up to \(hashtagCount) hashtag\(hashtagCount == 1 ? "" : "s")"
         case .webhook(let url, let format):
@@ -566,7 +553,9 @@ enum StepAction: Hashable {
 // MARK: - StepAction Codable Implementation
 extension StepAction: Codable {
     enum CodingKeys: String, CodingKey {
-        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, findClips, exportPosts, queueClips, writeCopy, webhook, copyTo, upload, reframe, format, cleanup, notify, triggerWorkflow
+        case controlDeck, record, stopRecord, wait, createFolder, sync, convert, rename, transcribe, findClips, exportPosts, writeCopy, webhook, copyTo, upload, reframe, format, cleanup, notify, triggerWorkflow
+        /// Only to recognise a step saved before the Export Queue was removed.
+        case queueClips
     }
 
     enum ControlDeckKeys: String, CodingKey {
@@ -632,10 +621,6 @@ extension StepAction: Codable {
 
     enum CopyToKeys: String, CodingKey {
         case destination, verify, includeSidecars
-    }
-
-    enum QueueClipsKeys: String, CodingKey {
-        case minScore
     }
 
     enum ReframeKeys: String, CodingKey {
@@ -748,8 +733,8 @@ extension StepAction: Codable {
             let sidecars = try nested.decodeIfPresent(Bool.self, forKey: .includeSidecars) ?? true
             self = .copyTo(destination: destination, verify: verify, includeSidecars: sidecars)
         } else if container.contains(.queueClips) {
-            let nested = try container.nestedContainer(keyedBy: QueueClipsKeys.self, forKey: .queueClips)
-            self = .queueClips(minScore: try nested.decodeIfPresent(Int.self, forKey: .minScore) ?? 0)
+            // The Export Queue is gone, so its step is too; the workflow drops it when it loads.
+            throw RemovedStepError()
         } else if container.contains(.reframe) {
             let nested = try container.nestedContainer(keyedBy: ReframeKeys.self, forKey: .reframe)
             let format = try nested.decodeIfPresent(SocialFormat.self, forKey: .format) ?? .vertical
@@ -838,9 +823,6 @@ extension StepAction: Codable {
             try nested.encode(destination, forKey: .destination)
             try nested.encode(verify, forKey: .verify)
             try nested.encode(includeSidecars, forKey: .includeSidecars)
-        case .queueClips(let minScore):
-            var nested = container.nestedContainer(keyedBy: QueueClipsKeys.self, forKey: .queueClips)
-            try nested.encode(minScore, forKey: .minScore)
         case .reframe(let format, let followSubject):
             var nested = container.nestedContainer(keyedBy: ReframeKeys.self, forKey: .reframe)
             try nested.encode(format, forKey: .format)
@@ -963,6 +945,17 @@ struct WorkflowStep: Identifiable, Hashable {
         self.action = action
         self.requiresConfirmation = requiresConfirmation
         self.decks = decks
+    }
+}
+
+/// A step saved by an older version that this one no longer has (see `RemovedStepError`).
+struct RemovedStepError: Error {}
+
+/// Decodes a step, or nothing for a removed one, so one retired step doesn't stop the whole workflow loading.
+struct DroppableStep: Decodable {
+    let step: WorkflowStep?
+    init(from decoder: Decoder) throws {
+        do { step = try WorkflowStep(from: decoder) } catch is RemovedStepError { step = nil }
     }
 }
 
@@ -1168,7 +1161,7 @@ struct Workflow: Identifiable, Codable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try container.decode(String.self, forKey: .name)
-        steps = (try container.decodeIfPresent([WorkflowStep].self, forKey: .steps) ?? []).withLegacyWorkSplitOut()
+        steps = (try container.decodeIfPresent([DroppableStep].self, forKey: .steps) ?? []).compactMap(\.step).withLegacyWorkSplitOut()
 
         if let decodedTargets = try container.decodeIfPresent([WorkflowTarget].self, forKey: .targets) {
             targets = decodedTargets

@@ -10,7 +10,7 @@ import FoundationModels
 @Generable
 enum DraftStepKind {
     case startRecording, stopRecording, wait, createFolder, offload
-    case makeProxies, rename, transcribe, findClips, queueClips, writeCopy, webhook, copyTo, resizeForSocial, formatDrive, cleanup, notify
+    case makeProxies, rename, transcribe, findClips, writeCopy, webhook, copyTo, resizeForSocial, formatDrive, cleanup, notify
 }
 
 @Generable
@@ -162,7 +162,6 @@ struct RequestDetails {
 
     /// Deliberately avoids "shorts"/"reels"/"tiktok", which mean the *format*
     /// (Resize for Social) rather than picking the moments.
-    private static let queueClipsWords = ["export queue", "add to the queue", "add them to the queue", "queue the clips", "queue them", "queue clips", "to the queue", "queue only", "queue the best", "queue the top"]
     private static let writeCopyWords = ["write copy", "post copy", "caption for each", "captions for each", "write captions", "write the captions", "hashtag", "write a caption", "post text", "titles and descriptions", "write descriptions"]
     private static let webhookWords = ["webhook", "slack", "discord", "zapier", "post to a url", "send to a url", "ping a url"]
     private static let copyToWords = ["copy to", "back up to", "backup to", "second copy", "copy them to", "copy it to", "mirror", "duplicate to", "secondary drive", "second drive", "nas"]
@@ -179,8 +178,7 @@ struct RequestDetails {
         case .makeProxies: return mentions(["proxy", "proxies", "convert", "transcode", "mp4", "compress", "small version", "smaller", "low-res", "lower res", "low res", "editing cop", "edit cop"])
         case .rename:      return mentions(["rename", "name the", "naming", "called"])
         case .transcribe:  return wantsTranscript
-        case .findClips:   return mentions(Self.findClipsWords) || mentions(Self.queueClipsWords)
-        case .queueClips:  return mentions(Self.queueClipsWords)
+        case .findClips:   return mentions(Self.findClipsWords)
         case .writeCopy:   return mentions(Self.writeCopyWords)
         case .webhook:     return mentions(Self.webhookWords)
         case .copyTo:      return mentions(Self.copyToWords)
@@ -203,7 +201,6 @@ struct RequestDetails {
         if mentions(["rename"]) { kinds.append(.rename) }
         if wantsTranscript { kinds.append(.transcribe) }
         if mentions(Self.findClipsWords) { kinds.append(.findClips) }
-        if mentions(Self.queueClipsWords) { kinds.append(.queueClips) }
         if mentions(Self.writeCopyWords) { kinds.append(.writeCopy) }
         if mentions(Self.webhookWords) { kinds.append(.webhook) }
         if mentions(Self.copyToWords) { kinds.append(.copyTo) }
@@ -334,7 +331,6 @@ struct RequestDetails {
         case .rename:      words = ["rename", "naming", "file name", "filename"]
         case .transcribe:  words = ["transcri", "subtitle", "caption"]
         case .findClips:   words = ["find clips", "highlight", "moments", "clips"]
-        case .queueClips:  words = ["queue"]
         case .writeCopy:   words = ["post copy", "caption", "hashtag", "copy"]
         case .webhook:     words = ["webhook", "slack", "discord", "zapier", "url"]
         case .copyTo:      words = ["copy to", "second copy", "backup", "back up", "mirror"]
@@ -482,8 +478,6 @@ enum WorkflowDraftBuilder {
             return WorkflowStep(action: .findClips(
                 maxClips: details.clipCount ?? 5, minSeconds: minSeconds, maxSeconds: maxSeconds,
                 focus: details.clipFocus ?? ClipFocus()))
-        case .queueClips:
-            return WorkflowStep(action: .queueClips(minScore: details.minClipScore ?? 0))
         case .writeCopy:
             return WorkflowStep(action: .writeCopy(
                 platform: details.copyPlatform ?? .general, hashtagCount: details.hashtagCount ?? 5))
@@ -543,7 +537,7 @@ enum WorkflowDraftBuilder {
     /// what was decided for them. Only the kinds whose settings are inferred.
     static func settingsNotes(for steps: [WorkflowStep], details: RequestDetails) -> [String] {
         var notes: [String] = []
-        let inferred: Set<StepKind> = [.convert, .transcribe, .findClips, .queueClips, .writeCopy, .copyTo, .reframe, .notify, .createFolder]
+        let inferred: Set<StepKind> = [.convert, .transcribe, .findClips, .writeCopy, .copyTo, .reframe, .notify, .createFolder]
         for step in steps where inferred.contains(step.kind) {
             guard !isDefault(step.action) else { continue }
             notes.append("\(step.kind.title): \(step.action.summary)")
@@ -630,7 +624,6 @@ enum WorkflowDraftBuilder {
         case .rename:         return "Rename"
         case .transcribe:     return "Transcribe"
         case .findClips:      return "Find Clips"
-        case .queueClips:     return "Queue Clips"
         case .writeCopy:      return "Write Post Copy"
         case .webhook:        return "Send Webhook"
         case .copyTo:         return "Copy To"
@@ -961,8 +954,6 @@ enum WorkflowEditBuilder {
         case .exportPosts(let format, let captions):
             return set(&step, to: .exportPosts(
                 format: details.postFormat ?? format, captions: details.captionsOnPosts ?? captions))
-        case .queueClips(let score):
-            return set(&step, to: .queueClips(minScore: details.minClipScore ?? score))
         case .writeCopy(let platform, let tags):
             return set(&step, to: .writeCopy(
                 platform: details.copyPlatform ?? platform, hashtagCount: details.hashtagCount ?? tags))
@@ -1014,7 +1005,7 @@ enum WorkflowAssistant {
     private static let instructions = """
     You turn a request into a workflow for Canopy, an app that offloads footage from HyperDeck recorders.
     Choose steps from: startRecording, stopRecording, wait, createFolder, offload (copy new clips from the \
-    device), makeProxies (small MP4 copies), rename, transcribe (speech to text), findClips (suggest short social clips from a long video), queueClips (add those clips to the export queue), writeCopy (draft captions and hashtags for clips), webhook (send details to a URL), copyTo (make a second copy of the files somewhere else), resizeForSocial (vertical or square \
+    device), makeProxies (small MP4 copies), rename, transcribe (speech to text), findClips (suggest short social clips from a long video), writeCopy (draft captions and hashtags for clips), webhook (send details to a URL), copyTo (make a second copy of the files somewhere else), resizeForSocial (vertical or square \
     crop for social media that keeps the subject in frame), formatDrive (erases the recorder), cleanup (deletes old files), notify (sends an email).
     Include ONLY steps the request asks for. Do not add recording, waiting, folders, or anything else that \
     was not mentioned. Keep them in the order the request describes.
@@ -1041,7 +1032,7 @@ enum WorkflowAssistant {
     clips or how long they are, the social format, the language, or one summary email instead of one per drive).
     Which HyperDecks or folders it uses is not a step change: return no edits for it.
     Step names: startRecording, stopRecording, wait, createFolder, offload, makeProxies, rename, transcribe, \
-    findClips, queueClips, writeCopy, webhook, copyTo, resizeForSocial, formatDrive, cleanup, notify.
+    findClips, writeCopy, webhook, copyTo, resizeForSocial, formatDrive, cleanup, notify.
     Use placement automatic unless the request says where. A change to when the workflow starts (a time, \
     days of the week, a one-time run, "when recording stops", "when it comes online", "after another \
     workflow finishes", "when new clips arrive") or to the workflow's name is not a step change: return no \
@@ -1107,7 +1098,6 @@ private extension DraftStepKind {
         case .rename:         return 6
         case .transcribe:     return 7
         case .findClips:      return 8
-        case .queueClips:     return 9
         case .writeCopy:      return 10
         case .resizeForSocial: return 11
         case .copyTo:         return 12
@@ -1135,7 +1125,6 @@ extension DraftStepKind {
             case .transcribe:   self = .transcribe
             // Export Posts is part of finding clips as far as a request goes.
             case .findClips, .exportPosts: self = .findClips
-            case .queueClips:   self = .queueClips
             case .writeCopy:    self = .writeCopy
             case .webhook:      self = .webhook
             case .copyTo:       self = .copyTo
@@ -1161,7 +1150,6 @@ extension DraftStepKind {
         case .rename:         return "rename"
         case .transcribe:     return "transcribe"
         case .findClips:      return "findClips"
-        case .queueClips:     return "queueClips"
         case .writeCopy:      return "writeCopy"
         case .webhook:        return "webhook"
         case .copyTo:         return "copyTo"

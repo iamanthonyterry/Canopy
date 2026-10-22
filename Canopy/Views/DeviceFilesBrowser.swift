@@ -155,10 +155,8 @@ struct DeviceFilesBrowser: View {
     @State private var storageInfo: StorageInfo?
     @State private var isLoadingStorage = false
 
-    @StateObject private var exportQueue = ExportQueueManager.shared
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
-    @State private var showExportQueue = false
 
     @State private var deletePending: [FileNode]?
     @State private var showMoveSheet = false
@@ -198,9 +196,6 @@ struct DeviceFilesBrowser: View {
             ImagePreviewSheet(node: target.node, device: target.device,
                               onNavigate: { stepPreview(from: target.node, by: $0) })
                 .id(target.id)
-        }
-        .sheet(isPresented: $showExportQueue) {
-            ExportQueueView()
         }
         .sheet(isPresented: $showMoveSheet) {
             DeviceFolderPickerSheet(device: device) { destination in
@@ -282,7 +277,6 @@ struct DeviceFilesBrowser: View {
                 } else {
                     browseControls(density)
                 }
-                exportQueueButton
             }
         }
     }
@@ -320,13 +314,6 @@ struct DeviceFilesBrowser: View {
             .disabled(selectedIDs.isEmpty || isProcessingOperation)
             .help("Delete Selected")
         }
-        Button { addSelectionToQueue() } label: {
-            AdaptiveLabel(title: "Add to Queue", icon: "plus.circle", iconOnly: iconOnly)
-        }
-        .buttonStyle(.canopyPrimary)
-        .controlSize(.small)
-        .disabled(selectedIDs.isEmpty)
-        .help("Add to Queue")
         Button { isSelecting = false; selectedIDs.removeAll() } label: {
             AdaptiveLabel(title: "Cancel", icon: "xmark", iconOnly: iconOnly)
         }
@@ -437,26 +424,6 @@ struct DeviceFilesBrowser: View {
         .buttonStyle(.borderless)
         .disabled(isLoadingFiles)
         .help("Refresh")
-    }
-
-    private var exportQueueButton: some View {
-        Button {
-            showExportQueue = true
-        } label: {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: "square.and.arrow.up.on.square")
-                if exportQueue.activeCount > 0 {
-                    Text("\(exportQueue.activeCount)")
-                        .font(.canopySans(9, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(3)
-                        .background(Color.accentColor, in: Circle())
-                        .offset(x: 8, y: -8)
-                }
-            }
-        }
-        .buttonStyle(.borderless)
-        .help("Export Queue")
     }
 
     private var searchBar: some View {
@@ -755,16 +722,6 @@ struct DeviceFilesBrowser: View {
             if let children = node.children { result += flatFilter(children, query: query) }
         }
         return result
-    }
-
-    // MARK: - Export Queue
-
-    private func addSelectionToQueue() {
-        let nodes = selectedNodes().filter { $0.isVideo || $0.isImage }
-        exportQueue.addMultiple(nodes, device: device)
-        isSelecting = false
-        selectedIDs.removeAll()
-        showExportQueue = true
     }
 
     private func selectedNodes() -> [FileNode] {

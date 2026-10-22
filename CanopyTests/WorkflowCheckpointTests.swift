@@ -13,7 +13,7 @@ struct WorkflowCheckpointTests {
     private func makeCheckpoint(nextStepIndex: Int = 1) -> WorkflowCheckpoint {
         let workflow = Workflow(name: "Offload", steps: [
             WorkflowStep(action: .wait(minutes: 1)),
-            WorkflowStep(action: .queueClips(minScore: 50)),
+            WorkflowStep(action: .wait(minutes: 2)),
         ])
         var task = SyncTask(fileName: "Clip0001.mov", deckName: "Deck 1", destDir: URL(fileURLWithPath: "/tmp/out"))
         task.phase = .done
@@ -44,7 +44,7 @@ struct WorkflowCheckpointTests {
         let found = try #require(relaunched.interrupted.first)
         #expect(found.id == checkpoint.id)
         #expect(found.nextStepIndex == 1)
-        #expect(found.nextStep?.kind == .queueClips)
+        #expect(found.nextStep?.kind == .wait)
         #expect(found.devices.first?.filePaths == ["/tmp/out/Clip0001.mp4"])
         #expect(found.tasks.first?.verification == .verified)
         #expect(found.tasks.first?.sha256 == "abc123")
