@@ -12,13 +12,23 @@
 	<array>
 		<dict/>
 	</array>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Canopy listens to the sound board to create live captions.</string>
+	<key>PCOClientID</key>
+	<string>$(PCO_CLIENT_ID)</string>
+	<key>PCOClientSecret</key>
+	<string>$(PCO_CLIENT_SECRET)</string>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://github.com/iamanthonyterry/Canopy/releases/latest/download/appcast.xml</string>
+	<string>https://github.com/iamanthonyterry/transcriber/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>IdVQPAGOXjruuLtPzqy1ZTI6lbSyuAm/aXY5V4lx7ws=</string>
 	<key>SUScheduledCheckInterval</key>
-	<integer>86400</integer>
+	<integer>14400</integer>
 </dict>
 </plist>

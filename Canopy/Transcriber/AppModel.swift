@@ -75,7 +75,7 @@ final class AppModel: ObservableObject {
     private var statusPublisher: StatusPublisher?
 
     init() {
-        (settings, token) = SettingsStore.load()
+        (settings, token) = FileTest.isCLITest ? (Settings(), "") : SettingsStore.load()
         // A campus key Canopy left for this helper (it signed in once for both apps) is taken before anything uses the old one.
         if let offer = HelperHandoff.take(keychainService: Keychain.currentService) { adopt(offer, save: true) }
         DistributedNotificationCenter.default().addObserver(forName: HelperHandoff.pingName, object: nil, queue: .main) { [weak self] _ in
@@ -90,7 +90,7 @@ final class AppModel: ObservableObject {
             credentials: { [weak self] in await self?.deviceCredentials() ?? ("", "") },
             onResult: { message in Task { @MainActor in Notifier.post("Device update", message) } }
         )
-        agent.start()
+        if !FileTest.isCLITest { agent.start() }
         deviceAgent = agent
         Task { @MainActor in await self.pcoStartup() }
         // Resume after a reboot or an update (never pops the "key needed" alert on a fresh install).

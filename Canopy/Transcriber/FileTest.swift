@@ -5,6 +5,9 @@ import Foundation
 /// prints each phrase. For testing without a mixer. Sends nothing to the website.
 /// Add `--vocabulary "Name, Term"` to try names and terms, and `--commands` to treat it as a commands-only input.
 nonisolated enum FileTest {
+    /// Launched with `--transcribe-file` or `--level-check`: a one-off dev test that must not touch the Keychain, the website or the microphone.
+    static let isCLITest = CommandLine.arguments.contains("--transcribe-file") || CommandLine.arguments.contains("--level-check")
+
     static func run(path: String, vocabulary: String = "", commands: Bool = false, model: String? = nil) {
         Task.detached {
             do {

@@ -3,45 +3,6 @@ import SwiftUI
 import Translation
 import ChurchKitCore
 
-// TODO(merge): becomes the app entry point; Canopy owns @main until then.
-// @main
-struct TranscriberApp: App {
-    @StateObject private var model = AppModel()
-
-    init() {
-        // This app was church.lifepoint.transcriber before it joined the Church Landing Page apps; bring its settings and key along.
-        LegacyMigration.run(fromBundleID: "church.lifepoint.transcriber", keychainServices: [(Keychain.legacyService, Keychain.currentService)])
-        if let i = CommandLine.arguments.firstIndex(of: "--transcribe-file"), i + 1 < CommandLine.arguments.count {
-            let v = CommandLine.arguments.firstIndex(of: "--vocabulary").flatMap { $0 + 1 < CommandLine.arguments.count ? CommandLine.arguments[$0 + 1] : nil }
-            FileTest.run(path: CommandLine.arguments[i + 1], vocabulary: v ?? "", commands: CommandLine.arguments.contains("--commands"),
-                         model: CommandLine.arguments.firstIndex(of: "--model").flatMap { $0 + 1 < CommandLine.arguments.count ? CommandLine.arguments[$0 + 1] : nil })  // dev/testing: print phrases from an audio file, then exit
-        }
-        if let i = CommandLine.arguments.firstIndex(of: "--level-check"), i + 1 < CommandLine.arguments.count {
-            FileTest.levelCheck(path: CommandLine.arguments[i + 1])  // dev/testing: judge an audio file's level, then exit
-        }
-    }
-
-    var body: some Scene {
-        MenuBarExtra {
-            MenuContent(model: model)
-        } label: {
-            MenuLabel(tint: model.statusTint)
-        }
-        .menuBarExtraStyle(.menu)
-
-        Window("Live transcript", id: "transcript") {
-            TranscriptView(model: model)
-        }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 380, height: 260)
-
-        Window("Website settings", id: "settings") {
-            TranscriberSettingsView(model: model)
-        }
-        .windowResizability(.contentSize)
-    }
-}
-
 struct MenuLabel: View {
     let tint: NSColor?
 

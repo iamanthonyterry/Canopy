@@ -475,7 +475,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.0.53-alpha;
-				PRODUCT_BUNDLE_IDENTIFIER = com.rosesashumans.churchlandingpage.canopy;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rosesashumans.churchlandingpage.transcriber;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -514,7 +514,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.0.53-alpha;
-				PRODUCT_BUNDLE_IDENTIFIER = com.rosesashumans.churchlandingpage.canopy;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rosesashumans.churchlandingpage.transcriber;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
