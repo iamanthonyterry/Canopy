@@ -67,10 +67,7 @@ struct DeckContentPane: View {
                 HyperDeckControls(hyperDeck: hyperDeck, showFormatConfirm: $showFormatConfirm)
                     .padding(.horizontal)
                     .padding(.vertical, 10)
-                Divider()
             }
-
-            DeviceFilesBrowser(device: .hyperDeck(deck))
         }
         .onAppear { hyperDeck.startPolling() }
         .onDisappear { hyperDeck.stopPolling() }

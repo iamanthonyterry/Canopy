@@ -170,7 +170,7 @@ final class WorkflowEngine: ObservableObject {
 
         guard !targets.isEmpty else {
             session.log(workflow.choosesFolderAtRun
-                ? "⚠️ This workflow has no HyperDeck or folder set — run it on a folder from the file browser, or press Run and choose one"
+                ? "⚠️ This workflow has no HyperDeck or folder set — press Run and choose a folder"
                 : "⚠️ No HyperDeck or folder is available for this workflow")
             finishRun(workflow: workflow, session: session)
             return

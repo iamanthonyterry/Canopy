@@ -580,7 +580,7 @@ struct WorkflowBuilderView: View {
                 }
 
                 if choosesFolderAtRun {
-                    Text("No HyperDeck or folder is set, so you'll be asked for a folder when you press Run. You can also run it on any folder from the file browser's Run Workflow menu.")
+                    Text("No HyperDeck or folder is set, so you'll be asked for a folder when you press Run.")
                         .font(.canopyCaption).foregroundStyle(.secondary)
                     if !triggers.isEmpty {
                         Label("Triggers can't start it — there's no folder to run on until you pick one.", systemImage: "exclamationmark.triangle")

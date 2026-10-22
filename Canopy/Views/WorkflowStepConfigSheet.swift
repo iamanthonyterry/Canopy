@@ -631,7 +631,7 @@ struct WorkflowStepConfigSheet: View {
                 }
             }
             Stepper("Up to \(copyHashtagCount) hashtag\(copyHashtagCount == 1 ? "" : "s")", value: $copyHashtagCount, in: 0...10)
-            Text("Drafts a headline, caption and hashtags for each suggested clip from what's said in it, on this Mac. Put this after Find Clips. The copy is saved with the clip suggestions and shown in the player's clip panel; rendered posts also get a matching .txt file.")
+            Text("Drafts a headline, caption and hashtags for each suggested clip from what's said in it, on this Mac. Put this after Find Clips. The copy is saved with the clip suggestions; rendered posts also get a matching .txt file.")
                 .font(.canopyCaption).foregroundStyle(.secondary)
         }
     }
@@ -750,7 +750,7 @@ struct WorkflowStepConfigSheet: View {
             Stepper("Up to \(findClipsMax) clip\(findClipsMax == 1 ? "" : "s") per video", value: $findClipsMax, in: 1...10)
             Stepper("At least \(findClipsMinSeconds) seconds", value: $findClipsMinSeconds, in: 10...120, step: 5)
             Stepper("At most \(findClipsMaxSeconds) seconds", value: $findClipsMaxSeconds, in: 15...180, step: 5)
-            Text("Reads each video's transcript (making one first if needed) and suggests moments that work as standalone short posts. Suggestions are saved next to the video; open it in the player to review and export them. Add an Export Posts step after this one to render them automatically. Runs on this Mac.")
+            Text("Reads each video's transcript (making one first if needed) and suggests moments that work as standalone short posts. Suggestions are saved next to the video. Add an Export Posts step after this one to render them automatically. Runs on this Mac.")
                 .font(.canopyCaption).foregroundStyle(.secondary)
         }
     }

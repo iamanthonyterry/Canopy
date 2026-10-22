@@ -38,8 +38,7 @@ struct StatusBadge: View {
 }
 
 // MARK: - Cloud Store Content Pane
-// The right-hand content for a selected cloud store: live status and its
-// file browser. Device settings (name, IP, volume, credentials) live in
+// The right-hand content for a selected cloud store: live status. Device settings (name, IP, volume, credentials) live in
 // the gear-button sheet on the device row instead of here.
 
 struct CloudStoreContentPane: View {
@@ -53,8 +52,6 @@ struct CloudStoreContentPane: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
-            DeviceFilesBrowser(device: .cloudStore(store))
         }
     }
 
@@ -116,8 +113,6 @@ struct LocalFolderContentPane: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
-            DeviceFilesBrowser(device: .localFolder(folder))
         }
     }
 
