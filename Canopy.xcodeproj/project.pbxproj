@@ -7,16 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		9114FE7F7E7C271BEC5FCA62 /* ChurchKitCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC2883D67FBDF5375B87AB69 /* ChurchKitCore */; };
-		29B35F672E54D321C9281F63 /* ChurchKitAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 13B1DE8DD553DE200A1D8A25 /* ChurchKitAuth */; };
 		01419CC2AA40F1E6A9333B16 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = B686A94BB38FB0C0808A07E8 /* MLXLLM */; };
 		0BEF49CF23D7EDCED85E6811 /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = 4EA037117187CDC79B79E0DF /* HuggingFace */; };
+		29B35F672E54D321C9281F63 /* ChurchKitAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 13B1DE8DD553DE200A1D8A25 /* ChurchKitAuth */; };
 		63A8A1CEE92A259E8D42720D /* MLXFoundationModels in Frameworks */ = {isa = PBXBuildFile; productRef = 04AD71F31915CDA2C17136D6 /* MLXFoundationModels */; };
 		644D5A602FFC42C900204FD5 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 644D5A5F2FFC42C900204FD5 /* Sparkle */; };
 		64E3101C2FDB0EEF00BD0F01 /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 64E3101A2FDB0EEF00BD0F01 /* UserNotifications.framework */; };
 		64E3101D2FDB0EEF00BD0F01 /* UserNotificationsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 64E3101B2FDB0EEF00BD0F01 /* UserNotificationsUI.framework */; };
-		A1B2C3D4E5F6071829304A5B /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = B2C3D4E5F6071829304A5B6C /* WhisperKit */; };
 		89B7219AAEFA04D3B0DBB7E9 /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = C490C74E38F4F9F589ECB953 /* Tokenizers */; };
+		9114FE7F7E7C271BEC5FCA62 /* ChurchKitCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC2883D67FBDF5375B87AB69 /* ChurchKitCore */; };
+		A1B2C3D4E5F6071829304A5B /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = B2C3D4E5F6071829304A5B6C /* WhisperKit */; };
 		B9330A6A2E47468EF724DF93 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 4C3BAEA99CBB392CB6ACF539 /* MLXLMCommon */; };
 		E61F0B66E0C4896E8E1F1508 /* MLXHuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = 4F27859973081C2896FDC972 /* MLXHuggingFace */; };
 /* End PBXBuildFile section */
@@ -474,7 +474,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 0.0.52-alpha;
+				MARKETING_VERSION = "0.0.52-alpha";
 				PRODUCT_BUNDLE_IDENTIFIER = com.rosesashumans.churchlandingpage.canopy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -513,7 +513,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 0.0.52-alpha;
+				MARKETING_VERSION = "0.0.52-alpha";
 				PRODUCT_BUNDLE_IDENTIFIER = com.rosesashumans.churchlandingpage.canopy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -535,7 +535,7 @@
 				DEVELOPMENT_TEAM = GAYT638PXY;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
-				MARKETING_VERSION = 0.0.52-alpha;
+				MARKETING_VERSION = "0.0.52-alpha";
 				PRODUCT_BUNDLE_IDENTIFIER = com.rosesashumans.churchlandingpage.canopytests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -557,7 +557,7 @@
 				DEVELOPMENT_TEAM = GAYT638PXY;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
-				MARKETING_VERSION = 0.0.52-alpha;
+				MARKETING_VERSION = "0.0.52-alpha";
 				PRODUCT_BUNDLE_IDENTIFIER = com.rosesashumans.churchlandingpage.canopytests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -577,7 +577,7 @@
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = GAYT638PXY;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 0.0.52-alpha;
+				MARKETING_VERSION = "0.0.52-alpha";
 				PRODUCT_BUNDLE_IDENTIFIER = com.rosesashumans.churchlandingpage.canopyuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -597,7 +597,7 @@
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = GAYT638PXY;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 0.0.52-alpha;
+				MARKETING_VERSION = "0.0.52-alpha";
 				PRODUCT_BUNDLE_IDENTIFIER = com.rosesashumans.churchlandingpage.canopyuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -651,20 +651,20 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		2C47262E0813044DAEAD3D3F /* XCRemoteSwiftPackageReference "church-landing-page-kit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/iamanthonyterry/church-landing-page-kit.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.1.0;
-			};
-		};
 		235E431FB2685D1C1B286092 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 3.32.3;
+			};
+		};
+		2C47262E0813044DAEAD3D3F /* XCRemoteSwiftPackageReference "church-landing-page-kit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/iamanthonyterry/church-landing-page-kit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.1.0;
 			};
 		};
 		5788FC8A07D09E0811815CD6 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
@@ -683,20 +683,20 @@
 				minimumVersion = 2.9.4;
 			};
 		};
-		E81DE8DA31879E0E64265EC2 /* XCRemoteSwiftPackageReference "swift-huggingface" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/huggingface/swift-huggingface";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.9.0;
-			};
-		};
 		C3D4E5F6071829304A5B6C7D /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/argmaxinc/WhisperKit.git";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 0.18.0;
+			};
+		};
+		E81DE8DA31879E0E64265EC2 /* XCRemoteSwiftPackageReference "swift-huggingface" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-huggingface";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -706,6 +706,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 235E431FB2685D1C1B286092 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXFoundationModels;
+		};
+		13B1DE8DD553DE200A1D8A25 /* ChurchKitAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2C47262E0813044DAEAD3D3F /* XCRemoteSwiftPackageReference "church-landing-page-kit" */;
+			productName = ChurchKitAuth;
 		};
 		4C3BAEA99CBB392CB6ACF539 /* MLXLMCommon */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -727,6 +732,11 @@
 			package = 644D5A5E2FFC40D300204FD5 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
 		};
+		B2C3D4E5F6071829304A5B6C /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C3D4E5F6071829304A5B6C7D /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = WhisperKit;
+		};
 		B686A94BB38FB0C0808A07E8 /* MLXLLM */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 235E431FB2685D1C1B286092 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
@@ -737,20 +747,10 @@
 			package = 5788FC8A07D09E0811815CD6 /* XCRemoteSwiftPackageReference "swift-transformers" */;
 			productName = Tokenizers;
 		};
-		B2C3D4E5F6071829304A5B6C /* WhisperKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = C3D4E5F6071829304A5B6C7D /* XCRemoteSwiftPackageReference "WhisperKit" */;
-			productName = WhisperKit;
-		};
 		CC2883D67FBDF5375B87AB69 /* ChurchKitCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 2C47262E0813044DAEAD3D3F /* XCRemoteSwiftPackageReference "church-landing-page-kit" */;
 			productName = ChurchKitCore;
-		};
-		13B1DE8DD553DE200A1D8A25 /* ChurchKitAuth */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 2C47262E0813044DAEAD3D3F /* XCRemoteSwiftPackageReference "church-landing-page-kit" */;
-			productName = ChurchKitAuth;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

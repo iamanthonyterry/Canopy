@@ -111,13 +111,16 @@ struct FTPService {
         named fileName: String,
         from deck: HyperDeck,
         to destinationURL: URL,
+        cancellation: RunCancellation? = nil,
         progress: @escaping @Sendable (Double) -> Void
     ) async -> DownloadResult {
         var last = DownloadResult.failed("Unknown error")
         for attempt in 1...maxTransientAttempts {
-            last = await downloadFileOnce(named: fileName, from: deck, to: destinationURL, progress: progress)
+            if cancellation?.isCancelled == true { return .failed("Stopped") }
+            last = await downloadFileOnce(named: fileName, from: deck, to: destinationURL, cancellation: cancellation, progress: progress)
             if last.success { return last }
             try? FileManager.default.removeItem(at: destinationURL)
+            if cancellation?.isCancelled == true { return .failed("Stopped") }
             if attempt < maxTransientAttempts {
                 try? await Task.sleep(for: transientRetryDelay)
             }
@@ -129,6 +132,7 @@ struct FTPService {
         named fileName: String,
         from deck: HyperDeck,
         to destinationURL: URL,
+        cancellation: RunCancellation?,
         progress: @escaping @Sendable (Double) -> Void
     ) async -> DownloadResult {
         let encoded = deck.remotePath
@@ -168,7 +172,9 @@ struct FTPService {
                 }
             }
 
+            nonisolated(unsafe) var unregister: (@Sendable () -> Void)?
             process.terminationHandler = { p in
+                unregister?()
                 stderrPipe.fileHandleForReading.readabilityHandler = nil
                 if p.terminationStatus == 0 {
                     Task { @MainActor in progress(1.0) }
@@ -181,6 +187,7 @@ struct FTPService {
 
             do {
                 try process.run()
+                unregister = cancellation?.onCancel { if process.isRunning { process.terminate() } }
             } catch {
                 continuation.resume(returning: .failed("Couldn't launch curl: \(error.localizedDescription)"))
             }

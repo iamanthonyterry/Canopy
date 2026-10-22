@@ -25,7 +25,11 @@ final class WorkflowRunSession: ObservableObject, Identifiable {
     @Published var isFinished = false
     /// Set by the Stop button for *this* run only — other concurrent runs
     /// are unaffected.
-    @Published var isCancelled = false
+    @Published var isCancelled = false {
+        didSet { if isCancelled { cancellation.cancel() } }
+    }
+    /// Aborts downloads and encodes already in flight when `isCancelled` flips.
+    nonisolated let cancellation = RunCancellation()
 
     /// Transcript files a Transcribe step created with "delete when done"
     /// on. Removed by the engine when the run finishes.

@@ -770,7 +770,7 @@ final class WorkflowEngine: ObservableObject {
             // any partial file between attempts — so a single call here
             // already reflects the outcome after those retries.
             let result = await FTPService.downloadFile(
-                named: entry.name, from: deck, to: destURL
+                named: entry.name, from: deck, to: destURL, cancellation: session.cancellation
             ) { [weak self] pct in Task { @MainActor in self?.updateTask(id: taskID, syncProgress: pct) } }
 
             guard result.success else {
@@ -904,7 +904,7 @@ final class WorkflowEngine: ObservableObject {
                         }
 
                         let outcome = await ConversionService.convert(
-                            input: inputURL, output: outputURL, settings: settings
+                            input: inputURL, output: outputURL, settings: settings, cancellation: session.cancellation
                         ) { pct in
                             if let id = taskID {
                                 Task { @MainActor in self.updateTask(id: id, convertProgress: pct) }
@@ -1088,7 +1088,7 @@ final class WorkflowEngine: ObservableObject {
                     }
 
                     let result = await FTPService.downloadFile(
-                        named: item.entry.name, from: deck, to: item.destURL
+                        named: item.entry.name, from: deck, to: item.destURL, cancellation: session.cancellation
                     ) { pct in Task { @MainActor in self.updateTask(id: item.taskID, syncProgress: pct) } }
 
                     guard result.success else {
@@ -1143,7 +1143,7 @@ final class WorkflowEngine: ObservableObject {
                         }
 
                         let outcome = await ConversionService.convert(
-                            input: item.destURL, output: outputURL, settings: settings
+                            input: item.destURL, output: outputURL, settings: settings, cancellation: session.cancellation
                         ) { pct in Task { @MainActor in self.updateTask(id: item.taskID, convertProgress: pct) } }
                         await ConversionSlotLimiter.shared.release()
 

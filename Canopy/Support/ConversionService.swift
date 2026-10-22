@@ -51,8 +51,11 @@ struct ConversionService {
         output: URL,
         settings: ConversionSettings,
         timeRange: CMTimeRange? = nil,
+        cancellation: RunCancellation? = nil,
         progress: @escaping @Sendable (Double) -> Void
     ) async -> ConversionOutcome {
+        if cancellation?.isCancelled == true { return .failure }
+
         // Create destination directory if needed
         try? FileManager.default.createDirectory(
             at: output.deletingLastPathComponent(),
@@ -100,6 +103,8 @@ struct ConversionService {
             }
         }
 
+        nonisolated(unsafe) let exportSession = session
+        let unregister = cancellation?.onCancel { exportSession.cancelExport() }
         var outcome: ConversionOutcome
         do {
             try await session.export(to: output, as: .mp4)
@@ -107,6 +112,7 @@ struct ConversionService {
         } catch {
             outcome = .failure
         }
+        unregister?()
         progressTask.cancel()
         if await diskFullBox.value {
             outcome = .diskFull
