@@ -1,0 +1,1034 @@
+import ChurchKitAuth
+import ChurchKitCore
+import AppKit
+import Combine
+import ServiceManagement
+import SwiftUI
+
+@MainActor
+final class AppModel: ObservableObject {
+    @Published var settings: Settings
+    @Published var token: String
+    @Published var status = "Stopped"
+    @Published var lastText = ""
+    /// Recent phrases shown in the local transcript window (newest last).
+    @Published var lines: [TranscriptLine] = []
+    /// Language the transcript window shows: "" = original (English), otherwise a translation code.
+    @Published var transcriptLanguage = ""
+    /// Every phrase of the current session (survives "Clear"); saved and reset when the session ends.
+    private(set) var sessionLog: [TranscriptLine] = []
+    private var sessionStart = Date()
+    private var restarting = false
+    @Published var running = false
+    @Published var listening = false
+    private var pushingToSite = true  // false between services when a schedule is on: only OSC inputs listen
+    @Published var devices: [InputDevice] = []
+    @Published var launchAtLogin = SMAppService.mainApp.status == .enabled
+    /// Set by the updater when an update is downloaded and waiting to relaunch the app.
+    @Published var pendingUpdate: (() -> Void)?
+
+    @Published var translationNote: String?
+    /// Set while a chosen language keeps being left out of phrases (it failed or was too slow).
+    @Published var translationTrouble: String?
+    @Published var languages: [TranslationLanguage] = []
+    /// Languages waiting for the system's download prompt, one at a time.
+    @Published var downloadQueue: [String] = []
+    @Published var signInBusy = false
+    @Published var signInError: String?
+    private var signInTask: Task<Void, Never>?
+    @Published var pcoSignedIn = false
+    @Published var pcoTypes: [PCOServiceType] = []
+    @Published var pcoBusy = false
+    @Published var pcoError: String?
+    private let pco = PCOClient()
+    private let translator = Translator()
+    private var engine = SpeechEngine()  // replaced when a decode hangs (see recoverFromStall)
+    private let decodeClock = DecodeClock()
+    /// The website's last heartbeat said it takes draft lines (see Sender.sendPartial).
+    @Published var partialsSupported = false
+    private var keepAwake: NSObjectProtocol?
+    /// A small model just for commands-only inputs, so a cue waits for neither the transcript nor a big decode.
+    private let commandEngine = SpeechEngine(variant: SpeechEngine.commandVariant)
+    private let commandsFast = Interrupt()  // set once that model is loaded; until then commands use the main one
+    private var commandLoad: Task<Void, Never>?
+    /// What the quick command model is doing, for Settings (nil when it isn't wanted).
+    @Published var commandModelNote: String?
+    private var captures: [UUID: AudioCapture] = [:]
+    private let cues = CueSender()
+    private let oscIn = OSCListener()
+    private var cueGuard = CueGuard()
+    /// The last voice cues heard, newest first, with what became of each (shown in the menu bar and Settings).
+    @Published var cueLog: [CueEvent] = []
+    private let meterCapture = AudioCapture()
+    private let levelCheck = LevelCheck()
+    @Published var checkingLevel = false
+    @Published var levelResult: LevelCheckResult?
+    /// Current input level in dB (about -90 when silent or not listening), shown in Settings.
+    @Published var levelDb: Double = -90
+    private var runTask: Task<Void, Never>?
+    private var sender: Sender?
+    private var heartbeatTask: Task<Void, Never>?
+    /// Carries out "apply to device" jobs from the website for this campus, whether or not we're transcribing.
+    private var deviceAgent: DeviceAgent?
+
+    let updates = UpdateManager()
+    private var statusPublisher: StatusPublisher?
+
+    init() {
+        (settings, token) = SettingsStore.load()
+        // A campus key Canopy left for this helper (it signed in once for both apps) is taken before anything uses the old one.
+        if let offer = HelperHandoff.take(keychainService: Keychain.currentService) { adopt(offer, save: true) }
+        DistributedNotificationCenter.default().addObserver(forName: HelperHandoff.pingName, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.checkHandoff() }
+        }
+        refreshDevices()
+        loadLanguages()
+        updates.model = self
+        statusPublisher = StatusPublisher(model: self)
+        connectControls()
+        let agent = DeviceAgent(
+            credentials: { [weak self] in await self?.deviceCredentials() ?? ("", "") },
+            onResult: { message in Task { @MainActor in Notifier.post("Device update", message) } }
+        )
+        agent.start()
+        deviceAgent = agent
+        Task { @MainActor in await self.pcoStartup() }
+        // Resume after a reboot or an update (never pops the "key needed" alert on a fresh install).
+        if settings.autoStart && !token.isEmpty { Task { @MainActor in self.start() } }
+    }
+
+    /// What the device agent signs in with: the website address and the campus key.
+    func deviceCredentials() -> (url: String, token: String) { (settings.url, token) }
+
+    /// Set while the feed to the website is silent or clipping during a service (shown in the menu bar).
+    @Published var feedWarning: String? {
+        didSet { if let w = feedWarning, oldValue == nil { Notifier.post("Transcriber needs attention", w) } }
+    }
+
+    var statusTint: NSColor? { feedWarning != nil ? .systemOrange : listening ? .systemRed : (running ? .systemYellow : nil) }
+
+    func channelCount(for input: AudioInput) -> Int {
+        let ch = device(for: input)?.channels ?? max(devices.first?.channels ?? 1, 1)
+        return max(ch, input.channel)
+    }
+
+    /// The connected device an input means: the exact one it was set to, else one with the same name
+    /// (a replaced interface, or settings from before devices were remembered by ID). Nil = not connected,
+    /// or the input follows the system default.
+    func device(for input: AudioInput) -> InputDevice? {
+        guard let name = input.device else { return nil }
+        return devices.first { $0.uid == input.deviceUID } ?? devices.first { $0.name == name }
+    }
+
+    /// True when the input names a device that isn't there (it must wait, not fall back to the system default).
+    func isMissing(_ input: AudioInput) -> Bool { input.device != nil && device(for: input) == nil }
+
+    /// The input the level meter and "Check audio level" listen to: the one feeding the website, else the first.
+    var meterInput: AudioInput { settings.inputs.first { $0.sendToSite } ?? settings.inputs[0] }
+
+    /// "Mixer · ch 1 · website + OSC" for the menu bar.
+    func inputTitle(_ input: AudioInput) -> String {
+        let uses = [input.sendToSite ? "website" : nil, input.triggerOSC ? "OSC" : nil].compactMap { $0 }.joined(separator: " + ")
+        return "\(input.device ?? "System default") · ch \(input.channel) · \(uses.isEmpty ? "unused" : uses)"
+    }
+
+    func refreshDevices() {
+        devices = AudioDevices.inputs()
+        // Remember exactly which device each input uses the first time it is seen.
+        var changed = false
+        for i in settings.inputs.indices where settings.inputs[i].device != nil && settings.inputs[i].deviceUID == nil {
+            if let d = device(for: settings.inputs[i]) { settings.inputs[i].deviceUID = d.uid; changed = true }
+        }
+        if changed { saveSettings() }
+    }
+
+    func start() {
+        guard runTask == nil else { return }
+        stopMeter()
+        guard !token.isEmpty else {
+            let a = NSAlert()
+            a.messageText = "Sign in to the website first"
+            a.informativeText = "Open “Website settings…” and sign in with the website to choose which campus this Mac sends to."
+            NSApp.activate(ignoringOtherApps: true)
+            a.runModal()
+            return
+        }
+        if !restarting { beginSession() }
+        holdAwake()
+        running = true
+        status = "Starting…"
+        runTask = Task { await self.run() }
+    }
+
+    func stop() {
+        runTask?.cancel()
+        runTask = nil
+        stopCaptures()
+        heartbeatTask?.cancel()
+        sender?.stop()
+        sender = nil
+        running = false
+        listening = false
+        feedWarning = nil
+        status = "Stopped"
+        releaseAwake()
+        if !restarting { endSession() }
+        if let install = pendingUpdate { install() }  // an update was waiting for the service to finish
+    }
+
+    /// Settings' level meter: while transcribing it reads the live capture, otherwise it listens on its own.
+    func startMeter() {
+        guard !running else { return }
+        Task { @MainActor in
+            guard !self.running, await MicPermission.request(), !self.running else { return }
+            let reporter = LevelReporter { db in Task { @MainActor in self.levelDb = db } }
+            let input = self.meterInput
+            guard !self.isMissing(input) else { return }
+            try? self.meterCapture.start(device: self.device(for: input), channel: input.channel,
+                                         onSamples: { reporter.feed($0); self.levelCheck.feed($0) }, onInterrupted: {})
+        }
+    }
+
+    func stopMeter() {
+        meterCapture.stop()
+        if !running { levelDb = -90 }
+    }
+
+    /// Listens for a few seconds (on the live capture if transcribing, else on its own) and judges the level.
+    func checkLevel() {
+        guard !checkingLevel else { return }
+        checkingLevel = true
+        levelResult = nil
+        levelCheck.begin()
+        startMeter()
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(8))
+            self.levelResult = self.levelCheck.finish()
+            self.checkingLevel = false
+        }
+    }
+
+    func toggle() { running ? stop() : start() }
+
+    /// Called after a setting changes: save, and restart if running so it takes effect.
+    /// The website's address without the API path (the same site the key belongs to).
+    var siteBase: String { settings.url.components(separatedBy: "/api/transcript").first ?? settings.url }
+
+    /// Signs in through the website in the browser, then uses the campus the admin picks there.
+    func signInWithWebsite() {
+        guard signInTask == nil else { return }
+        signInBusy = true
+        signInError = nil
+        signInTask = Task { @MainActor in
+            defer { signInBusy = false; signInTask = nil }
+            do {
+                guard let site = URL(string: siteBase) else { throw ConnectError.badSite }
+                let result = try await ConnectFlow().run(ConnectRequest(app: .transcriber, want: .key, site: site))
+                guard let campus = result.campus else { throw ConnectError.badSite }
+                token = campus.key
+                settings.connectedTo = campus.campusName.isEmpty ? campus.campusID : campus.campusName
+                apply()
+                NSApp.activate(ignoringOtherApps: true)
+            } catch is CancellationError {
+            } catch {
+                signInError = error.localizedDescription
+            }
+        }
+    }
+
+    func cancelSignIn() { signInTask?.cancel() }
+
+    /// Picks up a campus key Canopy left for this helper. A live session is never interrupted: while running,
+    /// the offer stays where it is and is taken the next time this is called after listening stops.
+    func checkHandoff() {
+        guard !running, let offer = HelperHandoff.take(keychainService: Keychain.currentService) else { return }
+        adopt(offer, save: false)
+        apply()
+    }
+
+    private func adopt(_ offer: HelperHandoff.Offer, save: Bool) {
+        token = offer.key
+        settings.connectedTo = offer.campusName.isEmpty ? offer.campusID : offer.campusName
+        if save { SettingsStore.save(settings, token: token) }
+    }
+
+    func disconnect() {
+        token = ""
+        settings.connectedTo = ""
+        if running { stop() }
+        SettingsStore.save(settings, token: token)
+    }
+
+    func apply() {
+        SettingsStore.save(settings, token: token)
+        connectControls()
+        if running {
+            restarting = true  // a settings change must not split the session
+            stop()
+            start()
+            restarting = false
+        }
+    }
+
+    // MARK: Planning Center
+
+    /// Picks up a saved sign-in, then keeps the service times fresh while Planning Center scheduling is on.
+    private func pcoStartup() async {
+        pcoSignedIn = await pco.signedIn
+        if pcoSignedIn { await loadPCOTypes() }
+        while !Task.isCancelled {
+            if settings.pcoOn && pcoSignedIn { await refreshPCOTimes() }
+            try? await Task.sleep(for: .seconds(30 * 60))
+        }
+    }
+
+    func pcoSignIn() {
+        guard !pcoBusy else { return }
+        pcoBusy = true
+        pcoError = nil
+        Task {
+            do {
+                try await pco.signIn()
+                pcoSignedIn = true
+                await loadPCOTypes()
+            } catch { pcoError = error.localizedDescription }
+            pcoBusy = false
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    func pcoSignOut() {
+        Task {
+            await pco.signOut()
+            pcoSignedIn = false
+            pcoTypes = []
+            settings.pcoOn = false  // back to the manual times
+            settings.pcoServiceTypeID = nil
+            settings.pcoServiceTypeName = ""
+            settings.pcoTimes = []
+            settings.pcoTerms = []
+            saveSettings()
+        }
+    }
+
+    func loadPCOTypes() async {
+        do { pcoTypes = try await pco.serviceTypes(); pcoError = nil } catch { handlePCO(error) }
+    }
+
+    func selectPCOType(_ id: String?) {
+        settings.pcoServiceTypeID = id
+        settings.pcoServiceTypeName = pcoTypes.first { $0.id == id }?.name ?? ""
+        settings.pcoTimes = []
+        settings.pcoTerms = []
+        saveSettings()
+        Task { await refreshPCOTimes() }
+    }
+
+    func refreshPCOTimes() async {
+        guard let id = settings.pcoServiceTypeID else { return }
+        pcoBusy = true
+        defer { pcoBusy = false }
+        do {
+            settings.pcoTimes = try await pco.serviceTimes(typeID: id)  // the cached times stay if this fails
+            if settings.pcoTermsOn { settings.pcoTerms = try await pco.planTerms(typeID: id) }
+            pcoError = nil
+            saveSettings()
+        } catch { handlePCO(error) }
+    }
+
+    private func handlePCO(_ error: Error) {
+        pcoError = error.localizedDescription
+        if case PCOError.notSignedIn = error { pcoSignedIn = false }
+    }
+
+    // MARK: session transcript
+
+    /// Set when a session begins; the next chance we get, the website is told to clear the old text.
+    private var resetPending = false
+
+    private func beginSession() {
+        resetPending = true
+        sessionLog = []
+        lines = []
+        lastText = ""
+        sessionStart = Date()
+        recorder = nil  // closes the previous session's recording
+    }
+
+    /// The session's audio recording, started the first time it is asked for (nil when recording is off).
+    private var recorder: Recorder?
+
+    private func sessionRecorder() -> Recorder? {
+        guard settings.saveCopy, settings.saveAudio, !settings.saveFolder.isEmpty else { return nil }
+        if recorder == nil {
+            let folder = URL(fileURLWithPath: settings.saveFolder, isDirectory: true)
+            recorder = Recorder(url: freeURL(in: folder, ext: "m4a"), start: sessionStart)
+        }
+        return recorder
+    }
+
+    private var sessionName: String {
+        "Transcript \(sessionStart.formatted(.iso8601.year().month().day())) \(sessionStart.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute()).replacingOccurrences(of: ":", with: "."))"
+    }
+
+    /// "<session name>.<ext>" in `folder`, numbered if that exists already.
+    private func freeURL(in folder: URL, ext: String) -> URL {
+        var url = folder.appendingPathComponent("\(sessionName).\(ext)")
+        var n = 2
+        while FileManager.default.fileExists(atPath: url.path) { url = folder.appendingPathComponent("\(sessionName) \(n).\(ext)"); n += 1 }
+        return url
+    }
+
+    /// Ends the session, saving a copy if asked, and returns where it was saved.
+    @discardableResult
+    func endSession() -> URL? {
+        defer { sessionLog = []; recorder = nil }
+        guard settings.saveCopy, !settings.saveFolder.isEmpty else { return nil }
+        return saveTranscript(to: URL(fileURLWithPath: settings.saveFolder, isDirectory: true))
+    }
+
+    /// Writes the session so far as a text file in `folder` (used at session end and by "Save transcript now").
+    @discardableResult
+    func saveTranscript(to folder: URL) -> URL? {
+        guard !sessionLog.isEmpty else { return nil }
+        let url = freeURL(in: folder, ext: "txt")
+        var out = ""
+        for line in sessionLog {
+            out += line.text + "\n"
+            for code in settings.translateTo { if let t = line.translations[code] { out += "  [\(code)] \(t)\n" } }
+        }
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try out.write(to: url, atomically: true, encoding: .utf8)
+            if settings.saveSubtitles {
+                // One pair of subtitle files for English and one per translation, named after the transcript.
+                let base = url.deletingPathExtension()
+                for code in [""] + settings.translateTo {
+                    let cues = sessionLog.compactMap { line -> Subtitles.Cue? in
+                        guard let text = code.isEmpty ? line.text : line.translations[code] else { return nil }
+                        return Subtitles.Cue(start: line.start.timeIntervalSince(sessionStart), end: line.end.timeIntervalSince(sessionStart), text: text)
+                    }
+                    guard !cues.isEmpty else { continue }
+                    let named = code.isEmpty ? base : base.appendingPathExtension(code)
+                    try Subtitles.srt(cues).write(to: named.appendingPathExtension("srt"), atomically: true, encoding: .utf8)
+                    try Subtitles.vtt(cues).write(to: named.appendingPathExtension("vtt"), atomically: true, encoding: .utf8)
+                }
+            }
+            return url
+        } catch {
+            status = "Couldn't save transcript: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func setLaunchAtLogin(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch { status = "Couldn't change Open at Login: \(error.localizedDescription)" }
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    /// Loads the languages the system can translate into (empty before macOS 26).
+    func loadLanguages() {
+        Task {
+            languages = await Translator.supportedLanguages()
+            checkTranslation()
+        }
+    }
+
+    func toggleLanguage(_ code: String) {
+        if let i = settings.translateTo.firstIndex(of: code) {
+            settings.translateTo.remove(at: i)
+            downloadQueue.removeAll { $0 == code }
+        } else {
+            settings.translateTo.append(code)
+            Task {
+                // macOS shows its own download prompt for a language that isn't installed yet
+                if await translator.availability(of: code) == .needsDownload, !downloadQueue.contains(code) { downloadQueue.append(code) }
+            }
+        }
+        saveSettings()
+        checkTranslation()
+    }
+
+    /// Called when the system's download prompt for the first queued language is done (installed or cancelled).
+    func finishDownload() {
+        if !downloadQueue.isEmpty { downloadQueue.removeFirst() }
+        checkTranslation()
+    }
+
+    func saveSettings() { SettingsStore.save(settings, token: token) }
+
+    /// Sets a note when a chosen language can't be used yet (nil when everything is ready).
+    func checkTranslation() {
+        Task {
+            var missing: [String] = []
+            for code in settings.translateTo where await translator.availability(of: code) != .ready { missing.append(code) }
+            if settings.translateTo.isEmpty { translationNote = nil }
+            else if languages.isEmpty { translationNote = "Translation needs macOS 26 or newer" }
+            else if !missing.isEmpty {
+                let names = missing.map { code in languages.first { $0.code == code }?.name ?? code }.joined(separator: ", ")
+                translationNote = "Install \(names) in System Settings → General → Language & Region → Translation Languages"
+            } else { translationNote = nil }
+        }
+    }
+
+    private func noteTranslationTrouble(_ codes: [String]) {
+        let names = codes.map { code in languages.first { $0.code == code }?.name ?? code }.joined(separator: ", ")
+        let note = codes.isEmpty ? nil : "\(names) isn’t translating: recent phrases went out without it"
+        if note != translationTrouble { translationTrouble = note }
+    }
+
+    /// Adds a line to the transcript, or puts it where `replaced` were (a sentence shown early in parts).
+    @discardableResult
+    private func show(_ text: String, translations: [String: String], spoken: Range<Date>, replacing replaced: [UUID] = []) -> UUID {
+        lastText = text
+        let line = TranscriptLine(start: spoken.lowerBound, end: spoken.upperBound, text: text, translations: translations)
+        func put(into list: inout [TranscriptLine]) {
+            let at = list.firstIndex { replaced.contains($0.id) }
+            list.removeAll { replaced.contains($0.id) }
+            list.insert(line, at: at ?? list.count)
+        }
+        put(into: &lines)
+        put(into: &sessionLog)
+        return line.id
+    }
+
+    /// Sends the OSC message of every rule whose phrase was just heard, unless a guard holds it back.
+    private func fireOSC(for text: String) {
+        guard settings.oscOn else { return }
+        let events = cueGuard.check(text, rules: settings.oscRules, wakeWord: settings.oscWakeWord, cooldown: settings.oscCooldown)
+        for e in events where e.outcome == .sent { sendOSC(e.rule) }
+        cueLog = Array((events.reversed() + cueLog).prefix(30))
+    }
+
+    /// True when some input can fire some rule (so the menu bar shows the voice cue controls).
+    var hasVoiceCues: Bool { !settings.oscRules.isEmpty && settings.inputs.contains { $0.triggerOSC } }
+
+    func sendOSC(_ rule: OSCRule) {
+        cues.send(rule, host: settings.oscHost, port: settings.oscPort)
+    }
+
+    /// The Test button: a rule with a number in it is tried with 1.
+    func testCue(_ rule: OSCRule) { sendOSC(rule.filled(with: "1")) }
+
+    /// Loads the quick command model in the background the first time it is wanted. Listening never waits
+    /// for it, and a Mac that can't download it just keeps using the main model for commands.
+    private func prepareCommandModel() {
+        guard settings.oscFastModel, hasVoiceCues, settings.inputs.contains(where: \.commandsOnly) else {
+            commandsFast.flag = false
+            commandModelNote = nil
+            return
+        }
+        guard commandLoad == nil else { return }
+        commandModelNote = "Getting the quick command model ready…"
+        commandLoad = Task { @MainActor in
+            do {
+                try await commandEngine.load(
+                    progress: { p in Task { @MainActor in self.commandModelNote = "Downloading the quick command model… \(Int(p * 100))%" } },
+                    stage: { _ in })
+                commandsFast.flag = settings.oscFastModel
+                commandModelNote = "Quick command model is ready."
+            } catch {
+                commandModelNote = "Couldn’t get the quick command model (\(error.localizedDescription)). Commands use the main model until the next start."
+            }
+            commandLoad = nil
+        }
+    }
+
+    /// Opens what the cue settings need: the MIDI source, and the port that takes OSC commands.
+    private func connectControls() {
+        cues.prepare(settings.oscRules)
+        if oscIn.port != settings.oscInPort {
+            oscIn.start(port: settings.oscInPort) { [weak self] address, arguments in self?.remote(address, arguments) }
+        }
+    }
+
+    /// OSC sent to this Mac: /transcriber/start, /stop, /clear, /save, and /cues (1 or 0, or /cues/on and /cues/off).
+    private func remote(_ address: String, _ arguments: [String]) {
+        switch address.lowercased() {
+        case "/transcriber/start": if !running { start() }
+        case "/transcriber/stop": if running { stop() }
+        case "/transcriber/clear": clearTranscript()
+        case "/transcriber/save":
+            if !settings.saveFolder.isEmpty { saveTranscript(to: URL(fileURLWithPath: settings.saveFolder, isDirectory: true)) }
+        case "/transcriber/cues/on", "/transcriber/cues/off", "/transcriber/cues":
+            let on = address.lowercased().hasSuffix("/on") || (address.lowercased().hasSuffix("/cues") && (arguments.first.flatMap(Double.init) ?? 1) != 0)
+            settings.oscOn = on
+            saveSettings()
+        default: break
+        }
+    }
+
+    /// Empties the transcript window and the website's page (the saved copy still gets everything).
+    func clearTranscript() {
+        lines = []
+        lastText = ""
+        if let sender { Task { await sender.reset() } }
+    }
+
+    func liveURL() -> URL? {
+        let base = siteBase
+        if let c = sender?.campus {
+            // Pages live under the church's slug; older sites don't send one, and /live/<campus> redirects there.
+            let path = sender?.church.map { "/\($0)/live/\(c)" } ?? "/live/\(c)"
+            return URL(string: base + path)
+        }
+        return URL(string: base)
+    }
+
+    // MARK: running
+
+    private func sendResetIfNeeded(_ sender: Sender) async {
+        guard resetPending else { return }
+        resetPending = false
+        await sender.reset()
+    }
+
+    private func run() async {
+        do {
+            if !(await engine.isLoaded) {
+                try await engine.load(
+                    progress: { p in Task { @MainActor in self.status = "Downloading speech model… \(Int(p * 100))%" } },
+                    stage: { s in Task { @MainActor in self.status = s } })
+            }
+            guard await MicPermission.request() else {
+                fail("Microphone access is off — allow it in System Settings → Privacy & Security → Microphone")
+                return
+            }
+        } catch {
+            fail("Error: \(error.localizedDescription)")
+            return
+        }
+        guard !Task.isCancelled else { return }
+
+        prepareCommandModel()
+        let sender = Sender(url: settings.url, token: token) { s in Task { @MainActor in self.status = s } }
+        self.sender = sender
+        await sendResetIfNeeded(sender)
+        // One worker for every input: Whisper handles one phrase at a time.
+        let phraseQueue = PhraseQueue()  // website phrases are taken before OSC-only ones
+        let partials = PartialSlot()
+        let corrections = settings.corrections
+        let gate = settings.speechOnly ? SpeechGate() : nil
+        // Translating happens on its own ordered track so a slow translation never holds up
+        // transcribing the next phrase.
+        let (translateStream, translateOut) = AsyncStream.makeStream(of: TranslateStep.self)
+        translationTrouble = nil
+        let translateWorker = Task {
+            var missed: [String: Int] = [:]  // phrases in a row each language has been left out of
+            // Half a sentence translates wrongly, not partly, so a phrase that stops mid-sentence is held and
+            // translated together with what follows. Its English is shown and sent straight away.
+            var held: [(line: UUID, text: String, spoken: Range<Date>)] = []
+            var targets: [String] = [], forward = false
+            var turn = 0  // which wait for the rest of a sentence is current, so an earlier one running out does nothing
+
+            /// Translates `text`, sends it, and shows it (in place of `lines`, when it was held as those).
+            func finish(_ text: String, spoken: Range<Date>, replacing lines: [UUID] = []) async {
+                // English and its translations reach the website together
+                // (a slow language is dropped after a few seconds, never holding up the service).
+                let translations = await translator.translate(text, to: targets)
+                if lines.isEmpty { sender.send(text, translations: forward ? translations : [:]) }
+                else if forward { sender.send(text, translations: translations, kind: "whole") }  // its English went as parts
+                for code in targets { missed[code] = translations[code] == nil ? missed[code, default: 0] + 1 : 0 }
+                let failing = targets.filter { missed[$0, default: 0] >= 3 }  // one slow phrase isn't worth a warning
+                await MainActor.run {
+                    self.show(text, translations: translations, spoken: spoken, replacing: lines)
+                    self.noteTranslationTrouble(failing)
+                }
+            }
+            func finishHeld() async {
+                guard let first = held.first, let last = held.last else { return }
+                let parts = held
+                held = []
+                await finish(parts.map(\.text).joined(separator: " "), spoken: first.spoken.lowerBound..<last.spoken.upperBound, replacing: parts.map(\.line))
+            }
+
+            for await step in translateStream {
+                switch step {
+                case .phrase(let text, let to, let send, let spoken):
+                    (targets, forward) = (to, send)
+                    let ends = Translator.endsSentence(text)
+                    if held.isEmpty, ends {
+                        await finish(text, spoken: spoken)
+                        continue
+                    }
+                    let line = await MainActor.run { self.show(text, translations: [:], spoken: spoken) }
+                    sender.send(text, kind: forward ? "part" : nil)
+                    held.append((line, text, spoken))
+                    turn += 1
+                    if !ends, held.count < 3 {  // wait for the rest, but not for long and not for ever
+                        let waiting = turn
+                        Task {
+                            try? await Task.sleep(for: .seconds(6))
+                            translateOut.yield(.waitedLongEnough(waiting))
+                        }
+                        continue
+                    }
+                case .waitedLongEnough(let waited):
+                    guard waited == turn else { continue }
+                }
+                await finishHeld()
+            }
+            await finishHeld()
+        }
+        let worker = Task {
+            var heard: [UUID: (text: String, at: Date)] = [:]  // each input's last phrase, as context for its next one
+            while let phrase = await phraseQueue.next(), !Task.isCancelled {
+                // Music, singing, applause and noise go no further. A lone short word ("Booth.") scores lower than
+                // a sentence, so commands-only inputs get a lower bar.
+                if let gate, (gate.speechConfidence(SpeechEngine.normalized(phrase.audio)) ?? 1) < (phrase.input.commandsOnly ? 0.3 : SpeechGate.threshold) { continue }
+                // After a long gap the last phrase is no longer what was "just said".
+                let previous = heard[phrase.input.id].flatMap { Date().timeIntervalSince($0.at) < 30 ? $0.text : nil } ?? ""
+                // Planning Center's names change week to week. A commands-only input is told the phrases it is
+                // listening for instead, and nothing else: every prompt word delays the cue.
+                let commands = phrase.input.commandsOnly
+                let vocabulary = await MainActor.run {
+                    commands ? Cues.vocabulary(self.settings.oscRules, wakeWord: self.settings.oscWakeWord) : self.settings.promptVocabulary
+                }
+                decodeClock.begin()
+                let decoded = try? await engine.text(for: phrase.audio, corrections: corrections, vocabulary: vocabulary,
+                                                     previous: commands ? "" : previous, expectingPrompt: commands)
+                decodeClock.end()
+                guard let text = decoded, !text.isEmpty else { continue }
+                heard[phrase.input.id] = (text, Date())
+                if phrase.input.triggerOSC { await MainActor.run { self.fireOSC(for: text) } }  // before translating, so cues aren't delayed
+                guard phrase.input.sendToSite, await MainActor.run(body: { self.pushingToSite }) else { continue }
+                let spoken = phrase.start..<phrase.end
+                let (targets, forward) = await MainActor.run { (self.settings.translateTo, self.settings.sendTranslations) }
+                guard !targets.isEmpty else {
+                    sender.send(text)
+                    await MainActor.run { self.show(text, translations: [:], spoken: spoken) }
+                    continue
+                }
+                translateOut.yield(.phrase(text: text, targets: targets, forward: forward, spoken: spoken))
+            }
+            translateOut.finish()
+        }
+        // Commands-only inputs have their own queue, model and worker once the quick model is loaded.
+        let commandQueue = PhraseQueue()
+        let commandWorker = Task {
+            let gate = gate == nil ? nil : SpeechGate()  // its own: the two workers run at the same time
+            while let phrase = await commandQueue.next(), !Task.isCancelled {
+                if let gate, (gate.speechConfidence(SpeechEngine.normalized(phrase.audio)) ?? 1) < 0.3 { continue }
+                let vocabulary = await MainActor.run { Cues.vocabulary(self.settings.oscRules, wakeWord: self.settings.oscWakeWord) }
+                guard let text = try? await commandEngine.text(for: phrase.audio, corrections: corrections, vocabulary: vocabulary, expectingPrompt: true),
+                      !text.isEmpty else { continue }
+                await MainActor.run { self.fireOSC(for: text) }
+            }
+        }
+        // Words so far of the phrase being spoken, sent to the website as a draft line. Only ever uses the model
+        // between phrases (a finished phrase always goes first), and a draft whose phrase has since finished is dropped.
+        let partialWorker = Task {
+            let gate = gate == nil ? nil : SpeechGate()
+            var lastSent = ""
+            while let job = await partials.next(), !Task.isCancelled {
+                guard partials.isCurrent(job), phraseQueue.isEmpty, decodeClock.runningFor() == nil, sender.supportsPartials else { continue }
+                if let gate, (gate.speechConfidence(SpeechEngine.normalized(job.audio)) ?? 1) < SpeechGate.threshold { continue }
+                let corrections = await MainActor.run { self.settings.corrections }
+                guard let text = try? await engine.text(for: job.audio, corrections: corrections), !text.isEmpty,
+                      text != lastSent, partials.isCurrent(job) else { continue }
+                lastSent = text
+                await sender.sendPartial(text)
+            }
+        }
+        defer { phraseQueue.finish(); partials.finish(); partialWorker.cancel(); worker.cancel(); translateWorker.cancel(); commandQueue.finish(); commandWorker.cancel() }
+
+        heartbeatTask = Task {
+            while !Task.isCancelled {
+                if let stuck = decodeClock.runningFor(), stuck > 60 { await MainActor.run { self.recoverFromStall() }; return }
+                if await MainActor.run(body: { self.listening && self.pushingToSite }) { await sender.heartbeat() }
+                let supported = sender.supportsPartials
+                await MainActor.run { if self.partialsSupported != supported { self.partialsSupported = supported } }
+                try? await Task.sleep(for: .seconds(15))
+            }
+        }
+
+        // The schedule gates the website only: inputs that trigger OSC keep listening between services.
+        var sessionOpen = !settings.scheduleOn || Schedule.inWindow(settings)
+        while !Task.isCancelled {
+            let inService = !settings.scheduleOn || Schedule.inWindow(settings)
+            if inService && !sessionOpen {  // a new window is a new transcript
+                beginSession()
+                await sendResetIfNeeded(sender)
+                sessionOpen = true
+            }
+            pushingToSite = inService
+            let active = settings.inputs.filter { inService || $0.triggerOSC }
+            if active.isEmpty {
+                status = "Waiting for the schedule"
+                while !Task.isCancelled && !(settings.scheduleOn ? Schedule.inWindow(settings) : true) { try? await Task.sleep(for: .seconds(1)) }
+                continue
+            }
+            if await listenUntilDone(phraseQueue, commands: commandQueue, partials: partials, inputs: active, inService: inService) == false { return }
+            if inService && settings.scheduleOn && !Schedule.inWindow(settings) && !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(4))  // let the last phrase finish transcribing
+                if let saved = endSession() { status = "Saved \(saved.lastPathComponent)" }
+                sessionOpen = false
+                pushingToSite = false
+            }
+        }
+    }
+
+    /// Listens on every input until stopped, the schedule window ends, or the audio setup changes. Returns false on a fatal error.
+    private func listenUntilDone(_ sink: PhraseQueue, commands: PhraseQueue, partials: PartialSlot, inputs: [AudioInput], inService: Bool) async -> Bool {
+        let commandsFast = commandsFast
+        let minDb = settings.minDb
+        let interrupted = Interrupt()
+        let meterID = meterInput.id
+        let reporter = LevelReporter { db in Task { @MainActor in self.levelDb = db } }
+        let recorder = inService ? sessionRecorder() : nil  // records the input that feeds the website
+        let watch = inService && settings.inputs.contains(where: { $0.sendToSite }) ? FeedWatch(minDb: minDb) : nil
+        var segmenters: [(Segmenter, DispatchQueue, AudioInput)] = []
+        // Drafts come from one input only, the first that talks to the website: several would overwrite each other.
+        let draftInput = inService && settings.showPartials ? inputs.first(where: { $0.sendToSite && !$0.commandsOnly && !isMissing($0) })?.id : nil
+        let draftClock = PartialClock()
+        captures = [:]
+        // An input whose device is unplugged waits for it; it never falls back to another microphone.
+        let missing = inputs.filter(isMissing)
+        let missingNote = missing.isEmpty ? "" : " (“\(missing[0].device ?? "")” isn’t connected)"
+        for input in inputs where !isMissing(input) {
+            let segmenter = Segmenter(minDb: minDb, endPause: input.commandsOnly ? 0.3 : 0.5)  // a command is short: don't wait as long for it to end
+            let queue = DispatchQueue(label: "audio.segment.\(input.id)")
+            let capture = AudioCapture()
+            let isMeter = input.id == meterID
+            do {
+                try capture.start(device: device(for: input), channel: input.channel,
+                                  onSamples: { samples in
+                                      if isMeter {
+                                          reporter.feed(samples)
+                                          self.levelCheck.feed(samples)
+                                          recorder?.feed(samples)
+                                          watch?.feed(samples)
+                                      }
+                                      queue.async {
+                                          let to = input.commandsOnly && commandsFast.flag ? commands : sink
+                                          let cuts = segmenter.feed(samples: samples)
+                                          cuts.forEach { to.push(Phrase(input: input, audio: $0.audio, end: Date().addingTimeInterval(-$0.after))) }
+                                          guard input.id == draftInput else { return }
+                                          if !cuts.isEmpty { partials.invalidate() }  // those words are final now
+                                          else if draftClock.due(every: 1.0), let audio = segmenter.inProgress(minSeconds: 1.2, maxSeconds: 10) { partials.offer(audio) }
+                                      }
+                                  },
+                                  onInterrupted: { interrupted.flag = true })
+            } catch {
+                captures.values.forEach { $0.stop() }
+                captures = [:]
+                fail("Error: \(error.localizedDescription)")
+                return false
+            }
+            captures[input.id] = capture
+            segmenters.append((segmenter, queue, input))
+        }
+        status = segmenters.isEmpty ? "Waiting for the audio input" + missingNote : (inService ? "Listening" : "Listening for OSC only") + missingNote
+        listening = !segmenters.isEmpty
+        var seconds = 0
+        // A Mac waking from sleep often leaves the interface's stream dead without announcing it.
+        let wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+            interrupted.flag = true
+        }
+        defer { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+        while !Task.isCancelled && !interrupted.flag && (!settings.scheduleOn || Schedule.inWindow(settings)) == inService {
+            try? await Task.sleep(for: .seconds(1))
+            seconds += 1
+            if seconds >= 5, captures.values.contains(where: { $0.silentFor() > 5 }) { interrupted.flag = true }  // listed, but no audio arriving
+            let warning = watch?.warning(silentAfter: settings.silenceWarnMinutes)
+            if warning != feedWarning { feedWarning = warning }
+            if !missing.isEmpty, seconds % 3 == 0 {  // plugged back in? start over with it
+                refreshDevices()
+                if missing.contains(where: { !isMissing($0) }) { break }
+            }
+        }
+        stopCaptures()
+        listening = false
+        levelDb = -90
+        feedWarning = nil
+        for (segmenter, queue, input) in segmenters {
+            queue.sync {
+                if let tail = segmenter.flush() { (input.commandsOnly && commandsFast.flag ? commands : sink).push(Phrase(input: input, audio: tail)) }
+            }
+        }
+        if interrupted.flag && !Task.isCancelled {
+            status = "Audio changed — reconnecting…"
+            refreshDevices()
+            try? await Task.sleep(for: .seconds(2))
+        }
+        return true
+    }
+
+    /// Keeps the Mac from sleeping while the service is on, so the "Prevent automatic sleeping" setting is not
+    /// something to remember on a new machine. The display may still sleep.
+    private func holdAwake() {
+        guard keepAwake == nil else { return }
+        keepAwake = ProcessInfo.processInfo.beginActivity(options: [.idleSystemSleepDisabled, .userInitiated], reason: "Transcribing the service")
+    }
+
+    private func releaseAwake() {
+        if let keepAwake { ProcessInfo.processInfo.endActivity(keepAwake) }
+        keepAwake = nil
+    }
+
+    /// A decode that has not come back in a minute means the speech model is hung (a normal phrase takes about
+    /// a second), and everything behind it would wait for ever. Start over with a freshly loaded model.
+    private func recoverFromStall() {
+        guard running, runTask != nil else { return }
+        status = "Speech model stopped responding — restarting it…"
+        engine = SpeechEngine()
+        decodeClock.end()
+        let update = pendingUpdate  // restarting must not install a waiting update in the middle of a service
+        restarting = true
+        stop()
+        pendingUpdate = update
+        start()
+        restarting = false
+    }
+
+    private func stopCaptures() {
+        captures.values.forEach { $0.stop() }
+        captures = [:]
+    }
+
+    private func fail(_ message: String) {
+        runTask = nil
+        releaseAwake()
+        running = false
+        listening = false
+        heartbeatTask?.cancel()
+        sender?.stop()
+        sender = nil
+        status = message
+    }
+}
+
+nonisolated struct TranscriptLine: Identifiable {
+    let id = UUID()
+    let start: Date  // when the phrase was spoken, not when it was transcribed
+    let end: Date
+    let text: String
+    var translations: [String: String] = [:]
+}
+
+/// What the translating track is given: a transcribed phrase, or word that a sentence has been held long enough.
+nonisolated private enum TranslateStep: Sendable {
+    case phrase(text: String, targets: [String], forward: Bool, spoken: Range<Date>)
+    case waitedLongEnough(Int)
+}
+
+nonisolated private struct Phrase: Sendable {
+    let input: AudioInput
+    let audio: [Float]
+    var end = Date()  // when its audio ended: a little before it is queued, by whatever was heard after it
+    var start: Date { end.addingTimeInterval(-Double(audio.count) / Double(sampleRate)) }
+}
+
+/// Phrases waiting for Whisper. Each side keeps its newest 8 (falling behind drops the oldest), and phrases
+/// from inputs that send to the website always go first, so OSC input can never delay the transcript.
+nonisolated private final class PhraseQueue: @unchecked Sendable {
+    private let lock = NSLock()
+    private var site: [Phrase] = []
+    private var osc: [Phrase] = []
+    private var waiter: CheckedContinuation<Phrase?, Never>?
+    private var finished = false
+
+    func push(_ phrase: Phrase) {
+        lock.lock()
+        if let w = waiter {
+            waiter = nil
+            lock.unlock()
+            w.resume(returning: phrase)
+            return
+        }
+        if phrase.input.sendToSite { site.append(phrase); if site.count > 8 { site.removeFirst() } }
+        else { osc.append(phrase); if osc.count > 8 { osc.removeFirst() } }
+        lock.unlock()
+    }
+
+    func next() async -> Phrase? {
+        await withCheckedContinuation { cont in
+            lock.lock()
+            if !site.isEmpty { let p = site.removeFirst(); lock.unlock(); cont.resume(returning: p) }
+            else if !osc.isEmpty { let p = osc.removeFirst(); lock.unlock(); cont.resume(returning: p) }
+            else if finished { lock.unlock(); cont.resume(returning: nil) }
+            else { waiter = cont; lock.unlock() }
+        }
+    }
+
+    func finish() {
+        lock.lock()
+        finished = true
+        let w = waiter
+        waiter = nil
+        lock.unlock()
+        w?.resume(returning: nil)
+    }
+
+    var isEmpty: Bool { lock.withLock { site.isEmpty && osc.isEmpty } }
+}
+
+nonisolated private final class Interrupt: @unchecked Sendable { var flag = false }
+
+/// Lets a draft be made about once a second.
+nonisolated private final class PartialClock: @unchecked Sendable {
+    private var last = Date.distantPast
+    func due(every seconds: Double) -> Bool {
+        let now = Date()
+        guard now.timeIntervalSince(last) >= seconds else { return false }
+        last = now
+        return true
+    }
+}
+
+/// The newest in-progress audio waiting for a draft. A newer one replaces an older one, and `invalidate`
+/// (a phrase just finished) makes any draft already offered or being made out of date.
+nonisolated private final class PartialSlot: @unchecked Sendable {
+    struct Job: Sendable { let audio: [Float]; let generation: Int }
+    private let lock = NSLock()
+    private var generation = 0
+    private var latest: Job?
+    private var waiter: CheckedContinuation<Job?, Never>?
+    private var finished = false
+
+    func offer(_ audio: [Float]) {
+        lock.lock()
+        let job = Job(audio: audio, generation: generation)
+        if let w = waiter {
+            waiter = nil
+            lock.unlock()
+            w.resume(returning: job)
+            return
+        }
+        latest = job
+        lock.unlock()
+    }
+
+    func invalidate() { lock.withLock { generation += 1; latest = nil } }
+    func isCurrent(_ job: Job) -> Bool { lock.withLock { job.generation == generation } }
+
+    func next() async -> Job? {
+        await withCheckedContinuation { cont in
+            lock.lock()
+            if let job = latest { latest = nil; lock.unlock(); cont.resume(returning: job) }
+            else if finished { lock.unlock(); cont.resume(returning: nil) }
+            else { waiter = cont; lock.unlock() }
+        }
+    }
+
+    func finish() {
+        lock.lock()
+        finished = true
+        let w = waiter
+        waiter = nil
+        lock.unlock()
+        w?.resume(returning: nil)
+    }
+}
+
+/// When the current decode began, so a hung speech model can be told from a busy one.
+nonisolated private final class DecodeClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var since: Date?
+
+    func begin() { lock.withLock { since = Date() } }
+    func end() { lock.withLock { since = nil } }
+    func runningFor() -> TimeInterval? { lock.withLock { since.map { Date().timeIntervalSince($0) } } }
+}

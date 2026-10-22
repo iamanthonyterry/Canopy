@@ -1,0 +1,696 @@
+import AppKit
+import SwiftUI
+import Translation
+import ChurchKitCore
+
+// TODO(merge): becomes the app entry point; Canopy owns @main until then.
+// @main
+struct TranscriberApp: App {
+    @StateObject private var model = AppModel()
+
+    init() {
+        // This app was church.lifepoint.transcriber before it joined the Church Landing Page apps; bring its settings and key along.
+        LegacyMigration.run(fromBundleID: "church.lifepoint.transcriber", keychainServices: [(Keychain.legacyService, Keychain.currentService)])
+        if let i = CommandLine.arguments.firstIndex(of: "--transcribe-file"), i + 1 < CommandLine.arguments.count {
+            let v = CommandLine.arguments.firstIndex(of: "--vocabulary").flatMap { $0 + 1 < CommandLine.arguments.count ? CommandLine.arguments[$0 + 1] : nil }
+            FileTest.run(path: CommandLine.arguments[i + 1], vocabulary: v ?? "", commands: CommandLine.arguments.contains("--commands"),
+                         model: CommandLine.arguments.firstIndex(of: "--model").flatMap { $0 + 1 < CommandLine.arguments.count ? CommandLine.arguments[$0 + 1] : nil })  // dev/testing: print phrases from an audio file, then exit
+        }
+        if let i = CommandLine.arguments.firstIndex(of: "--level-check"), i + 1 < CommandLine.arguments.count {
+            FileTest.levelCheck(path: CommandLine.arguments[i + 1])  // dev/testing: judge an audio file's level, then exit
+        }
+    }
+
+    var body: some Scene {
+        MenuBarExtra {
+            MenuContent(model: model)
+        } label: {
+            MenuLabel(tint: model.statusTint)
+        }
+        .menuBarExtraStyle(.menu)
+
+        Window("Live transcript", id: "transcript") {
+            TranscriptView(model: model)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 380, height: 260)
+
+        Window("Website settings", id: "settings") {
+            TranscriberSettingsView(model: model)
+        }
+        .windowResizability(.contentSize)
+    }
+}
+
+struct MenuLabel: View {
+    let tint: NSColor?
+
+    var body: some View {
+        // Menu bar icons are templates (always monochrome), so a colored mic has to be a pre-tinted, non-template image.
+        if let tint, let img = Self.mic(tint) {
+            Image(nsImage: img)
+        } else {
+            Image(systemName: "mic.fill")
+        }
+    }
+
+    private static func mic(_ color: NSColor) -> NSImage? {
+        guard let base = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 14, weight: .regular)) else { return nil }
+        let img = NSImage(size: base.size, flipped: false) { rect in
+            base.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        img.isTemplate = false
+        return img
+    }
+}
+
+struct MenuContent: View {
+    @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Text(model.status)
+        if let w = model.feedWarning { Text("⚠ \(w)") }
+        Text(model.lastText.isEmpty ? "(nothing heard yet)" : "“\(model.lastText.prefix(70))\(model.lastText.count > 70 ? "…" : "")”")
+        Divider()
+        Button(model.running ? "Stop transcribing" : "Start transcribing") { model.toggle() }
+        Divider()
+        ForEach($model.settings.inputs) { $input in
+            Menu(model.inputTitle(input)) {
+                InputPickers(model: model, input: $input)
+            }
+            .disabled(model.running)
+        }
+        if model.hasVoiceCues {
+            // saved without apply(): switching cues off must not interrupt the audio
+            Toggle("Voice cues", isOn: Binding(get: { model.settings.oscOn }, set: { model.settings.oscOn = $0; model.saveSettings() }))
+            Menu("Recent cues") {
+                if model.cueLog.isEmpty { Text("None heard yet") }
+                ForEach(model.cueLog.prefix(12)) { Text(CueRow.summary($0)) }
+            }
+        }
+        Toggle("Only \(Schedule.summary(model.settings))", isOn: Binding(get: { model.settings.scheduleOn }, set: { model.settings.scheduleOn = $0; model.apply() }))
+        Divider()
+        Button("Show transcript") {
+            model.transcriptLanguage = ""
+            openWindow(id: "transcript")
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        if !model.settings.translateTo.isEmpty {
+            Menu("View translation") {
+                ForEach(model.settings.translateTo, id: \.self) { code in
+                    Button(model.languages.first { $0.code == code }?.name ?? code) {
+                        model.transcriptLanguage = code
+                        openWindow(id: "transcript")
+                        NSApp.activate(ignoringOtherApps: true)
+                    }
+                }
+            }
+        }
+        Button("Save transcript now") {
+            if !model.settings.saveFolder.isEmpty, model.saveTranscript(to: URL(fileURLWithPath: model.settings.saveFolder)) != nil { return }
+            let p = NSOpenPanel()
+            p.canChooseDirectories = true; p.canChooseFiles = false; p.canCreateDirectories = true
+            p.prompt = "Save Here"
+            NSApp.activate(ignoringOtherApps: true)
+            if p.runModal() == .OK, let u = p.url { model.saveTranscript(to: u) }
+        }
+        .disabled(model.sessionLog.isEmpty)
+        Button("Open live page") { if let u = model.liveURL() { NSWorkspace.shared.open(u) } }
+        Button("Website settings…") {
+            openWindow(id: "settings")
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        Divider()
+        Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")")
+        if HostMode.isNested {
+            Text("Updated with Canopy")
+        } else if let install = model.pendingUpdate {
+            Button("Restart to Update") { model.stop(); install() }
+        } else {
+            Button("Check for Updates…") { model.updates.checkForUpdates() }
+        }
+        Divider()
+        Button("Quit") { model.stop(); NSApp.terminate(nil) }
+    }
+}
+
+enum CueRow {
+    /// "10:42:07 next slide → /cue/next/start" or why it was held back.
+    static func summary(_ e: CueEvent) -> String {
+        let time = e.date.formatted(date: .omitted, time: .standard)
+        switch e.outcome {
+        case .sent: return "\(time)  “\(e.rule.phrase)” → \(e.rule.address)\(e.rule.argument.isEmpty ? "" : " " + e.rule.argument)"
+        case .cooldown: return "\(time)  “\(e.rule.phrase)” ignored: just fired"
+        case .noWakeWord: return "\(time)  “\(e.rule.phrase)” ignored: no wake word"
+        }
+    }
+}
+
+/// Device and channel pickers for one audio input (used in the menu bar and in Settings).
+struct InputPickers: View {
+    @ObservedObject var model: AppModel
+    @Binding var input: AudioInput
+    private static let unplugged = "\u{0}unplugged"
+
+    var body: some View {
+        Picker("Audio input", selection: Binding(get: { input.device == nil ? "" : (model.device(for: input)?.uid ?? Self.unplugged) }, set: { uid in
+            guard uid != Self.unplugged else { return }
+            let d = model.devices.first { $0.uid == uid }
+            input.device = d?.name; input.deviceUID = d?.uid; input.channel = 1
+            model.apply()
+        })) {
+            Text("System default").tag("")
+            ForEach(model.devices) { Text("\($0.name) (\($0.channels) ch)").tag($0.uid) }
+            // keeps a saved input visible while its device is unplugged
+            if model.isMissing(input) { Text("\(input.device ?? "") (not connected)").tag(Self.unplugged) }
+        }
+        .disabled(model.running)
+        Picker("Channel", selection: Binding(get: { input.channel }, set: { input.channel = $0; model.apply() })) {
+            ForEach(1...model.channelCount(for: input), id: \.self) { Text("Channel \($0)").tag($0) }
+        }
+        .disabled(model.running)
+    }
+}
+
+struct TranscriberSettingsView: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        Form {
+            Section("Website") {
+                LabeledContent("Sending to") {
+                    Text(model.token.isEmpty ? "Not connected" : (model.settings.connectedTo.isEmpty ? "A campus (key entered by hand)" : model.settings.connectedTo))
+                        .foregroundStyle(model.token.isEmpty ? .secondary : .primary)
+                }
+                HStack {
+                    Button(model.token.isEmpty ? "Sign in with website…" : "Change campus…") { model.signInWithWebsite() }
+                        .disabled(model.signInBusy || model.running)
+                    if model.signInBusy {
+                        ProgressView().controlSize(.small)
+                        Text("Finish in your browser").font(.caption).foregroundStyle(.secondary)
+                        Button("Cancel") { model.cancelSignIn() }
+                    }
+                    Spacer()
+                    if !model.token.isEmpty && !model.signInBusy { Button("Disconnect", role: .destructive) { model.disconnect() }.disabled(model.running) }
+                }
+                if model.running { StopToChange("Stop transcribing to change where the transcript is sent.") }
+                if let e = model.signInError { Text(e).font(.caption).foregroundStyle(.orange) }
+                Text("Sign in with the same email as the website’s admin, then pick the campus this Mac’s transcript goes to.")
+                    .font(.caption).foregroundStyle(.secondary)
+                DisclosureGroup("Advanced") {
+                    Field("Transcript address") { TextField("Transcript address", text: $model.settings.url, prompt: Text("https://example.com/api/transcript")) }
+                        .disabled(model.running)
+                    Field("Campus key") { SecureField("Campus key", text: $model.token, prompt: Text("Paste the key here")) }
+                        .disabled(model.running)
+                    Text("Only needed to point at a different site or to paste a campus key by hand (from the campus’s page in the website’s admin).")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Section("Behavior") {
+                Toggle("Start listening when the app opens", isOn: $model.settings.autoStart)
+                if HostMode.isNested {
+                    Text("Starts with your Mac. Turn that on or off in Canopy’s Settings.").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
+                }
+            }
+            Section("Schedule") {
+                Toggle("Send to website only during this schedule (OSC inputs always listen)", isOn: $model.settings.scheduleOn)
+                Picker("Times from", selection: $model.settings.pcoOn) {
+                    Text("Set manually").tag(false)
+                    Text("Planning Center").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: model.settings.pcoOn) { _, on in if on { Task { await model.refreshPCOTimes() } } }
+                if model.settings.pcoOn {
+                    PlanningCenterSection(model: model)
+                } else {
+                    ForEach($model.settings.scheduleWindows) { $w in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Picker("", selection: Binding(get: { w.date != nil }, set: { w.date = $0 ? (w.date ?? Date()) : nil })) {
+                                    Text("Repeats weekly").tag(false)
+                                    Text("One time").tag(true)
+                                }
+                                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                                Spacer()
+                                Button(role: .destructive) {
+                                    model.settings.scheduleWindows.removeAll { $0.id == w.id }
+                                } label: { Image(systemName: "trash") }
+                            }
+                            if w.date != nil {
+                                DatePicker("On", selection: Binding(get: { w.date ?? Date() }, set: { w.date = $0 }), displayedComponents: .date)
+                                if let d = w.date, d < Calendar.current.startOfDay(for: Date()) {
+                                    Text("This date has passed.").font(.caption).foregroundStyle(.orange)
+                                }
+                            } else {
+                                HStack {
+                                    ForEach(1...7, id: \.self) { d in
+                                        Toggle(Calendar.current.veryShortWeekdaySymbols[d - 1], isOn: Binding(
+                                            get: { w.days.contains(d) },
+                                            set: { if $0 { w.days.insert(d) } else { w.days.remove(d) } }))
+                                            .toggleStyle(.button)
+                                    }
+                                }
+                            }
+                            HStack {
+                                DatePicker("From", selection: Binding(get: { Schedule.date(w.start) }, set: { w.start = Schedule.minutes($0) }), displayedComponents: .hourAndMinute)
+                                DatePicker("to", selection: Binding(get: { Schedule.date(w.end) }, set: { w.end = Schedule.minutes($0) }), displayedComponents: .hourAndMinute)
+                            }
+                            if w.end <= w.start {
+                                Text("End must be after start (same day).").font(.caption).foregroundStyle(.orange)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    Button("Add another time") { model.settings.scheduleWindows.append(ScheduleWindow()) }
+                }
+            }
+            Section("Translation") {
+                if model.languages.isEmpty {
+                    Text("Translation needs macOS 26 or newer.").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    DisclosureGroup {
+                        ForEach(model.languages) { lang in
+                            Toggle(lang.name, isOn: Binding(get: { model.settings.translateTo.contains(lang.code) }, set: { _ in model.toggleLanguage(lang.code) }))
+                        }
+                    } label: {
+                        LabeledContent("Translate into") {
+                            Text(model.settings.translateTo.isEmpty ? "None" : "\(model.settings.translateTo.count) selected")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Toggle("Send translations to the website (viewers pick their language)", isOn: Binding(get: { model.settings.sendTranslations }, set: {
+                        model.settings.sendTranslations = $0
+                        model.saveSettings()
+                    }))
+                    .disabled(model.settings.translateTo.isEmpty)
+                }
+                if let note = model.translationNote ?? model.translationTrouble {
+                    Text(note).font(.caption).foregroundStyle(.orange)
+                }
+            }
+            Section("Transcript copy") {
+                Toggle("Save a copy of the transcript when a session ends", isOn: $model.settings.saveCopy)
+                HStack {
+                    Text(model.settings.saveFolder.isEmpty ? "No folder chosen" : model.settings.saveFolder)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Button("Choose…") {
+                        let p = NSOpenPanel()
+                        p.canChooseDirectories = true; p.canChooseFiles = false; p.canCreateDirectories = true
+                        if p.runModal() == .OK, let u = p.url { model.settings.saveFolder = u.path }
+                    }
+                }
+                Text("A session ends when you stop transcribing, quit, or the schedule’s end time passes. The whole session is kept (Clear only empties the window).")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Also save subtitle files (.srt and .vtt)", isOn: $model.settings.saveSubtitles)
+                    .disabled(!model.settings.saveCopy)
+                Toggle("Also record the audio", isOn: $model.settings.saveAudio)
+                    .disabled(!model.settings.saveCopy || model.running)
+                if model.running { StopToChange("Stop transcribing to turn recording on or off: a recording covers a whole session.") }
+                Text("Subtitles are timed from the start of the session and line up with the recording, which uses about 20 MB an hour. Each translation gets its own subtitle files.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Audio inputs") {
+                if model.running { StopToChange("Stop transcribing to change the audio inputs.") }
+                ForEach($model.settings.inputs) { $input in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            InputPickers(model: model, input: $input)
+                            Spacer()
+                            if model.settings.inputs.count > 1 {
+                                Button(role: .destructive) {
+                                    model.settings.inputs.removeAll { $0.id == input.id }
+                                } label: { Image(systemName: "trash") }
+                                .disabled(model.running)
+                            }
+                        }
+                        HStack {
+                            Toggle("Send to website", isOn: $input.sendToSite)
+                            Toggle("Trigger OSC", isOn: $input.triggerOSC)
+                        }
+                        .disabled(model.running)
+                    }
+                    .padding(.vertical, 2)
+                }
+                Button("Add an input") { model.settings.inputs.append(AudioInput(sendToSite: false, triggerOSC: true)) }
+                    .disabled(model.running)
+                Text("Every input is listened to at once. “Send to website” puts its speech in the transcript; “Trigger OSC” runs the phrases below on it. An input can do both. The level meter and sensitivity below follow the first input that sends to the website.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("OSC") {
+                HStack(alignment: .top) {
+                    Field("Send OSC to") { TextField("Send OSC to", text: $model.settings.oscHost, prompt: Text("127.0.0.1")) }
+                    Field("Port", width: 80) { TextField("Port", value: $model.settings.oscPort, format: .number.grouping(.never), prompt: Text("53000")) }
+                }
+                ForEach($model.settings.oscRules) { $r in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .bottom) {
+                            Field("When I say") { TextField("When I say", text: $r.phrase, prompt: Text("next slide")) }
+                            Button("Test") { model.testCue(r) }.disabled(!r.isSendable)
+                            Button(role: .destructive) {
+                                model.settings.oscRules.removeAll { $0.id == r.id }
+                            } label: { Image(systemName: "trash") }
+                        }
+                        Picker("Send", selection: $r.kind) {
+                            Text("OSC").tag(OSCRule.Kind.osc)
+                            Text("Web request (GET)").tag(OSCRule.Kind.httpGet)
+                            Text("Web request (POST)").tag(OSCRule.Kind.httpPost)
+                            Text("MIDI").tag(OSCRule.Kind.midi)
+                        }
+                        switch r.kind {
+                        case .osc:
+                            HStack(alignment: .top) {
+                                Field("Address") { TextField("Address", text: $r.address, prompt: Text("/cue/{number}/start")) }
+                                Field("Value (optional)", width: 130) { TextField("Value", text: $r.argument, prompt: Text("1")) }
+                            }
+                            Field("Send to (optional)") { TextField("Send to", text: $r.destination, prompt: Text("host:port, if not the one above")) }
+                        case .httpGet:
+                            Field("Address") { TextField("Address", text: $r.address, prompt: Text("http://192.168.1.20:8000/…")) }
+                        case .httpPost:
+                            Field("Address") { TextField("Address", text: $r.address, prompt: Text("http://127.0.0.1:8000/api/location/1/0/1/press")) }
+                            Field("Body (optional)") { TextField("Body", text: $r.argument, prompt: Text("{\"on\": true}")) }
+                        case .midi:
+                            HStack(alignment: .top) {
+                                Field("Message") { TextField("Message", text: $r.address, prompt: Text("note 60, cc 20 or program 5 (add ch 2)")) }
+                                Field("Value (0–127)", width: 130) { TextField("Value", text: $r.argument, prompt: Text("127")) }
+                            }
+                        }
+                        if !r.isSendable && r.address.count > 1 {
+                            Text("This can’t be sent as written, so the phrase won’t fire.").font(.caption).foregroundStyle(.orange)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                Button("Add a phrase") { model.settings.oscRules.append(OSCRule()) }
+                Toggle("Quick model for commands-only inputs", isOn: $model.settings.oscFastModel)
+                Text(model.commandModelNote ?? "An input that only triggers cues gets a small speech model of its own, so a cue fires about a second sooner and never waits for the transcript. It is a one-time 150 MB download; without internet the main model is used.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Field("Listen for OSC on port", width: 80) { TextField("Listen for OSC on port", value: $model.settings.oscInPort, format: .number.grouping(.never), prompt: Text("off")) }
+                Text("0 is off. Any device on the network can then send /transcriber/start, /stop, /clear, /save, /cues/on and /cues/off to this Mac.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Field("Wake word (optional)") { TextField("Wake word", text: $model.settings.oscWakeWord, prompt: Text("booth")) }
+                Text("With a wake word, a phrase only fires when said right after it: “\(model.settings.oscWakeWord.isEmpty ? "booth" : model.settings.oscWakeWord), next slide”, or the wake word, a breath, then the phrase. Pick an ordinary word that isn’t said in the service.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Stepper("The same phrase can fire again after \(model.settings.oscCooldown.formatted()) s", value: $model.settings.oscCooldown, in: 0...30, step: 0.5)
+                if !model.cueLog.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(model.cueLog.prefix(5)) { Text(CueRow.summary($0)).font(.caption).foregroundStyle($0.outcome == .sent ? .primary : .secondary) }
+                    }
+                }
+Text("Only inputs with “Trigger OSC” on send these, and “Voice cues” in the menu bar switches them all off. A phrase matches whole words, ignoring case and punctuation. Separate several ways of saying it with commas (“next slide, advance”). Write {number} in a phrase to take a spoken number (“go cue {number}”) and again in the address or value to use it. MIDI goes out on a source named “Transcriber” that other apps can pick as an input.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Tuning") {
+                Field("Names and terms") {
+                    TextField("Names and terms", text: $model.settings.vocabulary, prompt: Text("Pastor Jordan, Lifepoint, Ephesians"), axis: .vertical)
+                        .lineLimit(2...5)
+                }
+                Text("Names, places and unusual words to expect, separated by commas or lines (e.g. this week’s speaker, the series title). Put the most important first and keep the list short: about ten names fit, and a longer list adds up to half a second of delay.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Field("Corrections") {
+                    TextField("Corrections", text: $model.settings.corrections, prompt: Text("Life Point => Lifepoint"), axis: .vertical)
+                        .lineLimit(3...6)
+                }
+                Text("One per line, written heard => correct (e.g. Life Point => Lifepoint). Fixes names and places Whisper keeps getting wrong.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Skip music, singing and noise", isOn: $model.settings.speechOnly)
+                Text("Only talking is transcribed, including talking over music. Turn this off if real speech is being left out.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Show words as they’re spoken", isOn: $model.settings.showPartials)
+                Text(model.partialsSupported
+                     ? "Readers see a gray draft line that the finished sentence replaces. Uses a little more of the Neural Engine while someone talks."
+                     : "Readers see a gray draft line that the finished sentence replaces. Takes effect once the website is updated to support it; until then nothing is sent.")
+                    .font(.caption).foregroundStyle(.secondary)
+                LevelMeter(level: model.levelDb, threshold: model.settings.minDb)
+                HStack {
+                    Slider(value: $model.settings.minDb, in: -65...(-30), step: 1)
+                    Text("\(Int(model.settings.minDb)) dB").monospacedDigit().frame(width: 60, alignment: .trailing)
+                }
+                Text("Hears noise as speech? Raise this (try −42). Misses quiet speech? Lower it.").font(.caption).foregroundStyle(.secondary)
+                Stepper(model.settings.silenceWarnMinutes == 0 ? "Don’t warn about silence" : "Warn after \(model.settings.silenceWarnMinutes) min of silence",
+                        value: $model.settings.silenceWarnMinutes, in: 0...120, step: 5)
+                Text("Turns the menu bar icon orange and sends a notification when nothing has come in for that long while sending to the website. A muted mic during worship counts as silence, so set it longer than your music. Clipping is always warned about.")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Button(model.checkingLevel ? "Listening…" : "Check audio level") { model.checkLevel() }
+                        .disabled(model.checkingLevel)
+                    if model.checkingLevel { Text("Speak normally for 8 seconds").font(.caption).foregroundStyle(.secondary) }
+                }
+                if let r = model.levelResult {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(r.title, systemImage: r.isOK ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(r.isOK ? Color.green : Color.orange)
+                        Text(r.advice).font(.caption).foregroundStyle(.secondary)
+                        if r.verdict != .noSignal {
+                            Text("Speech \(Int(r.speechDb)) dB · background \(Int(r.noiseDb)) dB · peak \(Int(r.peakDb)) dB")
+                                .font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Save") {
+                    model.apply()
+                    NSApp.keyWindow?.close()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 460)
+        .padding()
+        .modifier(LanguageDownloader(model: model))
+        .onAppear { model.startMeter() }
+        .onDisappear { model.stopMeter() }
+    }
+}
+
+/// Says why the controls next to it are greyed out while a transcript is running.
+struct StopToChange: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Label(text, systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
+    }
+}
+
+/// A text box with its name above it. A grouped form draws a text field as bare right-aligned text, with
+/// nothing to show where to click; this gives it a border and leaves room for an example to type over.
+struct Field<Content: View>: View {
+    let label: String
+    let width: CGFloat?
+    let content: Content
+
+    init(_ label: String, width: CGFloat? = nil, @ViewBuilder content: () -> Content) {
+        self.label = label
+        self.width = width
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            content.labelsHidden().textFieldStyle(.roundedBorder).multilineTextAlignment(.leading)
+        }
+        .frame(width: width)
+    }
+}
+
+/// Live input level with a tick where the sensitivity threshold sits (speech must rise above it).
+struct LevelMeter: View {
+    let level: Double
+    let threshold: Double
+    private let range = -65.0...0.0
+
+    private func fraction(_ db: Double) -> Double {
+        min(max((db - range.lowerBound) / (range.upperBound - range.lowerBound), 0), 1)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Input level")
+                Spacer()
+                Text(level > -80 ? "\(Int(level)) dB" : "—").monospacedDigit().foregroundStyle(.secondary)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.quaternary)
+                    Capsule()
+                        .fill(level > threshold ? Color.green : Color.secondary)
+                        .frame(width: max(geo.size.width * fraction(level), 0))
+                        .animation(.linear(duration: 0.06), value: level)
+                    Rectangle().fill(.primary).frame(width: 2)
+                        .offset(x: geo.size.width * fraction(threshold) - 1)
+                }
+            }
+            .frame(height: 8)
+            .clipShape(Capsule())
+        }
+    }
+}
+
+struct PlanningCenterSection: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        if !model.pcoSignedIn {
+            HStack {
+                Button(model.pcoBusy ? "Waiting for the browser…" : "Sign in to Planning Center") { model.pcoSignIn() }
+                    .disabled(model.pcoBusy || !PCOConfig.isConfigured)
+                if model.pcoBusy { ProgressView().controlSize(.small) }
+            }
+            Text(PCOConfig.isConfigured ? "Opens Planning Center in your browser. Only service types, times and who is on the plan are read."
+                 : "This build has no Planning Center credentials (see Support/pco.env.example).")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            Picker("Service type", selection: Binding(get: { model.settings.pcoServiceTypeID ?? "" }, set: { model.selectPCOType($0.isEmpty ? nil : $0) })) {
+                Text("Choose…").tag("")
+                ForEach(model.pcoTypes) { Text($0.name).tag($0.id) }
+                // keeps the saved choice visible before the list loads (or if it is offline)
+                if let id = model.settings.pcoServiceTypeID, !model.pcoTypes.contains(where: { $0.id == id }) {
+                    Text(model.settings.pcoServiceTypeName).tag(id)
+                }
+            }
+            Stepper("Start \(model.settings.pcoLeadMinutes) min before the service", value: $model.settings.pcoLeadMinutes, in: 0...120, step: 5)
+            Stepper("Stop \(model.settings.pcoLengthMinutes) min after it starts", value: $model.settings.pcoLengthMinutes, in: 15...300, step: 5)
+            if model.settings.pcoServiceTypeID != nil {
+                let upcoming = model.settings.pcoTimes.filter { Schedule.pcoWindow(model.settings, $0).upperBound > Date() }.prefix(4)
+                if upcoming.isEmpty {
+                    Text(model.pcoBusy ? "Loading service times…" : "No upcoming service times for this service type.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(Array(upcoming), id: \.self) { t in
+                    let w = Schedule.pcoWindow(model.settings, t)
+                    Text("\(t.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())): listens \(w.lowerBound.formatted(date: .omitted, time: .shortened))–\(w.upperBound.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption)
+                }
+            }
+            Toggle("Expect this plan’s names", isOn: $model.settings.pcoTermsOn)
+                .onChange(of: model.settings.pcoTermsOn) { _, on in if on { Task { await model.refreshPCOTimes() } } }
+            if model.settings.pcoTermsOn {
+                Text(model.settings.pcoTerms.isEmpty
+                     ? "The speakers, series and title of today’s or the next plan are added to “Names and terms” so they are spelled right."
+                     : "Added to “Names and terms”: \(model.settings.pcoTerms.joined(separator: ", ")). Your own list comes first; about ten names fit in all.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Button("Refresh times") { Task { await model.refreshPCOTimes() } }
+                    .disabled(model.pcoBusy || model.settings.pcoServiceTypeID == nil)
+                Spacer()
+                Button("Sign out of Planning Center") { model.pcoSignOut() }
+            }
+        }
+        if let e = model.pcoError { Text(e).font(.caption).foregroundStyle(.orange) }
+    }
+}
+
+struct TranscriptView: View {
+    @ObservedObject var model: AppModel
+    @State private var floating = false
+
+    private var current: String { model.settings.translateTo.contains(model.transcriptLanguage) ? model.transcriptLanguage : "" }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Circle().fill(model.listening ? .red : (model.running ? .yellow : .gray)).frame(width: 8, height: 8)
+                Text(model.status).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer()
+                Toggle("Keep on top", isOn: $floating).toggleStyle(.checkbox).font(.caption)
+                Button("Clear") { model.lines.removeAll() }.controlSize(.small)
+            }
+            .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 6)
+            if let note = model.translationNote ?? model.translationTrouble {
+                Text(note).font(.caption).foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(.bottom, 4)
+            }
+            Divider()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        if model.lines.isEmpty {
+                            Text("Nothing heard yet").foregroundStyle(.secondary)
+                        }
+                        ForEach(model.lines) { line in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    if current.isEmpty {
+                                        Text(line.text).textSelection(.enabled)
+                                    } else if let t = line.translations[current] {
+                                        Text(t).textSelection(.enabled)
+                                    } else {
+                                        Text(line.text).foregroundStyle(.secondary).textSelection(.enabled)
+                                    }
+                                }
+                            }
+                            .id(line.id)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                }
+                .onChange(of: model.lines.count) {
+                    if let last = model.lines.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                }
+            }
+        }
+        .frame(minWidth: 300, minHeight: 160)
+        .background(WindowLevelSetter(floating: floating))
+    }
+}
+
+/// Shows Apple's "Download language?" prompt for languages picked in Settings (macOS 15+).
+private struct LanguageDownloader: ViewModifier {
+    @ObservedObject var model: AppModel
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15, *) { content.modifier(Prompt(model: model)) } else { content }
+    }
+
+    @available(macOS 15, *)
+    private struct Prompt: ViewModifier {
+        @ObservedObject var model: AppModel
+        @State private var config: TranslationSession.Configuration?
+
+        func body(content: Content) -> some View {
+            content
+                .translationTask(config) { session in
+                    // The session isn't Sendable, but it is used only here.
+                    nonisolated(unsafe) let session = session
+                    try? await session.prepareTranslation()
+                    await MainActor.run { model.finishDownload() }
+                }
+                .onChange(of: model.downloadQueue.first, initial: true) { _, code in
+                    config = code.map { .init(source: Locale.Language(identifier: "en"), target: Locale.Language(identifier: $0)) }
+                }
+        }
+    }
+}
+
+private struct WindowLevelSetter: NSViewRepresentable {
+    let floating: Bool
+    func makeNSView(context: Context) -> NSView { NSView() }
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let w = view.window else { return }
+            w.level = floating ? .floating : .normal
+            w.titlebarAppearsTransparent = true
+            w.titleVisibility = .hidden
+            w.styleMask.insert(.fullSizeContentView)
+            w.isMovableByWindowBackground = true
+            w.isOpaque = false
+            w.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.85)
+            for b in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { w.standardWindowButton(b)?.isHidden = true }
+        }
+    }
+}
