@@ -1,12 +1,10 @@
 name: Release
 
-# Builds, signs, notarizes and publishes Canopy whenever main is pushed with a
-# MARKETING_VERSION that has no GitHub Release yet (i.e. after a version bump).
-# Pushes that don't change the version are a no-op.
+# Manual only. Canopy is the merged Transcriber + Canopy app now, and a release has to go out on two update
+# feeds (iamanthonyterry/transcriber, with a zip holding Transcriber.app, and iamanthonyterry/Canopy), so it is
+# cut with ./release.sh, not from a push to main. Running this by hand publishes only the Canopy feed.
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
