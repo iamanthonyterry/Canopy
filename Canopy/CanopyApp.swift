@@ -31,12 +31,13 @@ struct CanopyApp: App {
             return
         }  // windows and menu only: no migration, no services
         // This app was church.lifepoint.transcriber before it joined the Church Landing Page apps; bring its settings and key along.
-        // TODO(merge): Canopy's own settings (workflows, devices) come across from com.rosesashumans.churchlandingpage.canopy
-        // on first launch; see the migration step in docs/canopy-merge-plan.md (the marker LegacyMigration writes is per app, not per source).
         LegacyMigration.run(fromBundleID: "church.lifepoint.transcriber", keychainServices: [(Keychain.legacyService, Keychain.currentService)])
+        // Canopy's own settings come across before anything reads them (see CanopyMigration).
+        CanopyMigration.runIfNeeded()
         KeychainStore.migrateRenamedService()
         CanopyFonts.register()
         Self.startWorkflowServices()
+        DispatchQueue.main.async { Task { await FirstLaunch.run() } }
     }
 
     /// What Canopy's window used to start when it opened. Now that there is no window, it starts with the app.

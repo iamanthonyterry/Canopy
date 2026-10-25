@@ -73,6 +73,7 @@ final class AppModel: ObservableObject {
 
     let updates = UpdateManager()
     private var statusPublisher: StatusPublisher?
+    private var renameWatcher: AnyCancellable?
 
     init() {
         (settings, token) = FileTest.isSafeMode ? (Settings(), "") : SettingsStore.load()
@@ -85,6 +86,16 @@ final class AppModel: ObservableObject {
         loadLanguages()
         updates.model = self
         if !FileTest.isSafeMode { statusPublisher = StatusPublisher(model: self) }
+        // An install that was Transcriber.app moves itself to Canopy.app, but only while nothing is being transcribed.
+        if SelfRename.pending != nil {
+            renameWatcher = $running.removeDuplicates().sink { [weak self] running in
+                guard !running else { return }
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(8))  // a start-at-launch or schedule start has begun by now
+                    if self?.running == false { SelfRename.performAndRelaunch() }
+                }
+            }
+        }
         connectControls()
         let agent = DeviceAgent(
             credentials: { [weak self] in await self?.deviceCredentials() ?? ("", "") },
