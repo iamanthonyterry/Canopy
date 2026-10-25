@@ -55,7 +55,7 @@ final class AppModel: ObservableObject {
     @Published var commandModelNote: String?
     private var captures: [UUID: AudioCapture] = [:]
     private let cues = CueSender()
-    private let oscIn = OSCListener()
+    private var commandHandler: UUID?
     private var cueGuard = CueGuard()
     /// The last voice cues heard, newest first, with what became of each (shown in the menu bar and Settings).
     @Published var cueLog: [CueEvent] = []
@@ -508,13 +508,13 @@ final class AppModel: ObservableObject {
     /// Sends the OSC message of every rule whose phrase was just heard, unless a guard holds it back.
     private func fireOSC(for text: String) {
         guard settings.oscOn else { return }
-        let events = cueGuard.check(text, rules: settings.oscRules, wakeWord: settings.oscWakeWord, cooldown: settings.oscCooldown)
+        let events = cueGuard.check(text, rules: cueRules, wakeWord: settings.oscWakeWord, cooldown: settings.oscCooldown)
         for e in events where e.outcome == .sent { sendOSC(e.rule) }
         cueLog = Array((events.reversed() + cueLog).prefix(30))
     }
 
     /// True when some input can fire some rule (so the menu bar shows the voice cue controls).
-    var hasVoiceCues: Bool { !settings.oscRules.isEmpty && settings.inputs.contains { $0.triggerOSC } }
+    var hasVoiceCues: Bool { !cueRules.isEmpty && settings.inputs.contains { $0.triggerOSC } }
 
     func sendOSC(_ rule: OSCRule) {
         cues.send(rule, host: settings.oscHost, port: settings.oscPort)
@@ -549,14 +549,29 @@ final class AppModel: ObservableObject {
 
     /// Opens what the cue settings need: the MIDI source, and the port that takes OSC commands.
     private func connectControls() {
-        cues.prepare(settings.oscRules)
-        if oscIn.port != settings.oscInPort {
-            oscIn.start(port: settings.oscInPort) { [weak self] address, arguments in self?.remote(address, arguments) }
+        cues.prepare(cueRules)
+        if !FileTest.isSafeMode {
+            if commandHandler == nil {
+                // /transcriber/… (and /canopy/…) arrive through the shared OSC bus, on either of the app's two port settings.
+                commandHandler = ControlBus.shared.onOSC { [weak self] message in self?.remote(message.address, message.arguments.map(\.displayText)) }
+            }
+            ControlBus.shared.setCommandPort(settings.oscInPort)
         }
     }
 
+    /// Every phrase that can fire something: the voice cues in Settings, and the Voice Cue triggers of workflows.
+    var cueRules: [OSCRule] {
+        let triggers = AppState.shared.workflows.flatMap(\.activeTriggers).filter {
+            $0.mode == .voiceCue && !$0.voicePhrase.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        return settings.oscRules + triggers.map { OSCRule(phrase: $0.voicePhrase, kind: .workflow, address: OSCRule.workflowPrefix + $0.id.uuidString) }
+    }
+
     /// OSC sent to this Mac: /transcriber/start, /stop, /clear, /save, and /cues (1 or 0, or /cues/on and /cues/off).
+    /// `/canopy/…` does the same, now that the app has that name.
     private func remote(_ address: String, _ arguments: [String]) {
+        var address = address
+        if address.lowercased().hasPrefix("/canopy/") { address = "/transcriber/" + address.dropFirst("/canopy/".count) }
         switch address.lowercased() {
         case "/transcriber/start": if !running { start() }
         case "/transcriber/stop": if running { stop() }
@@ -695,7 +710,7 @@ final class AppModel: ObservableObject {
                 // listening for instead, and nothing else: every prompt word delays the cue.
                 let commands = phrase.input.commandsOnly
                 let vocabulary = await MainActor.run {
-                    commands ? Cues.vocabulary(self.settings.oscRules, wakeWord: self.settings.oscWakeWord) : self.settings.promptVocabulary
+                    commands ? Cues.vocabulary(self.cueRules, wakeWord: self.settings.oscWakeWord) : self.settings.promptVocabulary
                 }
                 decodeClock.begin()
                 let decoded = try? await engine.text(for: phrase.audio, corrections: corrections, vocabulary: vocabulary,
@@ -722,7 +737,7 @@ final class AppModel: ObservableObject {
             let gate = gate == nil ? nil : SpeechGate()  // its own: the two workers run at the same time
             while let phrase = await commandQueue.next(), !Task.isCancelled {
                 if let gate, (gate.speechConfidence(SpeechEngine.normalized(phrase.audio)) ?? 1) < 0.3 { continue }
-                let vocabulary = await MainActor.run { Cues.vocabulary(self.settings.oscRules, wakeWord: self.settings.oscWakeWord) }
+                let vocabulary = await MainActor.run { Cues.vocabulary(self.cueRules, wakeWord: self.settings.oscWakeWord) }
                 guard let text = try? await commandEngine.text(for: phrase.audio, corrections: corrections, vocabulary: vocabulary, expectingPrompt: true),
                       !text.isEmpty else { continue }
                 await MainActor.run { self.fireOSC(for: text) }

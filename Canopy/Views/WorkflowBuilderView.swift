@@ -457,6 +457,12 @@ struct WorkflowBuilderView: View {
         case .folderChanged:
             let name = appState.localFolders.first { $0.id == trigger.deviceID }?.name
             return name.map { "When new clips arrive in \($0)" } ?? "When new clips arrive in a folder"
+        case .osc:
+            return trigger.oscAddress.isEmpty ? "When an OSC message arrives" : "When OSC \(trigger.oscAddress) arrives"
+        case .midi:
+            return "When MIDI \(trigger.midiKind.displayName) #\(trigger.midiNumber) arrives (channel \(trigger.midiChannel + 1))"
+        case .voiceCue:
+            return trigger.voicePhrase.isEmpty ? "When a phrase is spoken" : "When someone says “\(trigger.voicePhrase)”"
         }
     }
 
@@ -474,6 +480,12 @@ struct WorkflowBuilderView: View {
             return trigger.deviceID == nil
                 ? "Choose a folder to watch"
                 : "Runs on that folder · at most every \(trigger.cooldownMinutes) min"
+        case .osc:
+            return (trigger.oscArgument.isEmpty ? "Any value" : "Value \(trigger.oscArgument)") + " · at most every \(trigger.cooldownSeconds) sec"
+        case .midi:
+            return "At most every \(trigger.cooldownSeconds) sec"
+        case .voiceCue:
+            return "Needs a voice-cue audio input · at most every \(trigger.cooldownSeconds) sec"
         }
     }
 
@@ -956,6 +968,11 @@ struct ScheduleTriggerConfigSheet: View {
     @Binding var trigger: ScheduleSettings
     /// Workflows offered by a "When a workflow finishes" trigger.
     var sourceWorkflows: [Workflow] = []
+    @ObservedObject private var osc = RemoteControlEngine.shared.osc
+    @ObservedObject private var midi = RemoteControlEngine.shared.midi
+    private enum Learning { case osc, midi }
+    @State private var learning: Learning?
+    @State private var learnToken: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1045,6 +1062,36 @@ struct ScheduleTriggerConfigSheet: View {
                         note("Checked every 30 seconds. Clips already in the folder are ignored; the workflow runs on the folder once new clips have finished copying in.")
                     }
                     cooldownStepper
+
+                case .osc:
+                    LabeledContent("Address") {
+                        TextField("/cue/12/start", text: $trigger.oscAddress).textFieldStyle(.roundedBorder)
+                    }
+                    LabeledContent("Value") {
+                        TextField("any value", text: $trigger.oscArgument).textFieldStyle(.roundedBorder)
+                    }
+                    learnRow(isLearning: learning == .osc, available: osc.isListening || ControlBus.shared.commandPort > 0,
+                             hint: "Turn on the OSC listener in Settings › More first.", action: learnOSC)
+                    note("Runs when this OSC message reaches Canopy. A * matches any one part of the address (/cue/*/start). Leave Value empty to run on any value, or give one to run only on that.")
+                    remoteCooldown
+
+                case .midi:
+                    Picker("Message", selection: $trigger.midiKind) {
+                        ForEach(MIDIMessage.Kind.allCases) { Text($0.displayName).tag($0) }
+                    }
+                    Stepper("Channel \(trigger.midiChannel + 1)", value: $trigger.midiChannel, in: 0...15)
+                    Stepper("Number \(trigger.midiNumber)", value: $trigger.midiNumber, in: 0...127)
+                    learnRow(isLearning: learning == .midi, available: midi.isListening,
+                             hint: "Turn on the MIDI listener in Settings › More first, or set the values by hand.", action: learnMIDI)
+                    note("Runs when this note, controller or program change arrives. The velocity or amount doesn't matter, so pressing a pad is enough.")
+                    remoteCooldown
+
+                case .voiceCue:
+                    LabeledContent("Phrase") {
+                        TextField("start the offload", text: $trigger.voicePhrase).textFieldStyle(.roundedBorder)
+                    }
+                    note("Runs when this is said on an audio input that has Trigger OSC turned on (Settings › Transcription). Separate several phrases with commas. The wake word, the cooldown, and the Voice cues switch in the menu all apply.")
+                    remoteCooldown
                 }
             }
             .formStyle(.grouped)
@@ -1052,6 +1099,8 @@ struct ScheduleTriggerConfigSheet: View {
         }
         .frame(width: 420)
         .background(Color.canopyPaper)
+        .onDisappear(perform: stopLearning)
+        .onChange(of: trigger.mode) { stopLearning() }
     }
 
     private var deckPicker: some View {
@@ -1061,6 +1110,47 @@ struct ScheduleTriggerConfigSheet: View {
                 Text(deck.name).tag(Optional(deck.id))
             }
         }
+    }
+
+    private var remoteCooldown: some View {
+        Stepper(value: $trigger.cooldownSeconds, in: 0...600) {
+            Text(trigger.cooldownSeconds == 0 ? "Runs every time" : "At most once every \(trigger.cooldownSeconds) sec")
+        }
+    }
+
+    @ViewBuilder
+    private func learnRow(isLearning: Bool, available: Bool, hint: String, action: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button(action: action) {
+                Label(isLearning ? "Listening… (send it now)" : "Listen for the Next Message",
+                      systemImage: isLearning ? "dot.radiowaves.left.and.right" : "waveform")
+            }
+            .disabled(!available)
+            if !available { note(hint) }
+        }
+    }
+
+    private func learnOSC() {
+        stopLearning()
+        learning = .osc
+        learnToken = ControlBus.shared.learnOSC { message in
+            trigger.oscAddress = message.address
+            learning = nil; learnToken = nil
+        }
+    }
+
+    private func learnMIDI() {
+        stopLearning()
+        learning = .midi
+        learnToken = ControlBus.shared.learnMIDI { message in
+            trigger.midiKind = message.kind; trigger.midiChannel = message.channel; trigger.midiNumber = message.number
+            learning = nil; learnToken = nil
+        }
+    }
+
+    private func stopLearning() {
+        if let learnToken { ControlBus.shared.remove(learnToken) }
+        learnToken = nil; learning = nil
     }
 
     private var cooldownStepper: some View {

@@ -57,6 +57,8 @@ class SchedulerService: ObservableObject {
 
     private init() {
         observeDevices()
+        ControlBus.shared.onOSC { [weak self] message in self?.remoteMessage(osc: message) }
+        ControlBus.shared.onMIDI { [weak self] message in self?.remoteMessage(midi: message) }
     }
 
     // Call at app launch and whenever any workflow's schedule changes
@@ -123,7 +125,7 @@ class SchedulerService: ObservableObject {
                     // One-time triggers always turn themselves off after firing.
                     disableTrigger(workflowID: workflow.id, triggerID: trigger.id)
 
-                case .recordingStopped, .deviceOnline, .workflowFinished, .folderChanged:
+                case .recordingStopped, .deviceOnline, .workflowFinished, .folderChanged, .osc, .midi, .voiceCue:
                     // Event triggers are driven by their own sources.
                     continue
                 }
@@ -293,6 +295,50 @@ class SchedulerService: ObservableObject {
                     reason: "\(deck.name) \(what) — workflow triggered"
                 )
             }
+        }
+    }
+
+    // MARK: - OSC, MIDI and voice cues
+
+    /// When each remote trigger last started a run (for its short cooldown).
+    private var lastRemoteFire: [UUID: Date] = [:]
+
+    private func remoteMessage(osc message: OSCMessage) {
+        for workflow in appState.workflows {
+            for trigger in workflow.triggers where trigger.isEnabled && trigger.mode == .osc
+                && ControlTriggerMatch.osc(address: trigger.oscAddress, argument: trigger.oscArgument, message: message) {
+                fireRemote(workflow, trigger: trigger, reason: "OSC \(message.address)")
+            }
+        }
+    }
+
+    private func remoteMessage(midi message: MIDIMessage) {
+        for workflow in appState.workflows {
+            for trigger in workflow.triggers where trigger.isEnabled && trigger.mode == .midi
+                && ControlTriggerMatch.midi(kind: trigger.midiKind, channel: trigger.midiChannel, number: trigger.midiNumber, message: message) {
+                fireRemote(workflow, trigger: trigger, reason: "MIDI \(trigger.displaySummary)")
+            }
+        }
+    }
+
+    /// A voice cue's phrase was heard (already past the wake word and cooldown checks in the transcriber).
+    func voiceCueHeard(triggerID: UUID) {
+        for workflow in appState.workflows {
+            if let trigger = workflow.triggers.first(where: { $0.id == triggerID && $0.isEnabled && $0.mode == .voiceCue }) {
+                fireRemote(workflow, trigger: trigger, reason: "Heard “\(trigger.voicePhrase)”")
+            }
+        }
+    }
+
+    /// Starts the workflow now. Unlike an event from a deck, a cue is never held back for later: if a device it uses is
+    /// busy it is dropped, with a log line, because a run starting minutes late would be a surprise.
+    private func fireRemote(_ workflow: Workflow, trigger: ScheduleSettings, reason: String) {
+        if let last = lastRemoteFire[trigger.id], Date().timeIntervalSince(last) < Double(max(trigger.cooldownSeconds, 0)) { return }
+        if fire(workflow, reason: reason) {
+            lastRemoteFire[trigger.id] = Date()
+        } else {
+            appState.log("⚠️ \(reason): not started — a device “\(workflow.name)” uses is busy")
+            NotificationService.sendDeviceAlert(title: "\(workflow.name) didn't start", body: "\(reason), but a device it uses is busy.")
         }
     }
 

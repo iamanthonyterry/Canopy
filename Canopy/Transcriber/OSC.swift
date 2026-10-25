@@ -5,7 +5,9 @@ import Network
 /// The phrase may contain `{number}` ("go cue {number}"), and so may the address and value, which get
 /// the number that was said ("/cue/{number}/start").
 nonisolated struct OSCRule: Codable, Equatable, Identifiable {
-    enum Kind: String, Codable, CaseIterable { case osc, httpGet, httpPost, midi }
+    /// `workflow` is never written by hand: it stands for a workflow's Voice Cue trigger, with `address` naming the trigger.
+    enum Kind: String, Codable, CaseIterable { case osc, httpGet, httpPost, midi, workflow }
+    static let workflowPrefix = "workflow:"
 
     var id = UUID()
     var phrase = ""
@@ -36,7 +38,13 @@ nonisolated struct OSCRule: Codable, Equatable, Identifiable {
         case .osc: return filled.hasPrefix("/") && filled.count > 1
         case .httpGet, .httpPost: return URL(string: filled).map { ["http", "https"].contains($0.scheme ?? "") && $0.host != nil } ?? false
         case .midi: return CueMIDIMessage(filled, value: "") != nil
+        case .workflow: return workflowTriggerID != nil
         }
+    }
+
+    /// The workflow trigger a `workflow` rule runs.
+    var workflowTriggerID: UUID? {
+        kind == .workflow && address.hasPrefix(Self.workflowPrefix) ? UUID(uuidString: String(address.dropFirst(Self.workflowPrefix.count))) : nil
     }
 
     /// This rule with the spoken number put into its address and value.
@@ -168,37 +176,8 @@ nonisolated final class CueSender: @unchecked Sendable {
             URLSession.shared.dataTask(with: request).resume()
         case .midi:
             if let message = CueMIDIMessage(rule.address, value: rule.argument) { midi.send(message) }
+        case .workflow:
+            if let id = rule.workflowTriggerID { Task { @MainActor in SchedulerService.shared.voiceCueHeard(triggerID: id) } }
         }
-    }
-}
-
-/// Listens for OSC on a UDP port so a cue list or a button box can run the transcriber.
-nonisolated final class OSCListener: @unchecked Sendable {
-    private var listener: NWListener?
-    private(set) var port = 0
-
-    /// `handler` is called on the main actor with each message. Port 0 (or one that can't be opened) just stops listening.
-    func start(port: Int, handler: @escaping @MainActor (String, [String]) -> Void) {
-        stop()
-        guard port > 0, let p = NWEndpoint.Port(rawValue: UInt16(clamping: port)), let l = try? NWListener(using: .udp, on: p) else { return }
-        l.newConnectionHandler = { conn in
-            conn.start(queue: .global())
-            @Sendable func receive() {
-                conn.receiveMessage { data, _, _, error in
-                    if let data, let m = OSC.decode(data) { Task { @MainActor in handler(m.address, m.arguments) } }
-                    if error == nil { receive() } else { conn.cancel() }
-                }
-            }
-            receive()
-        }
-        l.start(queue: .global())
-        listener = l
-        self.port = port
-    }
-
-    func stop() {
-        listener?.cancel()
-        listener = nil
-        port = 0
     }
 }

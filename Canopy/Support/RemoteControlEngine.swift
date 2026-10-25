@@ -16,13 +16,16 @@ final class RemoteControlEngine: ObservableObject {
 
     private let appState = AppState.shared
 
+    /// What the persisted settings ask for, which is what the bus needs to know to avoid opening the same port twice.
+    var isOSCRequested: Bool { appState.remoteControlSettings.oscEnabled }
+    var requestedOSCPort: UInt16 { appState.remoteControlSettings.oscPort }
+
     private init() {
-        osc.onMessage = { [weak self] message, _ in
-            self?.handle(osc: message)
-        }
-        midi.onMessage = { [weak self] message, _ in
-            self?.handle(midi: message)
-        }
+        // Everything received goes through the bus; this engine is one of its listeners (the HyperDeck mappings).
+        osc.onMessage = { message, _ in ControlBus.shared.dispatch(osc: message) }
+        midi.onMessage = { message, _ in ControlBus.shared.dispatch(midi: message) }
+        ControlBus.shared.onOSC { [weak self] message in self?.handle(osc: message) }
+        ControlBus.shared.onMIDI { [weak self] message in self?.handle(midi: message) }
     }
 
     /// Starts/stops each listener to match the persisted settings. Call
@@ -41,6 +44,7 @@ final class RemoteControlEngine: ObservableObject {
         } else {
             midi.stop()
         }
+        ControlBus.shared.refresh()
     }
 
     // MARK: - Matching

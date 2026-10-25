@@ -91,6 +91,12 @@ struct TriggerContext {
         case .folderChanged:
             let name = folders.first { $0.id == trigger.deviceID }?.name ?? "a folder"
             return "when new clips arrive in \(name)"
+        case .osc:
+            return trigger.oscAddress.isEmpty ? "when an OSC message arrives" : "when OSC \(trigger.oscAddress) arrives"
+        case .midi:
+            return "when MIDI \(trigger.midiKind.displayName) \(trigger.midiNumber) arrives on channel \(trigger.midiChannel + 1)"
+        case .voiceCue:
+            return trigger.voicePhrase.isEmpty ? "when a phrase is spoken" : "when “\(trigger.voicePhrase)” is spoken"
         }
     }
 }

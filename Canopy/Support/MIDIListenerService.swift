@@ -35,6 +35,7 @@ final class MIDIListenerService: ObservableObject {
     private var client = MIDIClientRef()
     private var inputPort = MIDIPortRef()
     private static let logLimit = 100
+    private static let ownSourceNames: Set<String> = ["Transcriber", "Canopy"]
 
     /// Carries a source's display name through CoreMIDI's untyped refCon
     /// pointer so the read callback can tag each message with where it came
@@ -51,6 +52,7 @@ final class MIDIListenerService: ObservableObject {
     func refreshSources() {
         let count = MIDIGetNumberOfSources()
         availableSources = (0..<count).map { MIDISourceInfo(name: Self.name(for: MIDIGetSource($0))) }
+            .filter { !Self.ownSourceNames.contains($0.name) }
     }
 
     private static func name(for endpoint: MIDIEndpointRef) -> String {
@@ -98,6 +100,8 @@ final class MIDIListenerService: ObservableObject {
         for i in 0..<MIDIGetNumberOfSources() {
             let endpoint = MIDIGetSource(i)
             let name = Self.name(for: endpoint)
+            // Voice cues can send MIDI from a virtual source of ours; listening to it would loop back into triggers.
+            guard !Self.ownSourceNames.contains(name) else { continue }
             guard sourceFilter.isEmpty || sourceFilter.contains(name) else { continue }
 
             let refCon = Unmanaged.passRetained(SourceBox(name: name)).toOpaque()

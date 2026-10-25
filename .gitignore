@@ -54,3 +54,5 @@ Package.resolved
 tmp/
 
 temp/
+# coverage output from running an instrumented debug build in this folder
+*.profraw

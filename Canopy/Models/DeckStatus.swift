@@ -251,6 +251,12 @@ enum ScheduleMode: String, Codable, CaseIterable, Identifiable {
     case workflowFinished
     /// New clips have finished arriving in a Local Folder.
     case folderChanged
+    /// An OSC message arrived (from a cue list, TouchOSC, Companion…).
+    case osc
+    /// A MIDI note, controller or program change arrived.
+    case midi
+    /// A phrase was heard on a voice-cue input.
+    case voiceCue
 
     var id: String { rawValue }
 
@@ -262,6 +268,9 @@ enum ScheduleMode: String, Codable, CaseIterable, Identifiable {
         case .deviceOnline:     return "Device Comes Online"
         case .workflowFinished: return "Workflow Finishes"
         case .folderChanged:    return "New Clips in Folder"
+        case .osc:              return "OSC Message"
+        case .midi:             return "MIDI Message"
+        case .voiceCue:         return "Voice Cue"
         }
     }
 
@@ -273,6 +282,9 @@ enum ScheduleMode: String, Codable, CaseIterable, Identifiable {
         case .deviceOnline:     return "bolt.horizontal.circle"
         case .workflowFinished: return "arrow.triangle.branch"
         case .folderChanged:    return "folder.badge.plus"
+        case .osc:              return "dot.radiowaves.left.and.right"
+        case .midi:             return "pianokeys"
+        case .voiceCue:         return "waveform.badge.mic"
         }
     }
 
@@ -281,7 +293,9 @@ enum ScheduleMode: String, Codable, CaseIterable, Identifiable {
     var isEvent: Bool { self != .daily && self != .oneTime }
 
     static let scheduleModes: [ScheduleMode] = [.daily, .oneTime]
-    static let eventModes: [ScheduleMode] = [.recordingStopped, .deviceOnline, .workflowFinished, .folderChanged]
+    static let eventModes: [ScheduleMode] = [.recordingStopped, .deviceOnline, .workflowFinished, .folderChanged, .osc, .midi, .voiceCue]
+    /// Triggers that come from outside the app (a cue list, a controller, someone speaking) rather than from a device or the clock.
+    var isRemote: Bool { self == .osc || self == .midi || self == .voiceCue }
 }
 
 /// Which finished runs of the source workflow count for a
@@ -363,6 +377,20 @@ struct ScheduleSettings: Codable, Hashable, Identifiable {
     /// flickers or a chain of workflows can't start runs back to back.
     var cooldownMinutes: Int = 5
 
+    // Remote modes (OSC, MIDI, voice cue).
+    /// `osc`: the address to react to, such as `/cue/12/start`. A `*` stands for any one part (`/cue/*/start`).
+    var oscAddress: String = ""
+    /// `osc`: when not empty, the message's first argument must equal this.
+    var oscArgument: String = ""
+    /// `midi`: what to react to. The velocity or amount is ignored, so a button press fires it.
+    var midiKind: MIDIMessage.Kind = .noteOn
+    var midiChannel: Int = 0   // 0...15
+    var midiNumber: Int = 60
+    /// `voiceCue`: what to say. Several phrases can be separated by commas, and `{number}` isn't used here.
+    var voicePhrase: String = ""
+    /// Remote modes: the shortest gap between two runs, so a button that bounces or a phrase heard twice starts one run.
+    var cooldownSeconds: Int = 3
+
     var displayTime: String {
         let h = hour % 12 == 0 ? 12 : hour % 12
         let ampm = hour < 12 ? "AM" : "PM"
@@ -403,12 +431,16 @@ struct ScheduleSettings: Codable, Hashable, Identifiable {
         case .deviceOnline:     return "When a device comes online"
         case .workflowFinished: return "When a workflow finishes"
         case .folderChanged:    return "When new clips arrive"
+        case .osc:              return oscAddress.isEmpty ? "When an OSC message arrives" : "OSC \(oscAddress)"
+        case .midi:             return "MIDI \(midiKind.displayName) · Ch \(midiChannel + 1) · #\(midiNumber)"
+        case .voiceCue:         return voicePhrase.isEmpty ? "When a phrase is spoken" : "Say “\(voicePhrase)”"
         }
     }
 
     enum CodingKeys: String, CodingKey {
         case isEnabled, mode, hour, minute, repeatDaily, selectedWeekdays, oneTimeDate
         case deviceID, sourceWorkflowID, finishCondition, cooldownMinutes
+        case oscAddress, oscArgument, midiKind, midiChannel, midiNumber, voicePhrase, cooldownSeconds
     }
 }
 
@@ -429,5 +461,12 @@ extension ScheduleSettings {
         sourceWorkflowID = try c.decodeIfPresent(UUID.self, forKey: .sourceWorkflowID)
         finishCondition = try c.decodeIfPresent(WorkflowFinishCondition.self, forKey: .finishCondition) ?? .any
         cooldownMinutes = try c.decodeIfPresent(Int.self, forKey: .cooldownMinutes) ?? 5
+        oscAddress = try c.decodeIfPresent(String.self, forKey: .oscAddress) ?? ""
+        oscArgument = try c.decodeIfPresent(String.self, forKey: .oscArgument) ?? ""
+        midiKind = try c.decodeIfPresent(MIDIMessage.Kind.self, forKey: .midiKind) ?? .noteOn
+        midiChannel = try c.decodeIfPresent(Int.self, forKey: .midiChannel) ?? 0
+        midiNumber = try c.decodeIfPresent(Int.self, forKey: .midiNumber) ?? 60
+        voicePhrase = try c.decodeIfPresent(String.self, forKey: .voicePhrase) ?? ""
+        cooldownSeconds = try c.decodeIfPresent(Int.self, forKey: .cooldownSeconds) ?? 3
     }
 }

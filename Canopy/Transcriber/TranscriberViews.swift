@@ -111,12 +111,20 @@ struct MenuContent: View {
     }
 }
 
+@MainActor
 enum CueRow {
+    /// What a rule does: the OSC address and value, or the workflow a Voice Cue trigger runs.
+    private static func does(_ r: OSCRule) -> String {
+        guard let id = r.workflowTriggerID else { return "\(r.address)\(r.argument.isEmpty ? "" : " " + r.argument)" }
+        let name = AppState.shared.workflows.first { $0.triggers.contains { $0.id == id } }?.name ?? "a workflow"
+        return "runs “\(name)”"
+    }
+
     /// "10:42:07 next slide → /cue/next/start" or why it was held back.
     static func summary(_ e: CueEvent) -> String {
         let time = e.date.formatted(date: .omitted, time: .standard)
         switch e.outcome {
-        case .sent: return "\(time)  “\(e.rule.phrase)” → \(e.rule.address)\(e.rule.argument.isEmpty ? "" : " " + e.rule.argument)"
+        case .sent: return "\(time)  “\(e.rule.phrase)” → \(does(e.rule))"
         case .cooldown: return "\(time)  “\(e.rule.phrase)” ignored: just fired"
         case .noWakeWord: return "\(time)  “\(e.rule.phrase)” ignored: no wake word"
         }
@@ -353,6 +361,8 @@ struct TranscriberSettingsView: View {
                                 Field("Message") { TextField("Message", text: $r.address, prompt: Text("note 60, cc 20 or program 5 (add ch 2)")) }
                                 Field("Value (0–127)", width: 130) { TextField("Value", text: $r.argument, prompt: Text("127")) }
                             }
+                        case .workflow:
+                            EmptyView()  // a workflow's Voice Cue trigger, edited with the workflow
                         }
                         if !r.isSendable && r.address.count > 1 {
                             Text("This can’t be sent as written, so the phrase won’t fire.").font(.caption).foregroundStyle(.orange)
