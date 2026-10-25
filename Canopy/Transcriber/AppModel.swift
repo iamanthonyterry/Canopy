@@ -72,20 +72,13 @@ final class AppModel: ObservableObject {
     private var deviceAgent: DeviceAgent?
 
     let updates = UpdateManager()
-    private var statusPublisher: StatusPublisher?
     private var renameWatcher: AnyCancellable?
 
     init() {
         (settings, token) = FileTest.isSafeMode ? (Settings(), "") : SettingsStore.load()
-        // A campus key Canopy left for this helper (it signed in once for both apps) is taken before anything uses the old one.
-        if !FileTest.isSafeMode, let offer = HelperHandoff.take(keychainService: Keychain.currentService) { adopt(offer, save: true) }
-        DistributedNotificationCenter.default().addObserver(forName: HelperHandoff.pingName, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.checkHandoff() }
-        }
         refreshDevices()
         loadLanguages()
         updates.model = self
-        if !FileTest.isSafeMode { statusPublisher = StatusPublisher(model: self) }
         // An install that was Transcriber.app moves itself to Canopy.app, but only while nothing is being transcribed.
         if SelfRename.pending != nil {
             renameWatcher = $running.removeDuplicates().sink { [weak self] running in
@@ -97,6 +90,7 @@ final class AppModel: ObservableObject {
             }
         }
         connectControls()
+        publishConnection()
         let agent = DeviceAgent(
             credentials: { [weak self] in await self?.deviceCredentials() ?? ("", "") },
             onResult: { message in Task { @MainActor in Notifier.post("Device update", message) } }
@@ -249,29 +243,24 @@ final class AppModel: ObservableObject {
 
     func cancelSignIn() { signInTask?.cancel() }
 
-    /// Picks up a campus key Canopy left for this helper. A live session is never interrupted: while running,
-    /// the offer stays where it is and is taken the next time this is called after listening stops.
-    func checkHandoff() {
-        guard !running, let offer = HelperHandoff.take(keychainService: Keychain.currentService) else { return }
-        adopt(offer, save: false)
-        apply()
-    }
-
-    private func adopt(_ offer: HelperHandoff.Offer, save: Bool) {
-        token = offer.key
-        settings.connectedTo = offer.campusName.isEmpty ? offer.campusID : offer.campusName
-        if save { SettingsStore.save(settings, token: token) }
-    }
-
     func disconnect() {
         token = ""
         settings.connectedTo = ""
         if running { stop() }
         SettingsStore.save(settings, token: token)
+        publishConnection()
+    }
+
+    /// Tells the rest of the app which website and campus this Mac is connected to (workflow progress, workflow sync and
+    /// email use the same campus key as the transcript). Nothing is connected in the dev and preview modes.
+    func publishConnection() {
+        guard !FileTest.isSafeMode else { return }
+        CampusConnection.shared.update(siteBase: siteBase, key: token, campusName: settings.connectedTo)
     }
 
     func apply() {
         SettingsStore.save(settings, token: token)
+        publishConnection()
         connectControls()
         if running {
             restarting = true  // a settings change must not split the session

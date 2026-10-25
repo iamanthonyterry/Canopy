@@ -887,8 +887,8 @@ struct WorkflowStepConfigSheet: View {
 
     private var notifyFields: some View {
         Group {
-            if !SiteAccount.shared.isConnected {
-                Label("Not signed in to the church site — this step won't be able to send email. Sign in from Settings.", systemImage: "exclamationmark.triangle.fill")
+            if !CampusConnection.shared.isConnected {
+                Label("Not connected to a campus — this step won't be able to send email. Connect in Settings → Transcription.", systemImage: "exclamationmark.triangle.fill")
                     .font(.canopyCallout).foregroundStyle(.orange)
             }
 

@@ -99,9 +99,7 @@ struct MenuContent: View {
             .keyboardShortcut(",")
         Divider()
         Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")")
-        if HostMode.isNested {
-            Text("Updated with Canopy")
-        } else if let install = model.pendingUpdate {
+        if let install = model.pendingUpdate {
             Button("Restart to Update") { model.stop(); install() }
         } else {
             Button("Check for Updates…") { model.updates.checkForUpdates() }
@@ -193,11 +191,7 @@ struct TranscriberSettingsView: View {
             }
             Section("Behavior") {
                 Toggle("Start listening when the app opens", isOn: $model.settings.autoStart)
-                if HostMode.isNested {
-                    Text("Starts with your Mac. Turn that on or off in Canopy’s Settings.").font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
-                }
+                Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
             }
             Section("Schedule") {
                 Toggle("Send to website only during this schedule (OSC inputs always listen)", isOn: $model.settings.scheduleOn)

@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// Settings-level email status. Notification steps send from Canopy's own
-/// address through the church site, so the only setup is being signed in to
-/// it. Recipients, headers, and messages are configured per-step in a workflow.
+/// address through the church site, so the only setup is connecting this Mac to a
+/// campus. Recipients, headers, and messages are configured per-step in a workflow.
 struct EmailNotificationsView: View {
     @EnvironmentObject var appState: AppState
-    @ObservedObject private var account = SiteAccount.shared
+    @ObservedObject private var connection = CampusConnection.shared
 
     var body: some View {
         GroupBox(label: Label("Email Notifications", systemImage: "envelope")) {
@@ -16,17 +16,17 @@ struct EmailNotificationsView: View {
                         .textSelection(.enabled)
                 }
 
-                if account.isConnected {
-                    Label("Ready — signed in to the church site", systemImage: "checkmark.circle.fill")
+                if connection.isConnected {
+                    Label("Ready — connected to your campus", systemImage: "checkmark.circle.fill")
                         .font(.canopyBody)
                         .foregroundStyle(Color.canopySage)
                 } else {
-                    Label("Sign in under Church Account above to send email", systemImage: "exclamationmark.triangle.fill")
+                    Label("Connect this Mac to a campus (Settings → Transcription) to send email", systemImage: "exclamationmark.triangle.fill")
                         .font(.canopyBody)
                         .foregroundStyle(.orange)
                 }
 
-                Text("Add a Notification step to any workflow to send email with a custom header, message, and recipients. Replies go to whoever ran the workflow.")
+                Text("Add a Notification step to any workflow to send email with a custom header, message, and recipients. The site limits how much one campus can send in an hour.")
                     .font(.canopyCaption2)
                     .foregroundStyle(.tertiary)
             }

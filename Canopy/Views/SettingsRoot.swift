@@ -60,12 +60,12 @@ struct WorkflowsPage: View {
     }
 }
 
-/// Canopy's other options: the website sign-in the workflow features use, alerts, email, AI, performance and OSC/MIDI.
+/// Canopy's other options: what the website connection covers, shoot tokens, email, alerts, AI, performance and OSC/MIDI.
 struct MoreSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                AccountCard()
+                WebsiteCard()
                 ShootSettingsView()
                 EmailNotificationsView()
                 AlertSettingsView()

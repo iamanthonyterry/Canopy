@@ -1,11 +1,10 @@
-import ChurchKitAuth
 import Foundation
 import Combine
 
 // MARK: - Workflow progress on the website
-// While this Mac is signed in with the church's website (see SiteAccount),
-// each workflow run is written to the church's `workflow_runs` table so the
-// website's Workflows page can show it live: every step's state and
+// While this Mac is connected to a campus (see CampusConnection), each
+// workflow run is reported to the church's website, which keeps it in its
+// `workflow_runs` table so the website's Workflows page can show it live: every step's state and
 // progress, files done, and time left. A run's row is written when it
 // starts, again whenever something about it changes (checked every few
 // seconds), at least every 30 seconds so the website can tell a long step
@@ -24,17 +23,17 @@ final class WorkflowRunPublisher: ObservableObject {
     private static let heartbeat: TimeInterval = 30
     /// After a failed write (no network, or the table isn't set up yet), wait this long before trying again.
     private static let backoff: TimeInterval = 60
-    /// Finished runs older than this are cleared from the table (only this person's own).
-    private static let keepFor: TimeInterval = 30 * 24 * 3600
 
     private var loop: Task<Void, Never>?
     private var isTicking = false
-    private var membership: (userID: String, churchID: String)?
     private var lastSent: [UUID: (snapshot: Snapshot, at: Date)] = [:]
     /// Runs that just finished, kept until their final state is written, since a clean run leaves `activeRuns` at once.
     private var finished: [UUID: WorkflowRunSession] = [:]
     private var retryAfter = Date.distantPast
+    /// The campus key the old runs were last tidied for (once per connection).
     private var tidiedFor: String?
+    /// Why the last report failed, or nil (shown beside the sharing switch).
+    @Published private(set) var lastError: String?
 
     static let computerName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
 
@@ -48,8 +47,6 @@ final class WorkflowRunPublisher: ObservableObject {
     }()
 
     private var computer: String { Self.computerName }
-    /// Cleared if the database has no `device_id` column yet, so runs still show up on the website.
-    private var sendsDeviceID = true
 
     private init() {}
 
@@ -144,18 +141,18 @@ final class WorkflowRunPublisher: ObservableObject {
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f
     }()
 
-    private func row(_ s: Snapshot, id: UUID, churchID: String, userID: String) -> [String: Any?] {
+    /// The report for one run, as the website's POST /api/workflow-runs takes it. The site fills in the church and campus
+    /// from the key, and clamps every field.
+    private func report(_ s: Snapshot, id: UUID) -> [String: Any] {
         func finite(_ v: Double?) -> Any { v.flatMap { $0.isFinite ? $0 : nil } ?? NSNull() }
-        var row: [String: Any?] = [
-            "id": id.uuidString.lowercased(), "church_id": churchID, "user_id": userID, "computer": computer,
+        return [
+            "id": id.uuidString.lowercased(), "device_id": Self.deviceID, "computer": computer,
             "workflow": s.workflow, "devices": s.devices, "status": s.status,
             "steps": s.steps.map { ["title": $0.title, "status": $0.status, "progress": finite($0.progress), "detail": $0.detail, "errors": $0.errors] as [String: Any] },
             "files_total": s.filesTotal, "files_done": s.filesDone, "errors": s.errors,
             "remaining_seconds": finite(s.remaining), "remaining_is_minimum": s.remainingIsMinimum, "last_line": s.lastLine,
-            "started_at": Self.iso.string(from: s.startedAt), "finished_at": s.finishedAt.map(Self.iso.string(from:)),
+            "started_at": Self.iso.string(from: s.startedAt), "finished_at": s.finishedAt.map { Self.iso.string(from: $0) } ?? NSNull(),
         ]
-        if sendsDeviceID { row["device_id"] = Self.deviceID }
-        return row
     }
 
     private func tick() async {
@@ -163,20 +160,23 @@ final class WorkflowRunPublisher: ObservableObject {
         isTicking = true
         defer { isTicking = false }
 
-        guard let db = SiteAccount.shared.client else { membership = nil; lastSent = [:]; finished = [:]; return }
+        let connection = CampusConnection.shared
+        guard connection.isConnected else { lastSent = [:]; finished = [:]; tidiedFor = nil; lastError = nil; return }
         // Turning sharing off still lets a run that was already on the website show how it ended.
         let live = AppState.shared.activeRuns.filter { !$0.isFinished && (isEnabled || lastSent[$0.id] != nil) }
         let ending = Array(finished.values)
-        guard !live.isEmpty || !ending.isEmpty || (isEnabled && tidiedFor != db.session.userID) else { return }
+        guard !live.isEmpty || !ending.isEmpty || (isEnabled && tidiedFor != connection.key) else { return }
         guard Date() >= retryAfter else { return }
 
         do {
-            let (userID, churchID) = try await church(db)
-            if tidiedFor != userID { try await tidy(db, userID: userID, keeping: Set(live.map(\.id))); tidiedFor = userID }
+            if tidiedFor != connection.key {
+                try await tidy(keeping: Set(live.map(\.id)))
+                tidiedFor = connection.key
+            }
             for session in live + ending {
                 let snap = Self.snapshot(session)
                 guard Self.isNews(snap, since: lastSent[session.id]) else { continue }
-                _ = try await db.upsert("workflow_runs", row(snap, id: session.id, churchID: churchID, userID: userID), onConflict: "id")
+                _ = try await connection.post("api/workflow-runs", ["run": report(snap, id: session.id)])
                 if snap.finishedAt != nil {
                     lastSent[session.id] = nil
                     finished[session.id] = nil
@@ -187,32 +187,17 @@ final class WorkflowRunPublisher: ObservableObject {
             // Forget runs that ended without passing through `runFinished` (dismissed, say).
             let known = Set(live.map(\.id)).union(finished.keys)
             lastSent = lastSent.filter { known.contains($0.key) }
+            lastError = nil
         } catch {
-            if let e = error as? SupabaseError, e.status == 401 { SiteAccount.shared.sessionExpired(); return }
-            if let e = error as? SupabaseError, e.code == "PGRST204", e.message.contains("device_id") { sendsDeviceID = false; return }
+            lastError = error.localizedDescription
             retryAfter = Date().addingTimeInterval(Self.backoff)
         }
     }
 
-    private func church(_ db: SupabaseClient) async throws -> (String, String) {
-        let uid = db.session.userID
-        if let m = membership, m.userID == uid { return (m.userID, m.churchID) }
-        nonisolated struct Member: Decodable { var churchId: String }
-        guard let me = try await db.select("church_members", "church_id", [.eq("user_id", uid)], as: Member.self).first else {
-            throw SupabaseError(message: "\(db.session.email) isn't part of a church yet.")
-        }
-        membership = (uid, me.churchId)
-        return (uid, me.churchId)
-    }
-
-    /// Once per sign-in: runs this Mac left unfinished on the website (the app quit mid-run, say) are marked
-    /// stopped unless they're running again or waiting to be resumed, and old finished runs are cleared out.
-    private func tidy(_ db: SupabaseClient, userID: String, keeping running: Set<UUID>) async throws {
+    /// Once per connection: runs this Mac left unfinished on the website (the app quit mid-run, say) are marked stopped
+    /// unless they're running again or waiting to be resumed, and the campus's old finished runs are cleared out.
+    private func tidy(keeping running: Set<UUID>) async throws {
         let keep = running.union(WorkflowCheckpointStore.shared.interrupted.map(\.id)).map { $0.uuidString.lowercased() }
-        var orphans: [Filter] = [.eq("user_id", userID), .eq("computer", computer), .isNull("finished_at")]
-        if !keep.isEmpty { orphans.append(.notIn("id", keep)) }
-        try await db.update("workflow_runs", ["status": "stopped", "finished_at": Self.iso.string(from: Date())], orphans)
-        let cutoff = Self.iso.string(from: Date().addingTimeInterval(-Self.keepFor))
-        try await db.delete("workflow_runs", [.eq("user_id", userID), .lt("finished_at", cutoff)])
+        _ = try await CampusConnection.shared.post("api/workflow-runs", ["tidy": ["device_id": Self.deviceID, "keep": keep]])
     }
 }

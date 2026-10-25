@@ -1,19 +1,18 @@
-import ChurchKitAuth
 import Foundation
 import Combine
 import CryptoKit
 
-// MARK: - Workflows that follow the sign-in
-// While this Mac is signed in with the church's website (see SiteAccount), the
-// workflow list is kept in the church's `canopy_workflows` table, one row per
-// workflow per person, so every computer signed in as that person has the same
-// workflows. Each pass compares three things for every workflow: what's on
-// this Mac, what's in the table, and what both looked like at the last pass.
-// Whichever side changed since then wins. If both changed, the website's copy
-// is kept and this Mac's version is saved beside it as "(this Mac)" so nothing
-// is lost. Deleting a workflow leaves a marker in the table so the others drop
-// it too. Devices aren't synced, so a workflow's targets only mean something on
-// a computer that has the same devices set up.
+// MARK: - Workflows shared by a campus's Macs
+// While this Mac is connected to a campus (see CampusConnection), the workflow
+// list is kept on the church's website, one list per campus, so every Mac at
+// that campus has the same workflows. The website only ever sees the campus key.
+// Each pass compares three things for every workflow: what's on this Mac,
+// what's on the website, and what both looked like at the last pass. Whichever
+// side changed since then wins. If both changed, the website's copy is kept and
+// this Mac's version is saved beside it as "(this Mac)" so nothing is lost.
+// Deleting a workflow leaves a marker on the website so the others drop it too.
+// Devices aren't synced, so a workflow's targets only mean something on a Mac
+// that has the same devices set up.
 
 @MainActor
 final class WorkflowSyncService: ObservableObject {
@@ -29,25 +28,41 @@ final class WorkflowSyncService: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var isSyncing = false
 
-    private static let interval: Duration = .seconds(20)
+    /// A change here syncs within a couple of seconds; this is only how often a Mac looks for changes made elsewhere.
+    private static let interval: Duration = .seconds(60)
     private static let backoff: TimeInterval = 60
-    /// Removed workflows' markers are cleared after this long.
-    private static let keepDeleted: TimeInterval = 60 * 24 * 3600
 
-    private struct Meta: Codable, Equatable { var hash: String; var remoteUpdatedAt: String }
+    struct Meta: Codable, Equatable { var hash: String; var remoteUpdatedAt: String }
 
-    nonisolated private struct RemoteWorkflow: Decodable {
+    /// One workflow as the website lists it. `definition` is only filled in for the ones that changed.
+    nonisolated struct RemoteWorkflow: Decodable, Equatable {
         var id: String
-        var definition: String
+        var name: String?
+        var definition: String = ""
         var updatedAt: String
         var deletedAt: String?
+
+        private enum CodingKeys: String, CodingKey { case id, name, definition, updatedAt, deletedAt }
+        init(id: String, name: String? = nil, definition: String = "", updatedAt: String, deletedAt: String? = nil) {
+            (self.id, self.name, self.definition, self.updatedAt, self.deletedAt) = (id, name, definition, updatedAt, deletedAt)
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            name = try c.decodeIfPresent(String.self, forKey: .name)
+            definition = try c.decodeIfPresent(String.self, forKey: .definition) ?? ""
+            updatedAt = try c.decode(String.self, forKey: .updatedAt)
+            deletedAt = try c.decodeIfPresent(String.self, forKey: .deletedAt)
+        }
     }
+
+    nonisolated private struct Listing: Decodable { var church: String?; var campus: String?; var workflows: [RemoteWorkflow] }
+    nonisolated private struct Stamps: Decodable { struct Stamp: Decodable { var id: String; var updatedAt: String }; var stamps: [Stamp] }
 
     private var loop: Task<Void, Never>?
     private var bag = Set<AnyCancellable>()
     private var pending = false
     private var retryAfter = Date.distantPast
-    private var tidiedFor: String?
 
     private init() {}
 
@@ -58,8 +73,9 @@ final class WorkflowSyncService: ObservableObject {
             .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in self?.requestSync() }
             .store(in: &bag)
-        SiteAccount.shared.$client
-            .compactMap { $0 }
+        CampusConnection.shared.$key
+            .removeDuplicates()
+            .filter { !$0.isEmpty }
             .sink { [weak self] _ in self?.retryAfter = .distantPast; self?.requestSync() }
             .store(in: &bag)
         loop = Task { [weak self] in
@@ -75,7 +91,7 @@ final class WorkflowSyncService: ObservableObject {
     // MARK: Pass
 
     private func sync() async {
-        guard isEnabled, let db = SiteAccount.shared.client else { return }
+        guard isEnabled, CampusConnection.shared.isConnected else { return }
         guard !isSyncing else { pending = true; return }
         guard Date() >= retryAfter else { return }
         isSyncing = true
@@ -83,24 +99,16 @@ final class WorkflowSyncService: ObservableObject {
         repeat {
             pending = false
             do {
-                try await pass(db)
+                try await pass()
                 lastError = nil
                 lastSynced = Date()
             } catch {
-                let e = error as? SupabaseError
-                if e?.status == 401 { SiteAccount.shared.sessionExpired(); return }
                 retryAfter = Date().addingTimeInterval(Self.backoff)
-                lastError = e?.code == "PGRST205" || e?.status == 404
-                    ? "Workflow sync isn't set up on your church's database yet."
-                    : error.localizedDescription
+                lastError = error.localizedDescription
                 return
             }
         } while pending
     }
-
-    private static let iso: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]; return f
-    }()
 
     private static func encode(_ w: Workflow) -> (json: String, hash: String)? {
         let encoder = JSONEncoder()
@@ -116,39 +124,52 @@ final class WorkflowSyncService: ObservableObject {
 
     private static func key(_ id: UUID) -> String { id.uuidString.lowercased() }
 
-    private func metaKey(_ userID: String) -> String { "workflowSync.meta.\(userID)" }
+    /// What was last seen is kept per campus (not per key), so a regenerated key doesn't make every workflow look new.
+    private func metaKey(_ campus: String) -> String { "workflowSync.meta.campus.\(campus)" }
 
-    private func loadMeta(_ userID: String) -> [String: Meta] {
-        UserDefaults.standard.data(forKey: metaKey(userID)).flatMap { try? JSONDecoder().decode([String: Meta].self, from: $0) } ?? [:]
+    private func loadMeta(_ campus: String) -> [String: Meta] {
+        UserDefaults.standard.data(forKey: metaKey(campus)).flatMap { try? JSONDecoder().decode([String: Meta].self, from: $0) } ?? [:]
     }
 
-    private func saveMeta(_ meta: [String: Meta], _ userID: String) {
-        if let data = try? JSONEncoder().encode(meta) { UserDefaults.standard.set(data, forKey: metaKey(userID)) }
+    private func saveMeta(_ meta: [String: Meta], _ campus: String) {
+        if let data = try? JSONEncoder().encode(meta) { UserDefaults.standard.set(data, forKey: metaKey(campus)) }
     }
 
-    private func pass(_ db: SupabaseClient) async throws {
-        let uid = db.session.userID
-        var meta = loadMeta(uid)
-
-        if tidiedFor != uid {
-            let cutoff = Self.iso.string(from: Date().addingTimeInterval(-Self.keepDeleted))
-            try await db.delete("canopy_workflows", [.eq("user_id", uid), .lt("deleted_at", cutoff)])
-            tidiedFor = uid
+    /// Fetches the definitions of just these workflows (the ones new or changed since this Mac last saw them).
+    private func fetchDefinitions(_ ids: [String]) async throws -> [String: String] {
+        var definitions: [String: String] = [:]
+        for batch in stride(from: 0, to: ids.count, by: 20).map({ Array(ids[$0..<min($0 + 20, ids.count)]) }) {
+            let query = [URLQueryItem(name: "ids", value: batch.joined(separator: ","))]
+            let full = try JSONDecoder().decode(Listing.self, from: try await CampusConnection.shared.call("api/workflow-sync", query: query))
+            for w in full.workflows { definitions[w.id.lowercased()] = w.definition }
         }
+        return definitions
+    }
 
-        let remote = try await db.select("canopy_workflows", "id,definition,updated_at,deleted_at", [.eq("user_id", uid)], as: RemoteWorkflow.self)
+    private func pass() async throws {
+        let connection = CampusConnection.shared
+        // One cheap listing says what is there; only the new or changed workflows are fetched in full.
+        let listing = try JSONDecoder().decode(Listing.self, from: try await connection.call("api/workflow-sync"))
+        let campus = [listing.church, listing.campus].compactMap { $0 }.joined(separator: "-")
+        let campusKey = campus.isEmpty ? "campus" : campus
+        var meta = loadMeta(campusKey)
+        let wanted = listing.workflows.filter { $0.deletedAt == nil && meta[$0.id.lowercased()]?.remoteUpdatedAt != $0.updatedAt }.map(\.id)
+        let definitions = try await fetchDefinitions(wanted)
+        let remote = listing.workflows.map { w -> RemoteWorkflow in
+            var r = w; r.definition = definitions[w.id.lowercased()] ?? ""; return r
+        }
         let remoteByID = Dictionary(remote.map { ($0.id.lowercased(), $0) }, uniquingKeysWith: { a, _ in a })
 
         // Everything from here to the end of the decisions is synchronous, so the local list can't change under it.
         let before = AppState.shared.workflows
         var workflows = before
-        var toPush: [(key: String, json: String, hash: String, name: String)] = []
+        var toPush: [(key: String, name: String, json: String, hash: String)] = []
         var toRemove: [String] = []
         var seen = Set<String>()
 
         func queuePush(_ w: Workflow) {
             guard let e = Self.encode(w) else { return }
-            toPush.append((Self.key(w.id), e.json, e.hash, w.name))
+            toPush.append((Self.key(w.id), w.name, e.json, e.hash))
         }
         func adopt(_ r: RemoteWorkflow, into list: inout [Workflow], replacing id: UUID?) {
             guard let rw = Self.decode(r.definition), let e = Self.encode(rw) else { return }
@@ -207,22 +228,19 @@ final class WorkflowSyncService: ObservableObject {
         meta = meta.filter { seen.contains($0.key) || remoteByID[$0.key] != nil }
         if workflows != before { AppState.shared.workflows = workflows }
         for k in toRemove { meta[k] = nil }
-        saveMeta(meta, uid)
+        saveMeta(meta, campusKey)
 
         for item in toPush {
-            let row: [String: Any?] = ["user_id": uid, "id": item.key, "name": item.name, "definition": item.json, "deleted_at": nil]
-            let data = try await db.upsert("canopy_workflows", row, onConflict: "user_id,id", returning: "updated_at")
-            nonisolated struct Stamp: Decodable { var updatedAt: String }
-            let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
-            if let stamp = try? decoder.decode([Stamp].self, from: data).first {
+            let body: [String: Any] = ["upserts": [["id": item.key, "name": item.name, "definition": item.json]]]
+            let stamps = try JSONDecoder().decode(Stamps.self, from: try await connection.post("api/workflow-sync", body))
+            if let stamp = stamps.stamps.first {
                 meta[item.key] = Meta(hash: item.hash, remoteUpdatedAt: stamp.updatedAt)
-                saveMeta(meta, uid)
+                saveMeta(meta, campusKey)
             }
         }
 
         if !toRemove.isEmpty {
-            try await db.update("canopy_workflows", ["deleted_at": Self.iso.string(from: Date())],
-                                [.eq("user_id", uid), .in("id", toRemove)])
+            _ = try await connection.post("api/workflow-sync", ["deletes": toRemove])
         }
     }
 }

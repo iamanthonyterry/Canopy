@@ -11,11 +11,10 @@ final class UpdateManager: NSObject, SPUUpdaterDelegate {
 
     override init() {
         super.init()
-        // Nested in Canopy, Canopy's updates replace this app along with its own, so this one stays quiet.
-        controller = SPUStandardUpdaterController(startingUpdater: !HostMode.isNested && !FileTest.isSafeMode, updaterDelegate: self, userDriverDelegate: nil)
+        controller = SPUStandardUpdaterController(startingUpdater: !FileTest.isSafeMode, updaterDelegate: self, userDriverDelegate: nil)
     }
 
-    func checkForUpdates() { if !HostMode.isNested { controller.checkForUpdates(nil) } }
+    func checkForUpdates() { controller.checkForUpdates(nil) }
 
     nonisolated func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock: @escaping () -> Void) -> Bool {
         // Sparkle calls this block once, from the main thread; it isn't marked Sendable.

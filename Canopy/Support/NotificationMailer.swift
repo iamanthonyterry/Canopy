@@ -1,8 +1,8 @@
 import Foundation
 
 /// Sends notification email as canopy@send.rosesashumans.com through the church
-/// site's `send-notification` function, signed in as the person at the keyboard.
-/// No mail credentials are stored on this Mac.
+/// site (POST /api/notify), with the campus key this Mac is connected with. The
+/// site limits how much one campus can send. No mail credentials are stored on this Mac.
 enum NotificationMailer {
 
     enum SendError: Error {
@@ -12,16 +12,15 @@ enum NotificationMailer {
 
     static let fromAddress = "canopy@send.rosesashumans.com"
 
-    @MainActor static var isAvailable: Bool { SiteAccount.shared.isConnected }
+    @MainActor static var isAvailable: Bool { CampusConnection.shared.isConnected }
 
     @MainActor
     static func send(to recipients: [String], subject: String, body: String, isHTML: Bool = false) async throws {
-        guard let client = SiteAccount.shared.client else { throw SendError.notConnected }
+        guard CampusConnection.shared.isConnected else { throw SendError.notConnected }
         let payload: [String: Any] = ["to": recipients, "subject": subject, "body": body, "isHTML": isHTML]
         do {
-            _ = try await client.invoke("send-notification", payload)
-        } catch let error as SupabaseError {
-            if error.status == 401 { SiteAccount.shared.sessionExpired() }
+            _ = try await CampusConnection.shared.post("api/notify", payload, timeout: 30)
+        } catch let error as CampusConnection.APIError {
             throw SendError.requestFailed(error.message)
         }
     }
@@ -42,7 +41,7 @@ enum NotificationMailer {
 
     static func describe(_ error: Error) -> String {
         switch error {
-        case SendError.notConnected: return "Not signed in to the church site"
+        case SendError.notConnected: return "Not connected to a campus"
         case SendError.requestFailed(let message): return message
         default: return error.localizedDescription
         }

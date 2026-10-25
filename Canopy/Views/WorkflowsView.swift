@@ -284,15 +284,15 @@ struct WorkflowsView: View {
 /// session directly — that's what lets the confirmation prompt below
 /// appear the instant a step pauses, without waiting on some unrelated
 /// redraw elsewhere in the app.
-/// Under the page title: signed-in state and whether this list is synced with the account.
+/// Under the page title: whether this Mac is connected to a campus and whether the list is shared with its other Macs.
 private struct WorkflowSyncLine: View {
-    @ObservedObject private var account = SiteAccount.shared
+    @ObservedObject private var connection = CampusConnection.shared
     @ObservedObject private var sync = WorkflowSyncService.shared
 
     var body: some View {
-        if !account.isConnected {
-            Button { account.signIn() } label: {
-                Label("Sign in to sync these across your computers", systemImage: "arrow.triangle.2.circlepath")
+        if !connection.isConnected {
+            Button { UserDefaults.standard.set(SettingsTab.transcription.rawValue, forKey: SettingsTab.storageKey) } label: {
+                Label("Connect to a campus to share these with its other Macs", systemImage: "arrow.triangle.2.circlepath")
             }
             .buttonStyle(.plain).font(.canopyCaption).foregroundStyle(Color.canopySage)
         } else if sync.isEnabled {
@@ -305,34 +305,32 @@ private struct WorkflowSyncLine: View {
     }
 }
 
-/// Whether this Mac's runs show on the church website's Workflows page, and
-/// a way there. Signing in is the same website sign-in the inventory uses.
+/// Whether this Mac's runs show on the church website's Workflows page, and a way there.
 private struct WebProgressMenu: View {
-    @ObservedObject private var account = SiteAccount.shared
+    @ObservedObject private var connection = CampusConnection.shared
     @ObservedObject private var publisher = WorkflowRunPublisher.shared
     @ObservedObject private var sync = WorkflowSyncService.shared
 
     var body: some View {
         Menu {
-            if account.isConnected {
-                if let email = account.email { Text("Signed in as \(email)") }
+            if connection.isConnected {
+                if !connection.campusName.isEmpty { Text("Connected to \(connection.campusName)") }
                 Toggle("Share progress on the website", isOn: $publisher.isEnabled)
-                Toggle("Sync workflows across my computers", isOn: $sync.isEnabled)
+                Toggle("Share workflows with this campus's other Macs", isOn: $sync.isEnabled)
                 if sync.isEnabled { Text(SyncStatus.text(sync)) }
-                if let origin = account.origin {
+                if let origin = connection.origin {
                     Link("Open workflow progress on the website", destination: origin.appendingPathComponent("workflows"))
                 }
             } else {
-                Text("Sign in with your church's website to watch runs from a phone or another computer.")
-                Button(account.isConnecting ? "Waiting for the browser…" : "Sign in with website…") { account.signIn() }
-                    .disabled(account.isConnecting)
+                Text("Connect this Mac to your campus to watch runs from a phone or another computer.")
+                Button("Connect in Settings…") { UserDefaults.standard.set(SettingsTab.transcription.rawValue, forKey: SettingsTab.storageKey) }
             }
-            if let error = account.lastError { Text(error) }
+            if let error = publisher.lastError { Text(error) }
         } label: {
-            Image(systemName: account.isConnected && publisher.isEnabled ? "globe" : "globe.badge.chevron.backward")
+            Image(systemName: connection.isConnected && publisher.isEnabled ? "globe" : "globe.badge.chevron.backward")
         }
         .menuStyle(.borderlessButton).fixedSize()
-        .help(account.isConnected && publisher.isEnabled ? "Runs are shared on the website" : "Watch runs on the website")
+        .help(connection.isConnected && publisher.isEnabled ? "Runs are shared on the website" : "Watch runs on the website")
     }
 }
 
