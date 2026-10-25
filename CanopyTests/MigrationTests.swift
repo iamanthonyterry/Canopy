@@ -85,6 +85,49 @@ struct SelfRenameTests {
 }
 
 struct FirstLaunchTests {
+    /// A folder of stand-in apps: each is a directory with a Contents/Info.plist naming its bundle id.
+    private func makeApps(_ apps: [(path: String, id: String)]) throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("apps-test-\(UUID().uuidString)")
+        for app in apps {
+            let contents = root.appendingPathComponent(app.path).appendingPathComponent("Contents")
+            try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+            let plist = ["CFBundleIdentifier": app.id, "CFBundleName": "X", "CFBundlePackageType": "APPL"]
+            try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: contents.appendingPathComponent("Info.plist"))
+        }
+        return root
+    }
+
+    @Test func findsCopiesByTheirOwnBundleIdAtAnyName() throws {
+        let root = try makeApps([("Canopy.app", "com.example.new"), ("Transcriber.app", "com.example.new"), ("Old/Canopy.app", "com.example.new"),
+                                 ("Other.app", "com.example.other"), ("Deep/Deeper/Canopy.app", "com.example.new")])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let base = root.resolvingSymlinksInPath().path + "/"  // the temp folder is reached through a symlink
+        let found = FirstLaunch.installedCopies(bundleID: "com.example.new", in: [root]).map { $0.resolvingSymlinksInPath().path.replacingOccurrences(of: base, with: "") }.sorted()
+        #expect(found == ["Canopy.app", "Old/Canopy.app", "Transcriber.app"], "one folder deep, any file name, only this bundle id")
+    }
+
+    @Test func aMissingFolderOrNoMatchIsJustEmpty() throws {
+        #expect(FirstLaunch.installedCopies(bundleID: "x", in: [URL(fileURLWithPath: "/definitely/not/here")]).isEmpty)
+        let root = try makeApps([("A.app", "com.example.a")])
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(FirstLaunch.installedCopies(bundleID: "com.example.b", in: [root]).isEmpty)
+    }
+
+    @Test func copiesTheyKeptAreNotAskedAboutAgainButNewOnesAre() {
+        let a = URL(fileURLWithPath: "/Applications/Transcriber.app"), b = URL(fileURLWithPath: "/Users/me/Applications/Canopy.app")
+        #expect(FirstLaunch.unanswered([a, b], declined: [a.path]).map(\.path) == [b.path])
+        #expect(FirstLaunch.unanswered([a, b], declined: []).count == 2)
+        #expect(FirstLaunch.unanswered([a], declined: [a.path]).isEmpty)
+    }
+
+    @Test func theOtherCopyOfThisAppIsFoundWhicheverPathItIsAtButNeverTheRunningOne() {
+        // A Mac that had both old apps: one updated in place to Canopy.app, the other to Transcriber.app.
+        let found = [URL(fileURLWithPath: "/Applications/Canopy.app"), URL(fileURLWithPath: "/Applications/Transcriber.app")]
+        #expect(FirstLaunch.oldCanopyCopies(finding: found, home: "/Users/me", running: URL(fileURLWithPath: "/Applications/Transcriber.app")).map(\.path) == ["/Applications/Canopy.app"])
+        #expect(FirstLaunch.oldCanopyCopies(finding: found, home: "/Users/me", running: URL(fileURLWithPath: "/Applications/Canopy.app")).map(\.path) == ["/Applications/Transcriber.app"])
+        #expect(FirstLaunch.oldCanopyCopies(finding: [found[0]], home: "/Users/me", running: found[0]).isEmpty, "a lone copy has no twin")
+    }
+
     @Test func onlyOldCopiesInApplicationsFoldersCount() {
         let running = URL(fileURLWithPath: "/Applications/Canopy.app")
         let found = [URL(fileURLWithPath: "/Applications/Canopy.app"), URL(fileURLWithPath: "/Applications/Old/Canopy.app"),
