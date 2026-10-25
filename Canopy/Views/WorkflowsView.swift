@@ -59,9 +59,6 @@ struct WorkflowsView: View {
             header
             rule
 
-            RemoteRunsBanner()
-            OtherComputersSection()
-
             if !inProgress.isEmpty {
                 ForEach(inProgress) { session in
                     RunningWorkflowBanner(session: session, engine: engine)
@@ -76,8 +73,6 @@ struct WorkflowsView: View {
             }
         }
         .background(Color.canopyPaper)
-        .onAppear { RemoteRunsService.shared.beginWatching(); RemoteComputersService.shared.beginWatching() }
-        .onDisappear { RemoteRunsService.shared.endWatching(); RemoteComputersService.shared.endWatching() }
         .sheet(isPresented: $isDescribing, onDismiss: {
             if let draft = pendingDraft { builder = .draft(draft) }
             pendingDraft = nil
@@ -247,7 +242,6 @@ struct WorkflowsView: View {
                     }
                     .buttonStyle(.canopyPrimary)
                     .disabled(!appState.canRun(workflow) || workflow.steps.isEmpty)
-                    .help(runBlockedReason(for: workflow) ?? "")
                 }
             }
         }
@@ -255,12 +249,6 @@ struct WorkflowsView: View {
     }
 
     // MARK: - Helpers
-
-    /// Tooltip explaining a disabled Run button when the cause is another computer.
-    private func runBlockedReason(for workflow: Workflow) -> String? {
-        guard let conflict = appState.remoteConflicts(for: workflow).first else { return nil }
-        return "\"\(conflict.run.workflowName)\" is already running on \(conflict.computer) using the same devices"
-    }
 
     private func targetDeviceLabel(_ workflow: Workflow) -> String {
         if workflow.choosesFolderAtRun { return "Asks for a folder when run" }

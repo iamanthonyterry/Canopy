@@ -75,22 +75,22 @@ final class AppModel: ObservableObject {
     private var statusPublisher: StatusPublisher?
 
     init() {
-        (settings, token) = FileTest.isCLITest ? (Settings(), "") : SettingsStore.load()
+        (settings, token) = FileTest.isSafeMode ? (Settings(), "") : SettingsStore.load()
         // A campus key Canopy left for this helper (it signed in once for both apps) is taken before anything uses the old one.
-        if let offer = HelperHandoff.take(keychainService: Keychain.currentService) { adopt(offer, save: true) }
+        if !FileTest.isSafeMode, let offer = HelperHandoff.take(keychainService: Keychain.currentService) { adopt(offer, save: true) }
         DistributedNotificationCenter.default().addObserver(forName: HelperHandoff.pingName, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.checkHandoff() }
         }
         refreshDevices()
         loadLanguages()
         updates.model = self
-        statusPublisher = StatusPublisher(model: self)
+        if !FileTest.isSafeMode { statusPublisher = StatusPublisher(model: self) }
         connectControls()
         let agent = DeviceAgent(
             credentials: { [weak self] in await self?.deviceCredentials() ?? ("", "") },
             onResult: { message in Task { @MainActor in Notifier.post("Device update", message) } }
         )
-        if !FileTest.isCLITest { agent.start() }
+        if !FileTest.isSafeMode { agent.start() }
         deviceAgent = agent
         Task { @MainActor in await self.pcoStartup() }
         // Resume after a reboot or an update (never pops the "key needed" alert on a fresh install).
@@ -148,7 +148,7 @@ final class AppModel: ObservableObject {
         guard !token.isEmpty else {
             let a = NSAlert()
             a.messageText = "Sign in to the website first"
-            a.informativeText = "Open “Website settings…” and sign in with the website to choose which campus this Mac sends to."
+            a.informativeText = "Open “Settings…” and sign in with the website to choose which campus this Mac sends to."
             NSApp.activate(ignoringOtherApps: true)
             a.runModal()
             return

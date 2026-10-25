@@ -3,6 +3,7 @@ import ChurchKitCore
 import Security
 
 /// Minimal Keychain wrapper. Holds the church-site session.
+/// In the dev command-line and preview modes (see `FileTest.isSafeMode`) it touches nothing: no reads, writes or deletes.
 enum KeychainStore {
     static let service = "com.rosesashumans.churchlandingpage.canopy"
     /// Where items lived before the bundle id changed (see LegacyMigration).
@@ -14,7 +15,7 @@ enum KeychainStore {
     /// Moves items from the old `.gmail`-named service to `service`, once. Run after
     /// LegacyMigration so items carried over from the original bundle id are included.
     static func migrateRenamedService() {
-        guard !UserDefaults.standard.bool(forKey: renameMarker) else { return }
+        guard !FileTest.isSafeMode, !UserDefaults.standard.bool(forKey: renameMarker) else { return }
         LegacyMigration.copyKeychain(fromService: gmailNamedService, toService: service)
         let old: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -25,6 +26,7 @@ enum KeychainStore {
     }
 
     static func set(_ value: String, key: String) {
+        guard !FileTest.isSafeMode else { return }
         let data = Data(value.utf8)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -39,6 +41,7 @@ enum KeychainStore {
     }
 
     static func get(key: String) -> String? {
+        guard !FileTest.isSafeMode else { return nil }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -53,6 +56,7 @@ enum KeychainStore {
     }
 
     static func delete(key: String) {
+        guard !FileTest.isSafeMode else { return }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

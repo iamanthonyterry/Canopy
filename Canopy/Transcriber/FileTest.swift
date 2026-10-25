@@ -7,6 +7,10 @@ import Foundation
 nonisolated enum FileTest {
     /// Launched with `--transcribe-file` or `--level-check`: a one-off dev test that must not touch the Keychain, the website or the microphone.
     static let isCLITest = CommandLine.arguments.contains("--transcribe-file") || CommandLine.arguments.contains("--level-check")
+    /// Launched with `--ui-preview`: the real windows and menu, for looking at them, with nothing live behind them.
+    static let isPreview = CommandLine.arguments.contains("--ui-preview")
+    /// Either of the above: no stored key, no auto start, no device-job polling, no update check, no Canopy services.
+    static let isSafeMode = isCLITest || isPreview
 
     static func run(path: String, vocabulary: String = "", commands: Bool = false, model: String? = nil) {
         Task.detached {

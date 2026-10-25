@@ -125,11 +125,9 @@ class AppState: ObservableObject {
     }
 
     /// False only if running this workflow right now would touch a device
-    /// that's already busy in another in-progress run — on this computer
-    /// or on another Canopy instance on the network.
+    /// that's already busy in another in-progress run.
     func canRun(_ workflow: Workflow) -> Bool {
         busyDeckNames.isDisjoint(with: targetDeviceNames(for: workflow))
-            && remoteConflicts(for: workflow).isEmpty
     }
 
     /// The same check for a run pointed at specific devices rather than at a
@@ -137,24 +135,6 @@ class AppState: ObservableObject {
     /// this run.
     func canRun(deviceNames: Set<String>, resourceKeys: Set<String>) -> Bool {
         busyDeckNames.isDisjoint(with: deviceNames)
-            && !remoteRuns.contains { !resourceKeys.isDisjoint(with: $0.run.resourceKeys) }
-    }
-
-    // MARK: - Other computers
-    // Snapshots of other Canopy instances on the network, kept current by
-    // `PeerPresenceService`.
-    @Published var peerSnapshots: [PeerSnapshot] = []
-
-    /// Every workflow run in progress on another computer.
-    var remoteRuns: [(computer: String, run: PeerRun)] {
-        peerSnapshots.flatMap { peer in peer.runs.map { (peer.computerName, $0) } }
-    }
-
-    /// Runs on other computers that are using a device this workflow would.
-    func remoteConflicts(for workflow: Workflow) -> [(computer: String, run: PeerRun)] {
-        let keys = targetResourceKeys(for: workflow)
-        guard !keys.isEmpty else { return [] }
-        return remoteRuns.filter { !keys.isDisjoint(with: $0.run.resourceKeys) }
     }
 
     // Identifies a device in a way that means the same thing on every

@@ -23,6 +23,13 @@ struct CanopyApp: App {
             }
             return
         }
+        if FileTest.isPreview {
+            CanopyFonts.register()
+            if let dir = args.compactMap({ $0.hasPrefix("--render=") ? String($0.dropFirst(9)) : nil }).first {
+                DispatchQueue.main.async { PreviewRender.run(into: URL(fileURLWithPath: dir, isDirectory: true)) }
+            }
+            return
+        }  // windows and menu only: no migration, no services
         // This app was church.lifepoint.transcriber before it joined the Church Landing Page apps; bring its settings and key along.
         // TODO(merge): Canopy's own settings (workflows, devices) come across from com.rosesashumans.churchlandingpage.canopy
         // on first launch; see the migration step in docs/canopy-merge-plan.md (the marker LegacyMigration writes is per app, not per source).
@@ -61,9 +68,9 @@ struct CanopyApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 380, height: 260)
 
-        Window("Website settings", id: "settings") {
-            TranscriberSettingsView(model: model)
+        Window("Settings", id: "settings") {
+            SettingsRoot(model: model)
         }
-        .windowResizability(.contentSize)
+        .defaultSize(width: 920, height: 680)
     }
 }

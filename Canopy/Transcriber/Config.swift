@@ -139,6 +139,7 @@ nonisolated enum Keychain {
     private static let defaultAccount = "transcriber-key"
 
     static func read(account: String = defaultAccount) -> String {
+        guard !FileTest.isSafeMode else { return "" }
         let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                 kSecAttrAccount as String: account, kSecReturnData as String: true]
         var out: AnyObject?
@@ -147,6 +148,7 @@ nonisolated enum Keychain {
     }
 
     static func write(_ value: String, account: String = defaultAccount) {
+        guard !FileTest.isSafeMode else { return }
         let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                    kSecAttrAccount as String: account]
         SecItemDelete(base as CFDictionary)

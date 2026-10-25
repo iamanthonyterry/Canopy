@@ -51,7 +51,6 @@ struct AccountCard: View {
     @ObservedObject private var account = SiteAccount.shared
     @ObservedObject private var sync = WorkflowSyncService.shared
     @ObservedObject private var publisher = WorkflowRunPublisher.shared
-    @ObservedObject private var remote = RemoteComputersService.shared
     @ObservedObject private var helper = TranscriberHelper.shared
     @State private var showAddress = false
 
@@ -68,10 +67,9 @@ struct AccountCard: View {
 
     private var signedOut: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Sign in once with your church's website. It covers everything below, in Canopy and in Transcriber.")
+            Text("Sign in with your church's website. It covers everything below.")
                 .font(.canopyBody).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 4) {
-                bullet("Inventory and patch sheets")
                 bullet("Workflows kept in sync across your computers")
                 bullet("Run progress on the website")
                 bullet("Notification email")
@@ -110,12 +108,6 @@ struct AccountCard: View {
                 detail: publisher.isEnabled ? "Shared on the website" : "Not shared",
                 ok: publisher.isEnabled) {
                 Toggle("Share", isOn: $publisher.isEnabled).labelsHidden().toggleStyle(.switch).controlSize(.small)
-            }
-
-            row("Remote runs", icon: "desktopcomputer",
-                detail: remote.acceptsRemote ? "Your other computers can run workflows here" : "Other computers can't run workflows here",
-                ok: remote.acceptsRemote) {
-                Toggle("Allow", isOn: $remote.acceptsRemote).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
 
             row("Email", icon: "envelope", detail: "Sends from \(NotificationMailer.fromAddress)", ok: true)

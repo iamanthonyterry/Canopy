@@ -5,14 +5,25 @@ import ChurchKitCore
 
 struct MenuLabel: View {
     let tint: NSColor?
+    @Environment(\.openWindow) private var openWindow
+
+    /// `--ui-preview --tab=devices` opens Settings on that page at launch, for looking at it.
+    private func openPreviewWindow() {
+        guard FileTest.isPreview else { return }
+        let tab = CommandLine.arguments.compactMap { $0.hasPrefix("--tab=") ? SettingsTab(rawValue: String($0.dropFirst(6))) : nil }.first ?? .workflows
+        tab.open(with: openWindow)
+    }
 
     var body: some View {
         // Menu bar icons are templates (always monochrome), so a colored mic has to be a pre-tinted, non-template image.
-        if let tint, let img = Self.mic(tint) {
-            Image(nsImage: img)
-        } else {
-            Image(systemName: "mic.fill")
+        Group {
+            if let tint, let img = Self.mic(tint) {
+                Image(nsImage: img)
+            } else {
+                Image(systemName: "mic.fill")
+            }
         }
+        .onAppear(perform: openPreviewWindow)
     }
 
     private static func mic(_ color: NSColor) -> NSImage? {
@@ -56,6 +67,8 @@ struct MenuContent: View {
         }
         Toggle("Only \(Schedule.summary(model.settings))", isOn: Binding(get: { model.settings.scheduleOn }, set: { model.settings.scheduleOn = $0; model.apply() }))
         Divider()
+        WorkflowMenuSection()
+        Divider()
         Button("Show transcript") {
             model.transcriptLanguage = ""
             openWindow(id: "transcript")
@@ -82,10 +95,8 @@ struct MenuContent: View {
         }
         .disabled(model.sessionLog.isEmpty)
         Button("Open live page") { if let u = model.liveURL() { NSWorkspace.shared.open(u) } }
-        Button("Website settings…") {
-            openWindow(id: "settings")
-            NSApp.activate(ignoringOtherApps: true)
-        }
+        Button("Settings…") { SettingsTab.transcription.open(with: openWindow) }
+            .keyboardShortcut(",")
         Divider()
         Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")")
         if HostMode.isNested {
@@ -426,7 +437,7 @@ Text("Only inputs with “Trigger OSC” on send these, and “Voice cues” in 
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460)
+        .frame(minWidth: 460, maxWidth: 640)
         .padding()
         .modifier(LanguageDownloader(model: model))
         .onAppear { model.startMeter() }
