@@ -37,7 +37,7 @@ EXPORT_PATH="$BUILD_DIR/export"
 APP_PATH="$EXPORT_PATH/Canopy.app"
 ZIP_PATH="$BUILD_DIR/Canopy-$VERSION.zip"
 KEYCHAIN_PROFILE="AC_PASSWORD"
-SPARKLE_BIN="$(find ~/Library/Developer/Xcode/DerivedData -path '*artifacts/sparkle/Sparkle/bin' -maxdepth 6 2>/dev/null | head -n 1)"
+SPARKLE_BIN="${SPARKLE_BIN:-$(find ~/Library/Developer/Xcode/DerivedData -path '*artifacts/sparkle/Sparkle/bin' -maxdepth 6 2>/dev/null | head -n 1)}"
 
 if [ -z "$SPARKLE_BIN" ]; then
   echo "Could not find Sparkle's generate_appcast tool. Build the project at least once after adding the Sparkle package, then re-run this script."
