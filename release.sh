@@ -54,7 +54,7 @@ sed -i '' "s/CURRENT_PROJECT_VERSION = [^;]*;/CURRENT_PROJECT_VERSION = $BUILD_N
 
 # Planning Center OAuth credentials (what Transcriber's build_app.sh did): without them the Planning Center
 # schedule would silently stop working for everyone who updates. The file isn't committed.
-PCO_ENV="${PCO_ENV:-../transcriber/Support/pco.env}"
+PCO_ENV="${PCO_ENV:-Support/pco.env}"
 PCO_ARGS=()
 if [ -f "$PCO_ENV" ]; then
   set -a; . "$PCO_ENV"; set +a

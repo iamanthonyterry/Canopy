@@ -56,3 +56,6 @@ tmp/
 temp/
 # coverage output from running an instrumented debug build in this folder
 *.profraw
+
+# Planning Center OAuth credentials (release builds)
+Support/pco.env
